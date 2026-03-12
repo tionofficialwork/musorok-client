@@ -1,0 +1,27 @@
+{
+  "expo": {
+    "name": "МусорОК",
+    "slug": "musorok-client",
+    "scheme": "musorok",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "dark",
+    "newArchEnabled": true,
+    "splash": {
+      "image": "./assets/splash-icon.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#0e0f10"
+    },
+    "ios": {
+      "bundleIdentifier": "com.musorok.client"
+    },
+    "android": {
+      "package": "com.musorok.client"
+    },
+    "plugins": ["expo-router"],
+    "experiments": {
+      "typedRoutes": true
+    }
+  }
+}
