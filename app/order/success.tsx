@@ -10,6 +10,7 @@ import {
 } from "react-native";
 import { Stack, useLocalSearchParams, useRouter } from "expo-router";
 
+import { clearActiveOrder, saveActiveOrder } from "../../lib/activeOrder";
 import { supabase } from "../../lib/supabase";
 
 type OrderStatus = "new" | "assigned" | "on_the_way" | "arrived" | "done" | "cancelled";
@@ -19,7 +20,11 @@ type OrderRow = {
   status: OrderStatus;
   address: string | null;
   package_id: string | null;
+  package_label: string | null;
+  package_price: number | null;
+  total: number | null;
   phone: string | null;
+  payment_method: string | null;
   created_at: string | null;
 };
 
@@ -43,22 +48,29 @@ const STATUS_DESCRIPTIONS: Record<OrderStatus, string> = {
   cancelled: "Этот заказ был отменен.",
 };
 
-const PACKAGE_META: Record<string, { name: string; price: number }> = {
-  small: { name: "Маленький пакет", price: 99 },
-  medium: { name: "Средний пакет", price: 149 },
-  large: { name: "Большой пакет", price: 199 },
-};
+function formatPrice(value: number | null) {
+  if (typeof value !== "number") return "—";
+  return `${value} ₽`;
+}
 
 function formatDate(value: string | null) {
   if (!value) return "—";
-  const date = new Date(value);
-  return date.toLocaleString("ru-RU");
+  return new Date(value).toLocaleString("ru-RU");
+}
+
+function formatPaymentMethod(value: string | null) {
+  if (!value) return "—";
+
+  if (value === "card") return "Картой";
+  if (value === "cash") return "Наличными";
+  if (value === "sbp") return "СБП";
+
+  return value;
 }
 
 export default function OrderSuccessScreen() {
   const router = useRouter();
   const params = useLocalSearchParams<{ orderId?: string }>();
-
   const orderId = typeof params.orderId === "string" ? params.orderId : "";
 
   const [order, setOrder] = useState<OrderRow | null>(null);
@@ -71,14 +83,14 @@ export default function OrderSuccessScreen() {
     return index === -1 ? 0 : index;
   }, [order]);
 
-  const packageMeta = order?.package_id ? PACKAGE_META[order.package_id] : null;
-
   useEffect(() => {
     if (!orderId) {
       setLoading(false);
       setScreenError("Не найден ID заказа. Попробуйте оформить заказ заново.");
       return;
     }
+
+    saveActiveOrder(orderId);
 
     let isMounted = true;
 
@@ -88,7 +100,9 @@ export default function OrderSuccessScreen() {
 
       const { data, error } = await supabase
         .from("orders")
-        .select("id, status, address, package_id, phone, created_at")
+        .select(
+          "id, status, address, package_id, package_label, package_price, total, phone, payment_method, created_at"
+        )
         .eq("id", orderId)
         .single();
 
@@ -116,9 +130,13 @@ export default function OrderSuccessScreen() {
           table: "orders",
           filter: `id=eq.${orderId}`,
         },
-        (payload) => {
+        async (payload) => {
           const next = payload.new as OrderRow;
           setOrder(next);
+
+          if (next.status === "done" || next.status === "cancelled") {
+            await clearActiveOrder();
+          }
         }
       )
       .subscribe();
@@ -129,6 +147,14 @@ export default function OrderSuccessScreen() {
     };
   }, [orderId]);
 
+  const handleGoHome = async () => {
+    if (order?.status === "done" || order?.status === "cancelled") {
+      await clearActiveOrder();
+    }
+
+    router.replace("/");
+  };
+
   const title = order ? STATUS_LABELS[order.status] : "Заказ создан";
   const description = order ? STATUS_DESCRIPTIONS[order.status] : "Мы получили ваш заказ.";
 
@@ -138,7 +164,7 @@ export default function OrderSuccessScreen() {
 
       <ScrollView contentContainerStyle={styles.content}>
         <View style={styles.heroCard}>
-          <Text style={styles.heroBadge}>МусорОК</Text>
+          <Text style={styles.heroBadge}>МУСОРОК</Text>
           <Text style={styles.heroTitle}>{title}</Text>
           <Text style={styles.heroDescription}>{description}</Text>
         </View>
@@ -153,7 +179,7 @@ export default function OrderSuccessScreen() {
             <Text style={styles.errorTitle}>Не удалось открыть заказ</Text>
             <Text style={styles.errorText}>{screenError}</Text>
 
-            <Pressable style={styles.primaryButton} onPress={() => router.replace("/")}>
+            <Pressable style={styles.primaryButton} onPress={handleGoHome}>
               <Text style={styles.primaryButtonText}>На главную</Text>
             </Pressable>
           </View>
@@ -210,14 +236,17 @@ export default function OrderSuccessScreen() {
 
               <View style={styles.infoRow}>
                 <Text style={styles.infoLabel}>Пакет</Text>
-                <Text style={styles.infoValue}>{packageMeta?.name || order.package_id || "—"}</Text>
+                <Text style={styles.infoValue}>{order.package_label || "—"}</Text>
               </View>
 
               <View style={styles.infoRow}>
                 <Text style={styles.infoLabel}>Цена</Text>
-                <Text style={styles.infoValue}>
-                  {packageMeta ? `${packageMeta.price} ₽` : "—"}
-                </Text>
+                <Text style={styles.infoValue}>{formatPrice(order.package_price)}</Text>
+              </View>
+
+              <View style={styles.infoRow}>
+                <Text style={styles.infoLabel}>Итого</Text>
+                <Text style={styles.infoValue}>{formatPrice(order.total)}</Text>
               </View>
 
               <View style={styles.infoRow}>
@@ -226,17 +255,22 @@ export default function OrderSuccessScreen() {
               </View>
 
               <View style={styles.infoRow}>
+                <Text style={styles.infoLabel}>Оплата</Text>
+                <Text style={styles.infoValue}>{formatPaymentMethod(order.payment_method)}</Text>
+              </View>
+
+              <View style={styles.infoRow}>
                 <Text style={styles.infoLabel}>Создан</Text>
                 <Text style={styles.infoValue}>{formatDate(order.created_at)}</Text>
               </View>
             </View>
 
-            {order.status === "done" ? (
-              <Pressable style={styles.primaryButton} onPress={() => router.replace("/")}>
+            {order.status === "done" || order.status === "cancelled" ? (
+              <Pressable style={styles.primaryButton} onPress={handleGoHome}>
                 <Text style={styles.primaryButtonText}>Готово</Text>
               </Pressable>
             ) : (
-              <Pressable style={styles.secondaryButton} onPress={() => router.replace("/")}>
+              <Pressable style={styles.secondaryButton} onPress={handleGoHome}>
                 <Text style={styles.secondaryButtonText}>Вернуться на главную</Text>
               </Pressable>
             )}
