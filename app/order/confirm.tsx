@@ -1,218 +1,165 @@
-import { router, useLocalSearchParams } from "expo-router";
 import { useState } from "react";
 import {
   ActivityIndicator,
-  Alert,
   Pressable,
-  ScrollView,
+  SafeAreaView,
   StyleSheet,
   Text,
   View,
 } from "react-native";
-import { prices } from "../../lib/constants";
-import { createOrder } from "../../lib/createOrder";
+import { Stack, useLocalSearchParams, useRouter } from "expo-router";
 
-export default function OrderConfirmScreen() {
+import { createOrder, PaymentMethod } from "../../lib/createOrder";
+
+export default function ConfirmScreen() {
+  const router = useRouter();
+
   const params = useLocalSearchParams<{
     packageId?: string;
-    packageLabel?: string;
+    packageName?: string;
+    price?: string;
     address?: string;
-    apartment?: string;
     phone?: string;
-    comment?: string;
   }>();
 
-  const [isSubmitting, setIsSubmitting] = useState(false);
-  const [submitError, setSubmitError] = useState("");
+  const packageId = typeof params.packageId === "string" ? params.packageId : "";
+  const packageName = typeof params.packageName === "string" ? params.packageName : "";
+  const price = typeof params.price === "string" ? Number(params.price) : 0;
+  const address = typeof params.address === "string" ? params.address : "";
+  const phone = typeof params.phone === "string" ? params.phone : "";
 
-  const selectedPrice =
-    prices.find((item) => item.id === params.packageId) ?? prices[1];
+  const paymentMethod: PaymentMethod = "card";
+  const total = price;
+
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
 
   const handleConfirm = async () => {
-    if (isSubmitting) return;
-
-    setSubmitError("");
-    setIsSubmitting(true);
+    if (!packageId || !packageName || !price || !address || !phone) {
+      setError("Не хватает данных заказа. Вернитесь назад и заполните шаги заново.");
+      return;
+    }
 
     try {
-      const createdOrder = await createOrder({
-        address: params.address ?? "",
-        packageId: params.packageId ?? "",
-        packageLabel: params.packageLabel ?? "",
-        packagePrice: selectedPrice.price,
-        apartment: params.apartment ?? "",
-        phone: params.phone ?? "",
-        comment: params.comment ?? "",
+      setLoading(true);
+      setError("");
+
+      const order = await createOrder({
+        package_id: packageId,
+        package_label: packageName,
+        package_price: price,
+        total,
+        address,
+        phone,
+        payment_method: paymentMethod,
       });
 
-      console.log("order created", createdOrder);
+      if (!order?.id) {
+        throw new Error("Не удалось получить ID созданного заказа.");
+      }
 
-      router.replace("/order/success");
-    } catch (error) {
-      const message =
-        error instanceof Error
-          ? error.message
-          : "Не удалось создать заказ.";
-
-      console.log("create order error", error);
-      setSubmitError(message);
-
-      Alert.alert("Ошибка создания заказа", message);
+      router.replace({
+        pathname: "/order/success",
+        params: {
+          orderId: String(order.id),
+        },
+      });
+    } catch (e: any) {
+      setError(e?.message || "Ошибка создания заказа");
     } finally {
-      setIsSubmitting(false);
+      setLoading(false);
     }
   };
 
   return (
-    <ScrollView
-      style={styles.screen}
-      contentContainerStyle={styles.content}
-      showsVerticalScrollIndicator={false}
-    >
-      <Text style={styles.step}>Шаг 3 из 4</Text>
-      <Text style={styles.title}>Подтверждение заказа</Text>
-      <Text style={styles.subtitle}>
-        Сейчас экран уже пытается реально создать заказ в Supabase.
-      </Text>
+    <SafeAreaView style={styles.safeArea}>
+      <Stack.Screen options={{ title: "Подтвердить заказ" }} />
 
-      <View style={styles.card}>
-        <Row label="Пакет" value={params.packageLabel ?? "—"} />
-        <Row label="Цена" value={`${selectedPrice.price} ₽`} />
-        <Row label="Адрес" value={params.address ?? "—"} />
-        <Row label="Квартира" value={params.apartment ?? "—"} />
-        <Row label="Телефон" value={params.phone ?? "—"} />
-        <Row label="Комментарий" value={params.comment || "Без комментария"} />
-      </View>
+      <View style={styles.container}>
+        <Text style={styles.title}>Подтвердить заказ</Text>
 
-      {submitError ? (
-        <View style={styles.errorBox}>
-          <Text style={styles.errorText}>{submitError}</Text>
+        <View style={styles.card}>
+          <Text style={styles.label}>Адрес</Text>
+          <Text style={styles.value}>{address || "—"}</Text>
+
+          <Text style={styles.label}>Телефон</Text>
+          <Text style={styles.value}>{phone || "—"}</Text>
+
+          <Text style={styles.label}>Пакет</Text>
+          <Text style={styles.value}>{packageName || "—"}</Text>
+
+          <Text style={styles.label}>Цена</Text>
+          <Text style={styles.value}>{price ? `${price} ₽` : "—"}</Text>
+
+          <Text style={styles.label}>Оплата</Text>
+          <Text style={styles.value}>Картой</Text>
+
+          <Text style={styles.label}>Итого</Text>
+          <Text style={styles.value}>{total ? `${total} ₽` : "—"}</Text>
         </View>
-      ) : null}
 
-      <Pressable
-        style={[styles.primaryButton, isSubmitting && styles.primaryButtonDisabled]}
-        onPress={handleConfirm}
-        disabled={isSubmitting}
-      >
-        {isSubmitting ? (
-          <ActivityIndicator color="#ffffff" />
-        ) : (
-          <Text style={styles.primaryButtonText}>Подтвердить заказ</Text>
-        )}
-      </Pressable>
+        {error ? <Text style={styles.error}>{error}</Text> : null}
 
-      <Pressable style={styles.secondaryButton} onPress={() => router.back()}>
-        <Text style={styles.secondaryButtonText}>Назад</Text>
-      </Pressable>
-    </ScrollView>
-  );
-}
-
-function Row({ label, value }: { label: string; value: string }) {
-  return (
-    <View style={styles.row}>
-      <Text style={styles.rowLabel}>{label}</Text>
-      <Text style={styles.rowValue}>{value}</Text>
-    </View>
+        <Pressable style={styles.button} onPress={handleConfirm} disabled={loading}>
+          {loading ? (
+            <ActivityIndicator color="#04110A" />
+          ) : (
+            <Text style={styles.buttonText}>Подтвердить</Text>
+          )}
+        </Pressable>
+      </View>
+    </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  screen: {
+  safeArea: {
     flex: 1,
-    backgroundColor: "#0e0f10",
+    backgroundColor: "#031225",
   },
-  content: {
-    padding: 24,
-    paddingTop: 64,
-    paddingBottom: 32,
-  },
-  step: {
-    fontSize: 12,
-    fontWeight: "800",
-    letterSpacing: 1.2,
-    textTransform: "uppercase",
-    color: "#86efac",
+  container: {
+    flex: 1,
+    padding: 20,
+    gap: 20,
   },
   title: {
-    marginTop: 12,
-    fontSize: 30,
-    lineHeight: 36,
+    color: "#FFFFFF",
+    fontSize: 32,
     fontWeight: "800",
-    color: "#ffffff",
-  },
-  subtitle: {
-    marginTop: 12,
-    fontSize: 15,
-    lineHeight: 22,
-    color: "#9ca3af",
   },
   card: {
-    marginTop: 24,
+    backgroundColor: "#081426",
     borderRadius: 24,
+    padding: 20,
+    gap: 10,
     borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.08)",
-    backgroundColor: "#17181a",
-    padding: 18,
-    gap: 14,
+    borderColor: "#0F2138",
   },
-  row: {
-    gap: 6,
+  label: {
+    color: "#94A3B8",
+    fontSize: 14,
+    marginTop: 10,
   },
-  rowLabel: {
-    fontSize: 13,
-    fontWeight: "700",
-    color: "#9ca3af",
-    textTransform: "uppercase",
-  },
-  rowValue: {
+  value: {
+    color: "#FFFFFF",
     fontSize: 16,
-    lineHeight: 22,
-    color: "#ffffff",
+    fontWeight: "600",
+    marginBottom: 8,
   },
-  errorBox: {
-    marginTop: 16,
-    borderRadius: 18,
-    borderWidth: 1,
-    borderColor: "rgba(252, 165, 165, 0.35)",
-    backgroundColor: "rgba(127, 29, 29, 0.22)",
-    padding: 14,
-  },
-  errorText: {
-    color: "#fca5a5",
+  error: {
+    color: "#F87171",
     fontSize: 14,
     lineHeight: 20,
-    fontWeight: "600",
   },
-  primaryButton: {
-    marginTop: 24,
+  button: {
+    backgroundColor: "#22C55E",
     borderRadius: 18,
-    backgroundColor: "#2c3807",
     paddingVertical: 18,
     alignItems: "center",
-    justifyContent: "center",
-    minHeight: 58,
   },
-  primaryButtonDisabled: {
-    opacity: 0.65,
-  },
-  primaryButtonText: {
-    fontSize: 16,
+  buttonText: {
+    color: "#04110A",
+    fontSize: 18,
     fontWeight: "800",
-    color: "#ffffff",
-  },
-  secondaryButton: {
-    marginTop: 14,
-    borderRadius: 18,
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.12)",
-    paddingVertical: 16,
-    alignItems: "center",
-  },
-  secondaryButtonText: {
-    fontSize: 15,
-    fontWeight: "700",
-    color: "#ffffff",
   },
 });

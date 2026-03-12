@@ -1,125 +1,140 @@
-import { router } from "expo-router";
-import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
-import { prices } from "../../lib/constants";
+import { useState } from "react";
+import {
+  SafeAreaView,
+  View,
+  Text,
+  Pressable,
+  StyleSheet,
+  ScrollView,
+} from "react-native";
+import { Stack, useRouter } from "expo-router";
 
-export default function OrderPackageScreen() {
-  const handleSelectPackage = (packageId: string, packageLabel: string) => {
+const PACKAGES = [
+  {
+    id: "small",
+    name: "Маленький пакет",
+    price: 99,
+  },
+  {
+    id: "medium",
+    name: "Средний пакет",
+    price: 149,
+  },
+  {
+    id: "large",
+    name: "Большой пакет",
+    price: 199,
+  },
+];
+
+export default function PackageScreen() {
+  const router = useRouter();
+
+  const [selected, setSelected] = useState<string | null>(null);
+
+  const selectedPackage = PACKAGES.find((p) => p.id === selected);
+
+  const handleNext = () => {
+    if (!selectedPackage) return;
+
     router.push({
       pathname: "/order/details",
       params: {
-        packageId,
-        packageLabel,
+        packageId: selectedPackage.id,
+        packageName: selectedPackage.name,
+        price: String(selectedPackage.price),
       },
     });
   };
 
   return (
-    <ScrollView
-      style={styles.screen}
-      contentContainerStyle={styles.content}
-      showsVerticalScrollIndicator={false}
-    >
-      <Text style={styles.step}>Шаг 1 из 4</Text>
-      <Text style={styles.title}>Выберите пакет</Text>
-      <Text style={styles.subtitle}>
-        Это первый каркас экрана заказа. Позже сюда добавим адрес, карту и
-        полноценную логику выбора.
-      </Text>
+    <SafeAreaView style={styles.safeArea}>
+      <Stack.Screen options={{ title: "Выберите пакет" }} />
 
-      <View style={styles.list}>
-        {prices.map((item) => (
-          <Pressable
-            key={item.id}
-            style={styles.card}
-            onPress={() => handleSelectPackage(item.id, item.desc)}
-          >
-            <View>
-              <Text style={styles.cardTitle}>{item.name}</Text>
-              <Text style={styles.cardDesc}>Подходит для обычного выноса</Text>
-            </View>
+      <ScrollView contentContainerStyle={styles.container}>
+        <Text style={styles.title}>Выберите пакет</Text>
 
-            <Text style={styles.cardPrice}>{item.price} ₽</Text>
-          </Pressable>
-        ))}
-      </View>
+        {PACKAGES.map((item) => {
+          const isSelected = selected === item.id;
 
-      <Pressable style={styles.secondaryButton} onPress={() => router.back()}>
-        <Text style={styles.secondaryButtonText}>Назад</Text>
-      </Pressable>
-    </ScrollView>
+          return (
+            <Pressable
+              key={item.id}
+              style={[
+                styles.card,
+                isSelected && styles.cardSelected,
+              ]}
+              onPress={() => setSelected(item.id)}
+            >
+              <Text style={styles.packageName}>{item.name}</Text>
+
+              <Text style={styles.price}>{item.price} ₽</Text>
+            </Pressable>
+          );
+        })}
+
+        <Pressable
+          style={[
+            styles.button,
+            !selected && styles.buttonDisabled,
+          ]}
+          disabled={!selected}
+          onPress={handleNext}
+        >
+          <Text style={styles.buttonText}>Далее</Text>
+        </Pressable>
+      </ScrollView>
+    </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  screen: {
+  safeArea: {
     flex: 1,
-    backgroundColor: "#0e0f10",
+    backgroundColor: "#031225",
   },
-  content: {
-    padding: 24,
-    paddingTop: 64,
-    paddingBottom: 32,
-  },
-  step: {
-    fontSize: 12,
-    fontWeight: "800",
-    letterSpacing: 1.2,
-    textTransform: "uppercase",
-    color: "#86efac",
+  container: {
+    padding: 20,
+    gap: 20,
   },
   title: {
-    marginTop: 12,
-    fontSize: 30,
-    lineHeight: 36,
+    fontSize: 32,
     fontWeight: "800",
-    color: "#ffffff",
-  },
-  subtitle: {
-    marginTop: 12,
-    fontSize: 15,
-    lineHeight: 22,
-    color: "#9ca3af",
-  },
-  list: {
-    marginTop: 24,
-    gap: 12,
+    color: "#fff",
   },
   card: {
-    borderRadius: 22,
+    backgroundColor: "#081426",
+    borderRadius: 20,
+    padding: 20,
     borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.08)",
-    backgroundColor: "#17181a",
-    padding: 18,
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
+    borderColor: "#0F2138",
   },
-  cardTitle: {
-    fontSize: 18,
-    fontWeight: "700",
-    color: "#ffffff",
+  cardSelected: {
+    borderColor: "#22C55E",
   },
-  cardDesc: {
+  packageName: {
+    color: "#fff",
+    fontSize: 20,
+    fontWeight: "600",
+  },
+  price: {
+    color: "#9CA3AF",
     marginTop: 6,
-    fontSize: 14,
-    color: "#9ca3af",
+    fontSize: 16,
   },
-  cardPrice: {
+  button: {
+    backgroundColor: "#22C55E",
+    padding: 18,
+    borderRadius: 18,
+    alignItems: "center",
+    marginTop: 20,
+  },
+  buttonDisabled: {
+    opacity: 0.4,
+  },
+  buttonText: {
     fontSize: 18,
     fontWeight: "800",
-    color: "#ffffff",
-  },
-  secondaryButton: {
-    marginTop: 20,
-    borderRadius: 18,
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.12)",
-    paddingVertical: 16,
-    alignItems: "center",
-  },
-  secondaryButtonText: {
-    fontSize: 15,
-    fontWeight: "700",
-    color: "#ffffff",
+    color: "#04110A",
   },
 });

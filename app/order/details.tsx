@@ -1,206 +1,186 @@
-import { router, useLocalSearchParams } from "expo-router";
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import {
+  KeyboardAvoidingView,
+  Platform,
   Pressable,
+  SafeAreaView,
   ScrollView,
   StyleSheet,
   Text,
   TextInput,
   View,
 } from "react-native";
+import { Stack, useLocalSearchParams, useRouter } from "expo-router";
 
 export default function OrderDetailsScreen() {
+  const router = useRouter();
   const params = useLocalSearchParams<{
     packageId?: string;
-    packageLabel?: string;
+    packageName?: string;
+    price?: string;
   }>();
 
+  const packageId = typeof params.packageId === "string" ? params.packageId : "";
+  const packageName = typeof params.packageName === "string" ? params.packageName : "";
+  const price = typeof params.price === "string" ? params.price : "";
+
   const [address, setAddress] = useState("");
-  const [apartment, setApartment] = useState("");
   const [phone, setPhone] = useState("");
-  const [comment, setComment] = useState("");
+  const [error, setError] = useState("");
 
-  const canContinue = useMemo(() => {
-    return address.trim() && apartment.trim() && phone.trim();
-  }, [address, apartment, phone]);
+  const handleNext = () => {
+    if (!packageId || !packageName || !price) {
+      setError("Не выбран пакет. Вернитесь назад и выберите пакет заново.");
+      return;
+    }
 
-  const handleContinue = () => {
-    if (!canContinue) return;
+    if (!address.trim()) {
+      setError("Введите адрес.");
+      return;
+    }
+
+    if (!phone.trim()) {
+      setError("Введите телефон.");
+      return;
+    }
+
+    setError("");
 
     router.push({
       pathname: "/order/confirm",
       params: {
-        packageId: params.packageId ?? "",
-        packageLabel: params.packageLabel ?? "",
+        packageId,
+        packageName,
+        price,
         address: address.trim(),
-        apartment: apartment.trim(),
         phone: phone.trim(),
-        comment: comment.trim(),
       },
     });
   };
 
   return (
-    <ScrollView
-      style={styles.screen}
-      contentContainerStyle={styles.content}
-      keyboardShouldPersistTaps="handled"
-    >
-      <Text style={styles.step}>Шаг 2 из 4</Text>
-      <Text style={styles.title}>Детали заказа</Text>
-      <Text style={styles.subtitle}>
-        Пакет: <Text style={styles.bold}>{params.packageLabel ?? "Не выбран"}</Text>
-      </Text>
+    <SafeAreaView style={styles.safeArea}>
+      <Stack.Screen options={{ title: "Адрес и телефон" }} />
 
-      <View style={styles.form}>
-        <View style={styles.field}>
-          <Text style={styles.label}>Адрес</Text>
-          <TextInput
-            value={address}
-            onChangeText={setAddress}
-            placeholder="Введите адрес"
-            placeholderTextColor="#6b7280"
-            style={styles.input}
-          />
-        </View>
-
-        <View style={styles.field}>
-          <Text style={styles.label}>Квартира</Text>
-          <TextInput
-            value={apartment}
-            onChangeText={setApartment}
-            placeholder="Например, 24"
-            placeholderTextColor="#6b7280"
-            style={styles.input}
-          />
-        </View>
-
-        <View style={styles.field}>
-          <Text style={styles.label}>Телефон</Text>
-          <TextInput
-            value={phone}
-            onChangeText={setPhone}
-            placeholder="+7 (999) 123-45-67"
-            placeholderTextColor="#6b7280"
-            style={styles.input}
-            keyboardType="phone-pad"
-          />
-        </View>
-
-        <View style={styles.field}>
-          <Text style={styles.label}>Комментарий</Text>
-          <TextInput
-            value={comment}
-            onChangeText={setComment}
-            placeholder="Например, пакет у двери"
-            placeholderTextColor="#6b7280"
-            style={[styles.input, styles.textarea]}
-            multiline
-          />
-        </View>
-      </View>
-
-      <Pressable
-        style={[styles.primaryButton, !canContinue && styles.primaryButtonDisabled]}
-        onPress={handleContinue}
-        disabled={!canContinue}
+      <KeyboardAvoidingView
+        style={styles.flex}
+        behavior={Platform.OS === "ios" ? "padding" : undefined}
       >
-        <Text style={styles.primaryButtonText}>Продолжить</Text>
-      </Pressable>
+        <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
+          <Text style={styles.title}>Укажите детали заказа</Text>
 
-      <Pressable style={styles.secondaryButton} onPress={() => router.back()}>
-        <Text style={styles.secondaryButtonText}>Назад</Text>
-      </Pressable>
-    </ScrollView>
+          <View style={styles.summaryCard}>
+            <Text style={styles.summaryLabel}>Пакет</Text>
+            <Text style={styles.summaryValue}>{packageName || "—"}</Text>
+
+            <Text style={styles.summaryLabel}>Цена</Text>
+            <Text style={styles.summaryValue}>{price ? `${price} ₽` : "—"}</Text>
+          </View>
+
+          <View style={styles.formCard}>
+            <Text style={styles.label}>Адрес</Text>
+            <TextInput
+              value={address}
+              onChangeText={setAddress}
+              placeholder="Например: Грязная 5"
+              placeholderTextColor="#6B7280"
+              style={styles.input}
+            />
+
+            <Text style={styles.label}>Телефон</Text>
+            <TextInput
+              value={phone}
+              onChangeText={setPhone}
+              placeholder="+7..."
+              placeholderTextColor="#6B7280"
+              keyboardType="phone-pad"
+              style={styles.input}
+            />
+
+            {error ? <Text style={styles.error}>{error}</Text> : null}
+          </View>
+
+          <Pressable style={styles.button} onPress={handleNext}>
+            <Text style={styles.buttonText}>Далее</Text>
+          </Pressable>
+        </ScrollView>
+      </KeyboardAvoidingView>
+    </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  screen: {
+  flex: {
     flex: 1,
-    backgroundColor: "#0e0f10",
+  },
+  safeArea: {
+    flex: 1,
+    backgroundColor: "#031225",
   },
   content: {
-    padding: 24,
-    paddingTop: 64,
-    paddingBottom: 32,
-  },
-  step: {
-    fontSize: 12,
-    fontWeight: "800",
-    letterSpacing: 1.2,
-    textTransform: "uppercase",
-    color: "#86efac",
+    padding: 20,
+    gap: 20,
   },
   title: {
-    marginTop: 12,
-    fontSize: 30,
-    lineHeight: 36,
+    color: "#FFFFFF",
+    fontSize: 32,
     fontWeight: "800",
-    color: "#ffffff",
   },
-  subtitle: {
-    marginTop: 12,
-    fontSize: 15,
-    lineHeight: 22,
-    color: "#9ca3af",
-  },
-  bold: {
-    color: "#ffffff",
-    fontWeight: "700",
-  },
-  form: {
-    marginTop: 24,
-    gap: 14,
-  },
-  field: {
+  summaryCard: {
+    backgroundColor: "#081426",
+    borderRadius: 24,
+    padding: 20,
     gap: 8,
+    borderWidth: 1,
+    borderColor: "#0F2138",
+  },
+  summaryLabel: {
+    color: "#94A3B8",
+    fontSize: 13,
+    marginTop: 8,
+  },
+  summaryValue: {
+    color: "#FFFFFF",
+    fontSize: 22,
+    fontWeight: "600",
+  },
+  formCard: {
+    backgroundColor: "#081426",
+    borderRadius: 24,
+    padding: 20,
+    gap: 10,
+    borderWidth: 1,
+    borderColor: "#0F2138",
   },
   label: {
+    color: "#94A3B8",
     fontSize: 14,
-    fontWeight: "700",
-    color: "#d1d5db",
+    marginTop: 4,
   },
   input: {
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.08)",
-    backgroundColor: "#17181a",
-    color: "#ffffff",
-    fontSize: 15,
+    backgroundColor: "#0B1A2E",
+    borderRadius: 14,
     paddingHorizontal: 16,
-    paddingVertical: 14,
+    paddingVertical: 16,
+    color: "#FFFFFF",
+    fontSize: 16,
+    borderWidth: 1,
+    borderColor: "#13243A",
   },
-  textarea: {
-    minHeight: 110,
-    textAlignVertical: "top",
+  error: {
+    color: "#F87171",
+    fontSize: 14,
+    marginTop: 6,
   },
-  primaryButton: {
-    marginTop: 24,
+  button: {
+    backgroundColor: "#22C55E",
     borderRadius: 18,
-    backgroundColor: "#2c3807",
     paddingVertical: 18,
     alignItems: "center",
   },
-  primaryButtonDisabled: {
-    opacity: 0.45,
-  },
-  primaryButtonText: {
-    fontSize: 16,
+  buttonText: {
+    color: "#04110A",
+    fontSize: 18,
     fontWeight: "800",
-    color: "#ffffff",
-  },
-  secondaryButton: {
-    marginTop: 14,
-    borderRadius: 18,
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.12)",
-    paddingVertical: 16,
-    alignItems: "center",
-  },
-  secondaryButtonText: {
-    fontSize: 15,
-    fontWeight: "700",
-    color: "#ffffff",
   },
 });
