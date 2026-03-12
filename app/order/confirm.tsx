@@ -1,6 +1,16 @@
 import { router, useLocalSearchParams } from "expo-router";
-import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { useState } from "react";
+import {
+  ActivityIndicator,
+  Alert,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
+} from "react-native";
 import { prices } from "../../lib/constants";
+import { createOrder } from "../../lib/createOrder";
 
 export default function OrderConfirmScreen() {
   const params = useLocalSearchParams<{
@@ -12,11 +22,45 @@ export default function OrderConfirmScreen() {
     comment?: string;
   }>();
 
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState("");
+
   const selectedPrice =
     prices.find((item) => item.id === params.packageId) ?? prices[1];
 
-  const handleConfirm = () => {
-    router.replace("/order/success");
+  const handleConfirm = async () => {
+    if (isSubmitting) return;
+
+    setSubmitError("");
+    setIsSubmitting(true);
+
+    try {
+      const createdOrder = await createOrder({
+        address: params.address ?? "",
+        packageId: params.packageId ?? "",
+        packageLabel: params.packageLabel ?? "",
+        packagePrice: selectedPrice.price,
+        apartment: params.apartment ?? "",
+        phone: params.phone ?? "",
+        comment: params.comment ?? "",
+      });
+
+      console.log("order created", createdOrder);
+
+      router.replace("/order/success");
+    } catch (error) {
+      const message =
+        error instanceof Error
+          ? error.message
+          : "Не удалось создать заказ.";
+
+      console.log("create order error", error);
+      setSubmitError(message);
+
+      Alert.alert("Ошибка создания заказа", message);
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   return (
@@ -28,8 +72,7 @@ export default function OrderConfirmScreen() {
       <Text style={styles.step}>Шаг 3 из 4</Text>
       <Text style={styles.title}>Подтверждение заказа</Text>
       <Text style={styles.subtitle}>
-        Это временный confirm screen. На следующем шаге подключим реальную
-        запись заказа в Supabase.
+        Сейчас экран уже пытается реально создать заказ в Supabase.
       </Text>
 
       <View style={styles.card}>
@@ -41,8 +84,22 @@ export default function OrderConfirmScreen() {
         <Row label="Комментарий" value={params.comment || "Без комментария"} />
       </View>
 
-      <Pressable style={styles.primaryButton} onPress={handleConfirm}>
-        <Text style={styles.primaryButtonText}>Подтвердить заказ</Text>
+      {submitError ? (
+        <View style={styles.errorBox}>
+          <Text style={styles.errorText}>{submitError}</Text>
+        </View>
+      ) : null}
+
+      <Pressable
+        style={[styles.primaryButton, isSubmitting && styles.primaryButtonDisabled]}
+        onPress={handleConfirm}
+        disabled={isSubmitting}
+      >
+        {isSubmitting ? (
+          <ActivityIndicator color="#ffffff" />
+        ) : (
+          <Text style={styles.primaryButtonText}>Подтвердить заказ</Text>
+        )}
       </Pressable>
 
       <Pressable style={styles.secondaryButton} onPress={() => router.back()}>
@@ -114,12 +171,31 @@ const styles = StyleSheet.create({
     lineHeight: 22,
     color: "#ffffff",
   },
+  errorBox: {
+    marginTop: 16,
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: "rgba(252, 165, 165, 0.35)",
+    backgroundColor: "rgba(127, 29, 29, 0.22)",
+    padding: 14,
+  },
+  errorText: {
+    color: "#fca5a5",
+    fontSize: 14,
+    lineHeight: 20,
+    fontWeight: "600",
+  },
   primaryButton: {
     marginTop: 24,
     borderRadius: 18,
     backgroundColor: "#2c3807",
     paddingVertical: 18,
     alignItems: "center",
+    justifyContent: "center",
+    minHeight: 58,
+  },
+  primaryButtonDisabled: {
+    opacity: 0.65,
   },
   primaryButtonText: {
     fontSize: 16,
