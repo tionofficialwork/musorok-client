@@ -215,7 +215,21 @@ export default function ActiveOrderScreen() {
         ) : order ? (
           <>
             <View style={styles.card}>
-              <Text style={styles.cardTitle}>Прогресс заказа</Text>
+              <View style={styles.cardHeader}>
+                <Text style={styles.cardTitle}>Прогресс заказа</Text>
+
+                <Pressable
+                  style={styles.inlineRefreshButton}
+                  onPress={handleRefresh}
+                  disabled={refreshing}
+                >
+                  {refreshing ? (
+                    <ActivityIndicator size="small" color="#04110A" />
+                  ) : (
+                    <Text style={styles.inlineRefreshButtonText}>Обновить</Text>
+                  )}
+                </Pressable>
+              </View>
 
               <View style={styles.timeline}>
                 {STATUS_STEPS.map((step, index) => {
@@ -403,11 +417,31 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: "#1F2937",
   },
+  cardHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    gap: 12,
+    marginBottom: 16,
+  },
   cardTitle: {
     color: "#FFFFFF",
     fontSize: 18,
     fontWeight: "700",
-    marginBottom: 16,
+  },
+  inlineRefreshButton: {
+    backgroundColor: "#22C55E",
+    borderRadius: 999,
+    minWidth: 108,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  inlineRefreshButtonText: {
+    color: "#04110A",
+    fontSize: 14,
+    fontWeight: "800",
   },
   timeline: {
     gap: 14,

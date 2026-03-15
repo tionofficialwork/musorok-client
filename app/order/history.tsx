@@ -211,21 +211,35 @@ export default function OrderHistoryScreen() {
           Здесь отображаются все оформленные заказы и их текущие статусы.
         </Text>
 
-        <View style={styles.statsRow}>
-          <View style={styles.statsCard}>
-            <Text style={styles.statsValue}>{orders.length}</Text>
-            <Text style={styles.statsLabel}>Всего</Text>
+        <View style={styles.statsHeader}>
+          <View style={styles.statsRow}>
+            <View style={styles.statsCard}>
+              <Text style={styles.statsValue}>{orders.length}</Text>
+              <Text style={styles.statsLabel}>Всего</Text>
+            </View>
+
+            <View style={styles.statsCard}>
+              <Text style={styles.statsValue}>{activeCount}</Text>
+              <Text style={styles.statsLabel}>Активных</Text>
+            </View>
+
+            <View style={styles.statsCard}>
+              <Text style={styles.statsValue}>{completedCount}</Text>
+              <Text style={styles.statsLabel}>Завершено</Text>
+            </View>
           </View>
 
-          <View style={styles.statsCard}>
-            <Text style={styles.statsValue}>{activeCount}</Text>
-            <Text style={styles.statsLabel}>Активных</Text>
-          </View>
-
-          <View style={styles.statsCard}>
-            <Text style={styles.statsValue}>{completedCount}</Text>
-            <Text style={styles.statsLabel}>Завершено</Text>
-          </View>
+          <Pressable
+            style={styles.refreshButton}
+            onPress={handleRefresh}
+            disabled={refreshing || loading}
+          >
+            {refreshing ? (
+              <ActivityIndicator size="small" color="#04110A" />
+            ) : (
+              <Text style={styles.refreshButtonText}>Обновить историю</Text>
+            )}
+          </Pressable>
         </View>
 
         {loading ? (
@@ -342,6 +356,9 @@ const styles = StyleSheet.create({
     fontSize: 15,
     lineHeight: 22,
   },
+  statsHeader: {
+    gap: 12,
+  },
   statsRow: {
     flexDirection: "row",
     gap: 12,
@@ -363,6 +380,17 @@ const styles = StyleSheet.create({
   statsLabel: {
     color: "#94A3B8",
     fontSize: 13,
+  },
+  refreshButton: {
+    backgroundColor: "#22C55E",
+    borderRadius: 16,
+    paddingVertical: 14,
+    alignItems: "center",
+  },
+  refreshButtonText: {
+    color: "#04110A",
+    fontSize: 15,
+    fontWeight: "800",
   },
   stateCard: {
     backgroundColor: "#081426",
