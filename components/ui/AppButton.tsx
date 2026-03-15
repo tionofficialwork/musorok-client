@@ -1,45 +1,93 @@
-import { Pressable, StyleSheet, Text } from "react-native";
-import { colors, radii, typography } from "../../lib/theme";
+import React from "react";
+import {
+  ActivityIndicator,
+  Pressable,
+  StyleSheet,
+  Text,
+  ViewStyle,
+  TextStyle,
+} from "react-native";
 
-type AppButtonVariant = "primary" | "secondary" | "outline";
+type AppButtonVariant = "primary" | "secondary" | "ghost" | "danger";
 
 type AppButtonProps = {
   title: string;
-  onPress: () => void;
-  variant?: AppButtonVariant;
+  onPress?: () => void;
   disabled?: boolean;
+  loading?: boolean;
+  variant?: AppButtonVariant;
+  fullWidth?: boolean;
+  style?: ViewStyle | ViewStyle[];
+  textStyle?: TextStyle | TextStyle[];
+};
+
+const COLORS = {
+  primary: "#E9281D",
+  primaryPressed: "#D11F15",
+  textOnPrimary: "#FFFFFF",
+  border: "#E5E7EB",
+  text: "#111827",
+  mutedText: "#6B7280",
+  card: "#FFFFFF",
+  background: "#F5F7FB",
+  danger: "#DC2626",
+  dangerPressed: "#B91C1C",
 };
 
 export default function AppButton({
   title,
   onPress,
-  variant = "primary",
   disabled = false,
+  loading = false,
+  variant = "primary",
+  fullWidth = true,
+  style,
+  textStyle,
 }: AppButtonProps) {
+  const isDisabled = disabled || loading;
+
   return (
     <Pressable
       onPress={onPress}
-      disabled={disabled}
+      disabled={isDisabled}
       style={({ pressed }) => [
         styles.base,
+        fullWidth && styles.fullWidth,
         variant === "primary" && styles.primary,
         variant === "secondary" && styles.secondary,
-        variant === "outline" && styles.outline,
-        disabled && styles.disabled,
-        pressed && !disabled && styles.pressed,
+        variant === "ghost" && styles.ghost,
+        variant === "danger" && styles.danger,
+        pressed && !isDisabled && variant === "primary" && styles.primaryPressed,
+        pressed && !isDisabled && variant === "secondary" && styles.secondaryPressed,
+        pressed && !isDisabled && variant === "ghost" && styles.ghostPressed,
+        pressed && !isDisabled && variant === "danger" && styles.dangerPressed,
+        isDisabled && styles.disabled,
+        style,
       ]}
     >
-      <Text
-        style={[
-          styles.text,
-          variant === "primary" && styles.primaryText,
-          variant === "secondary" && styles.secondaryText,
-          variant === "outline" && styles.outlineText,
-          disabled && styles.disabledText,
-        ]}
-      >
-        {title}
-      </Text>
+      {loading ? (
+        <ActivityIndicator
+          color={
+            variant === "primary" || variant === "danger"
+              ? COLORS.textOnPrimary
+              : COLORS.text
+          }
+        />
+      ) : (
+        <Text
+          style={[
+            styles.textBase,
+            variant === "primary" && styles.primaryText,
+            variant === "secondary" && styles.secondaryText,
+            variant === "ghost" && styles.ghostText,
+            variant === "danger" && styles.dangerText,
+            isDisabled && styles.disabledText,
+            textStyle,
+          ]}
+        >
+          {title}
+        </Text>
+      )}
     </Pressable>
   );
 }
@@ -47,42 +95,61 @@ export default function AppButton({
 const styles = StyleSheet.create({
   base: {
     minHeight: 52,
-    borderRadius: radii.md,
+    borderRadius: 16,
+    paddingHorizontal: 18,
     alignItems: "center",
     justifyContent: "center",
-    paddingHorizontal: 16,
+    flexDirection: "row",
+  },
+  fullWidth: {
+    width: "100%",
   },
   primary: {
-    backgroundColor: colors.primary,
+    backgroundColor: COLORS.primary,
+  },
+  primaryPressed: {
+    backgroundColor: COLORS.primaryPressed,
   },
   secondary: {
-    backgroundColor: colors.black,
-  },
-  outline: {
-    backgroundColor: colors.surface,
+    backgroundColor: COLORS.card,
     borderWidth: 1,
-    borderColor: colors.border,
+    borderColor: COLORS.border,
+  },
+  secondaryPressed: {
+    backgroundColor: "#F3F4F6",
+  },
+  ghost: {
+    backgroundColor: "transparent",
+  },
+  ghostPressed: {
+    backgroundColor: "#F3F4F6",
+  },
+  danger: {
+    backgroundColor: COLORS.danger,
+  },
+  dangerPressed: {
+    backgroundColor: COLORS.dangerPressed,
   },
   disabled: {
-    opacity: 0.5,
+    opacity: 0.55,
   },
-  pressed: {
-    opacity: 0.9,
-  },
-  text: {
-    fontSize: typography.body,
-    fontWeight: "800",
+  textBase: {
+    fontSize: 16,
+    fontWeight: "700",
   },
   primaryText: {
-    color: colors.white,
+    color: COLORS.textOnPrimary,
   },
   secondaryText: {
-    color: colors.white,
+    color: COLORS.text,
   },
-  outlineText: {
-    color: colors.text,
+  ghostText: {
+    color: COLORS.text,
+  },
+  dangerText: {
+    color: COLORS.textOnPrimary,
   },
   disabledText: {
-    opacity: 0.9,
+    color: COLORS.mutedText,
   },
 });

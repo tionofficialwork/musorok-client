@@ -1,43 +1,59 @@
-import { ReactNode } from "react";
-import { StyleSheet, Text } from "react-native";
-import AppCard from "./AppCard";
-import { colors, spacing, typography } from "../../lib/theme";
+import React from "react";
+import { StyleSheet, Text, View, ViewStyle } from "react-native";
+import AppButton from "./AppButton";
 
 type ErrorCardProps = {
-  title: string;
-  description: string;
-  children?: ReactNode;
+  title?: string;
+  message: string;
+  buttonTitle?: string;
+  onRetry?: () => void;
+  style?: ViewStyle | ViewStyle[];
 };
 
 export default function ErrorCard({
-  title,
-  description,
-  children,
+  title = "Что-то пошло не так",
+  message,
+  buttonTitle = "Попробовать снова",
+  onRetry,
+  style,
 }: ErrorCardProps) {
   return (
-    <AppCard style={styles.card}>
+    <View style={[styles.container, style]}>
       <Text style={styles.title}>{title}</Text>
-      <Text style={styles.description}>{description}</Text>
-      {children}
-    </AppCard>
+      <Text style={styles.message}>{message}</Text>
+
+      {onRetry ? (
+        <AppButton
+          title={buttonTitle}
+          onPress={onRetry}
+          variant="secondary"
+          style={styles.button}
+        />
+      ) : null}
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  card: {
-    backgroundColor: colors.errorBg,
+  container: {
+    backgroundColor: "#FEF2F2",
     borderWidth: 1,
-    borderColor: colors.errorBorder,
-    gap: spacing.sm,
+    borderColor: "#FECACA",
+    borderRadius: 20,
+    padding: 16,
   },
   title: {
     fontSize: 16,
     fontWeight: "800",
-    color: colors.errorTitle,
+    color: "#991B1B",
   },
-  description: {
-    fontSize: typography.bodySmall,
+  message: {
+    marginTop: 6,
+    fontSize: 14,
     lineHeight: 20,
-    color: colors.errorText,
+    color: "#7F1D1D",
+  },
+  button: {
+    marginTop: 14,
   },
 });

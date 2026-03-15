@@ -1,29 +1,116 @@
-import { StyleSheet, Text, View } from "react-native";
-import { colors, radii, typography } from "../../lib/theme";
+import React from "react";
+import { StyleSheet, Text, View, ViewStyle } from "react-native";
 
 type StatusPillProps = {
-  label: string;
+  status?: string | null;
+  label?: string;
+  style?: ViewStyle | ViewStyle[];
 };
 
-export default function StatusPill({ label }: StatusPillProps) {
+function normalizeStatus(value?: string | null) {
+  return (value || "").trim().toLowerCase();
+}
+
+function getStatusMeta(status?: string | null) {
+  const normalized = normalizeStatus(status);
+
+  switch (normalized) {
+    case "new":
+    case "created":
+      return {
+        label: "Новый",
+        backgroundColor: "#FEF3C7",
+        textColor: "#92400E",
+      };
+
+    case "searching":
+    case "pending":
+      return {
+        label: "Ищем курьера",
+        backgroundColor: "#DBEAFE",
+        textColor: "#1D4ED8",
+      };
+
+    case "assigned":
+    case "accepted":
+      return {
+        label: "Курьер назначен",
+        backgroundColor: "#E0E7FF",
+        textColor: "#4338CA",
+      };
+
+    case "in_progress":
+    case "on_the_way":
+      return {
+        label: "В работе",
+        backgroundColor: "#DCFCE7",
+        textColor: "#166534",
+      };
+
+    case "completed":
+      return {
+        label: "Завершён",
+        backgroundColor: "#DCFCE7",
+        textColor: "#166534",
+      };
+
+    case "cancelled":
+    case "canceled":
+      return {
+        label: "Отменён",
+        backgroundColor: "#FEE2E2",
+        textColor: "#991B1B",
+      };
+
+    default:
+      return {
+        label: status || "Статус неизвестен",
+        backgroundColor: "#F3F4F6",
+        textColor: "#374151",
+      };
+  }
+}
+
+export default function StatusPill({
+  status,
+  label,
+  style,
+}: StatusPillProps) {
+  const meta = getStatusMeta(status);
+
   return (
-    <View style={styles.pill}>
-      <Text style={styles.text}>{label}</Text>
+    <View
+      style={[
+        styles.container,
+        {
+          backgroundColor: meta.backgroundColor,
+        },
+        style,
+      ]}
+    >
+      <Text
+        style={[
+          styles.text,
+          {
+            color: meta.textColor,
+          },
+        ]}
+      >
+        {label || meta.label}
+      </Text>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  pill: {
+  container: {
     alignSelf: "flex-start",
-    backgroundColor: colors.primarySoft,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: radii.pill,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 999,
   },
   text: {
-    fontSize: typography.caption,
-    fontWeight: "700",
-    color: colors.primary,
+    fontSize: 12,
+    fontWeight: "800",
   },
 });
