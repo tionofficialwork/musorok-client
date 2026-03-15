@@ -135,7 +135,7 @@ export default function HomeScreen() {
     const { data, error } = await supabase
       .from("orders")
       .select(
-        "id, status, address, total_price, package_name, entrance, comment, leave_at_door, call_required"
+        "id, status, address, total_price:total, package_name:package_label, entrance, comment, leave_at_door, call_required"
       )
       .eq("id", stored.id)
       .single();

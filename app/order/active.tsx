@@ -183,7 +183,7 @@ export default function ActiveOrderScreen() {
         const { data, error } = await supabase
           .from("orders")
           .select(
-            "id, status, address, apartment, entrance, comment, package_name, total_price, leave_at_door, call_required, created_at"
+            "id, status, address, apartment, entrance, comment, package_name:package_label, total_price:total, leave_at_door, call_required, created_at"
           )
           .eq("id", orderId)
           .single();

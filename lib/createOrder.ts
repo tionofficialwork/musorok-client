@@ -1,111 +1,93 @@
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import { supabase } from "./supabase";
 
-export type PaymentMethod = "card" | "cash" | "sbp";
-
-export type CreateOrderInput = {
+type CreateOrderInput = {
   package_id: string;
-  package_label: string;
-  package_price: number;
-  total: number;
+  package_name?: string;
+  package_label?: string;
+  total_price: number;
   address: string;
-  phone: string;
+  apartment?: string;
   entrance?: string;
   comment?: string;
   leave_at_door?: boolean;
   call_required?: boolean;
-  payment_method: PaymentMethod;
 };
 
-export type CreateOrderResult = {
+type CreatedOrder = {
   id: string;
-  status: string;
-  package_id: string;
-  package_label: string;
-  package_price: number;
-  total: number;
-  address: string;
-  phone: string;
+  status?: string | null;
+  address?: string | null;
+  apartment?: string | null;
   entrance?: string | null;
   comment?: string | null;
+  package_id?: string | null;
+  package_name?: string | null;
+  total_price?: number | null;
   leave_at_door?: boolean | null;
   call_required?: boolean | null;
-  payment_method: PaymentMethod;
-  created_at?: string;
+  created_at?: string | null;
 };
 
-export async function createOrder(input: CreateOrderInput): Promise<CreateOrderResult> {
-  const {
-    package_id,
-    package_label,
-    package_price,
-    total,
-    address,
-    phone,
-    entrance,
-    comment,
-    leave_at_door = false,
-    call_required = false,
-    payment_method,
-  } = input;
+const ACTIVE_ORDER_STORAGE_KEY = "activeOrder";
 
-  if (!package_id) {
+export async function createOrder(
+  input: CreateOrderInput
+): Promise<CreatedOrder> {
+  const packageName = (input.package_name ?? input.package_label ?? "").trim();
+  const totalPrice = Number(input.total_price);
+  const callRequired = Boolean(input.call_required);
+
+  if (!input.package_id?.trim()) {
     throw new Error("package_id is required");
   }
 
-  if (!package_label) {
-    throw new Error("package_label is required");
+  if (!packageName) {
+    throw new Error("package_name is required");
   }
 
-  if (typeof package_price !== "number" || Number.isNaN(package_price)) {
-    throw new Error("package_price is required");
+  if (!Number.isFinite(totalPrice)) {
+    throw new Error("total_price is required");
   }
 
-  if (typeof total !== "number" || Number.isNaN(total)) {
-    throw new Error("total is required");
-  }
-
-  if (!address) {
+  if (!input.address?.trim()) {
     throw new Error("address is required");
   }
 
-  if (!phone) {
-    throw new Error("phone is required");
-  }
-
-  if (!payment_method) {
-    throw new Error("payment_method is required");
-  }
+  const payload = {
+    package_id: input.package_id.trim(),
+    package_label: packageName,
+    package_price: totalPrice,
+    total: totalPrice,
+    address: input.address.trim(),
+    apartment: input.apartment?.trim() || null,
+    entrance: input.entrance?.trim() || null,
+    comment: input.comment?.trim() || null,
+    leave_at_door: Boolean(input.leave_at_door),
+    should_call: callRequired,
+    call_required: callRequired,
+    payment_method: "cash",
+    tip: 0,
+    status: "new",
+  };
 
   const { data, error } = await supabase
     .from("orders")
-    .insert([
-      {
-        package_id,
-        package_label,
-        package_price,
-        total,
-        address,
-        phone,
-        entrance: entrance || null,
-        comment: comment || null,
-        leave_at_door,
-        call_required,
-        payment_method,
-        status: "new",
-      },
-    ])
+    .insert(payload)
     .select(
-      "id, status, package_id, package_label, package_price, total, address, phone, entrance, comment, leave_at_door, call_required, payment_method, created_at"
+      "id, status, address, apartment, entrance, comment, package_id, package_name:package_label, total_price:total, leave_at_door, call_required, created_at"
     )
     .single();
 
   if (error) {
-    throw new Error(error.message);
+    throw error;
   }
 
   if (!data) {
     throw new Error("Order was not created");
   }
 
-  return data as CreateOrderResult;
+  await AsyncStorage.setItem(ACTIVE_ORDER_STORAGE_KEY, JSON.stringify(data));
+
+  return data as CreatedOrder;
 }
