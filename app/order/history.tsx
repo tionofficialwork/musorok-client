@@ -1,532 +1,464 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
-  Pressable,
   RefreshControl,
-  SafeAreaView,
-  ScrollView,
   StyleSheet,
   Text,
   View,
 } from "react-native";
-import { Stack, useRouter } from "expo-router";
-
+import { useRouter } from "expo-router";
+import AppButton from "../../components/ui/AppButton";
+import AppCard from "../../components/ui/AppCard";
+import AppScreen from "../../components/ui/AppScreen";
+import ScreenSection from "../../components/ui/ScreenSection";
 import { supabase } from "../../lib/supabase";
+import { colors, radii, spacing, typography } from "../../lib/theme";
 
-type OrderStatus = "new" | "assigned" | "on_the_way" | "arrived" | "done" | "cancelled" | string;
+type HistoryOrderStatus =
+  | "new"
+  | "searching"
+  | "assigned"
+  | "on_the_way"
+  | "arrived"
+  | "in_progress"
+  | "completed"
+  | "cancelled"
+  | string;
 
-type OrderHistoryRow = {
+type HistoryOrder = {
   id: string;
-  status: OrderStatus;
-  address: string | null;
-  phone: string | null;
-  entrance: string | null;
-  comment: string | null;
-  leave_at_door: boolean | null;
-  call_required: boolean | null;
-  package_id: string | null;
-  package_label: string | null;
-  package_price: number | null;
-  total: number | null;
-  created_at: string | null;
+  status?: HistoryOrderStatus | null;
+  address?: string | null;
+  apartment?: string | null;
+  entrance?: string | null;
+  comment?: string | null;
+  package_id?: string | null;
+  package_name?: string | null;
+  total_price?: number | null;
+  leave_at_door?: boolean | null;
+  call_required?: boolean | null;
+  created_at?: string | null;
 };
 
-function formatPrice(value: number | null) {
-  if (typeof value !== "number") return "—";
-  return `${value} ₽`;
-}
+const ACTIVE_ORDER_ALLOWED_STATUSES = new Set([
+  "new",
+  "searching",
+  "assigned",
+  "on_the_way",
+  "arrived",
+  "in_progress",
+]);
 
-function formatDate(value: string | null) {
-  if (!value) return "—";
-  return new Date(value).toLocaleString("ru-RU");
-}
-
-function getStatusLabel(status: OrderStatus) {
+function getStatusLabel(status?: string | null) {
   switch (status) {
     case "new":
-      return "Заказ создан";
+      return "Новый";
+    case "searching":
+      return "Ищем курьера";
     case "assigned":
       return "Курьер назначен";
     case "on_the_way":
       return "Курьер в пути";
     case "arrived":
-      return "Курьер прибыл";
-    case "done":
+      return "Курьер на месте";
+    case "in_progress":
+      return "Заказ выполняется";
+    case "completed":
       return "Выполнен";
     case "cancelled":
       return "Отменён";
     default:
-      return String(status);
+      return "В обработке";
   }
 }
 
-function getStatusStyles(status: OrderStatus) {
-  switch (status) {
-    case "done":
-      return {
-        badgeBg: "#0F2A1A",
-        badgeText: "#4ADE80",
-      };
-    case "cancelled":
-      return {
-        badgeBg: "#2A1215",
-        badgeText: "#F87171",
-      };
-    case "assigned":
-    case "on_the_way":
-    case "arrived":
-      return {
-        badgeBg: "#10233D",
-        badgeText: "#60A5FA",
-      };
-    case "new":
-    default:
-      return {
-        badgeBg: "#1F2937",
-        badgeText: "#D1D5DB",
-      };
+function formatPrice(value?: number | null) {
+  if (typeof value !== "number" || Number.isNaN(value)) {
+    return "—";
   }
+
+  return `${value} ₽`;
+}
+
+function formatDate(value?: string | null) {
+  if (!value) {
+    return "—";
+  }
+
+  const date = new Date(value);
+
+  if (Number.isNaN(date.getTime())) {
+    return "—";
+  }
+
+  return new Intl.DateTimeFormat("ru-RU", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(date);
 }
 
 export default function OrderHistoryScreen() {
   const router = useRouter();
 
-  const [orders, setOrders] = useState<OrderHistoryRow[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
-  const [screenError, setScreenError] = useState<string | null>(null);
-  const [reorderingId, setReorderingId] = useState<string | null>(null);
+  const [orders, setOrders] = useState<HistoryOrder[]>([]);
+  const [isInitialLoading, setIsInitialLoading] = useState(true);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const [errorText, setErrorText] = useState<string | null>(null);
 
-  const fetchOrders = useCallback(async (isRefresh = false) => {
+  const hasOrders = useMemo(() => orders.length > 0, [orders]);
+
+  const loadOrders = useCallback(async (mode: "initial" | "refresh" = "initial") => {
     try {
-      if (isRefresh) {
-        setRefreshing(true);
-      } else {
-        setLoading(true);
-      }
+      setErrorText(null);
 
-      setScreenError(null);
+      if (mode === "initial") {
+        setIsInitialLoading(true);
+      } else {
+        setIsRefreshing(true);
+      }
 
       const { data, error } = await supabase
         .from("orders")
         .select(
-          "id, status, address, phone, entrance, comment, leave_at_door, call_required, package_id, package_label, package_price, total, created_at"
+          "id, status, address, apartment, entrance, comment, package_id, package_name, total_price, leave_at_door, call_required, created_at"
         )
         .order("created_at", { ascending: false });
 
       if (error) {
-        throw error;
+        setErrorText("Не удалось загрузить историю заказов. Попробуй обновить экран.");
+        return;
       }
 
-      setOrders((data as OrderHistoryRow[]) || []);
-    } catch (e: any) {
-      console.error("Failed to fetch order history:", e);
-      setScreenError(e?.message || "Не удалось загрузить историю заказов.");
+      setOrders((data ?? []) as HistoryOrder[]);
+    } catch (error) {
+      console.error("History load error:", error);
+      setErrorText("Произошла ошибка при загрузке истории заказов.");
     } finally {
-      setLoading(false);
-      setRefreshing(false);
+      if (mode === "initial") {
+        setIsInitialLoading(false);
+      } else {
+        setIsRefreshing(false);
+      }
     }
   }, []);
 
   useEffect(() => {
-    fetchOrders();
-  }, [fetchOrders]);
+    loadOrders("initial");
+  }, [loadOrders]);
 
-  const completedCount = useMemo(
-    () => orders.filter((order) => order.status === "done").length,
-    [orders]
-  );
+  const handleRefresh = useCallback(() => {
+    loadOrders("refresh");
+  }, [loadOrders]);
 
-  const activeCount = useMemo(
-    () =>
-      orders.filter(
-        (order) =>
-          order.status === "new" ||
-          order.status === "assigned" ||
-          order.status === "on_the_way" ||
-          order.status === "arrived"
-      ).length,
-    [orders]
-  );
+  const handleOpenOrder = useCallback(
+    (order: HistoryOrder) => {
+      const orderStatus = String(order.status ?? "");
 
-  const handleOpenOrder = (orderId: string) => {
-    router.push({
-      pathname: "/order/success",
-      params: { orderId },
-    });
-  };
-
-  const handleReorder = async (order: OrderHistoryRow) => {
-    if (!order.package_id || !order.package_label || typeof order.package_price !== "number") {
-      setScreenError("У этого заказа не хватает данных для повторного оформления.");
-      return;
-    }
-
-    if (!order.address || !order.phone) {
-      setScreenError("У этого заказа не хватает адреса или телефона для повторного оформления.");
-      return;
-    }
-
-    try {
-      setReorderingId(order.id);
-      setScreenError(null);
+      if (ACTIVE_ORDER_ALLOWED_STATUSES.has(orderStatus)) {
+        router.push({
+          pathname: "/order/active",
+          params: {
+            orderId: order.id,
+          },
+        });
+        return;
+      }
 
       router.push({
-        pathname: "/order/confirm",
+        pathname: "/order/success",
         params: {
-          packageId: order.package_id,
-          packageName: order.package_label,
-          price: String(order.package_price),
-          address: order.address,
-          phone: order.phone,
-          entrance: order.entrance || "",
-          comment: order.comment || "",
-          leaveAtDoor: order.leave_at_door ? "true" : "false",
-          callRequired: order.call_required ? "true" : "false",
+          orderId: order.id,
         },
       });
-    } finally {
-      setReorderingId(null);
-    }
-  };
+    },
+    [router]
+  );
 
-  const handleGoHome = () => {
-    router.replace("/");
-  };
+  const handleReorder = useCallback(
+    (order: HistoryOrder) => {
+      router.push({
+        pathname: "/order/details",
+        params: {
+          packageId: order.package_id ?? "",
+          packageName: order.package_name ?? "",
+          price:
+            typeof order.total_price === "number"
+              ? String(order.total_price)
+              : "",
+        },
+      });
+    },
+    [router]
+  );
 
-  const handleRefresh = async () => {
-    await fetchOrders(true);
-  };
+  const handleCreateOrder = useCallback(() => {
+    router.push("/order/package");
+  }, [router]);
 
   return (
-    <SafeAreaView style={styles.safeArea}>
-      <Stack.Screen options={{ title: "История заказов" }} />
-
-      <ScrollView
-        contentContainerStyle={styles.content}
-        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={handleRefresh} />}
-      >
-        <Text style={styles.title}>История заказов</Text>
-        <Text style={styles.subtitle}>
-          Здесь отображаются все оформленные заказы и их текущие статусы.
-        </Text>
-
-        <View style={styles.statsHeader}>
-          <View style={styles.statsRow}>
-            <View style={styles.statsCard}>
-              <Text style={styles.statsValue}>{orders.length}</Text>
-              <Text style={styles.statsLabel}>Всего</Text>
-            </View>
-
-            <View style={styles.statsCard}>
-              <Text style={styles.statsValue}>{activeCount}</Text>
-              <Text style={styles.statsLabel}>Активных</Text>
-            </View>
-
-            <View style={styles.statsCard}>
-              <Text style={styles.statsValue}>{completedCount}</Text>
-              <Text style={styles.statsLabel}>Завершено</Text>
-            </View>
-          </View>
-
-          <Pressable
-            style={styles.refreshButton}
-            onPress={handleRefresh}
-            disabled={refreshing || loading}
-          >
-            {refreshing ? (
-              <ActivityIndicator size="small" color="#04110A" />
-            ) : (
-              <Text style={styles.refreshButtonText}>Обновить историю</Text>
-            )}
-          </Pressable>
+    <AppScreen
+      refreshControl={
+        <RefreshControl refreshing={isRefreshing} onRefresh={handleRefresh} />
+      }
+    >
+      {isInitialLoading ? (
+        <View style={styles.centerState}>
+          <ActivityIndicator size="large" />
+          <Text style={styles.centerText}>Загружаем историю заказов...</Text>
         </View>
+      ) : !hasOrders ? (
+        <View style={styles.centerState}>
+          <Text style={styles.emptyTitle}>История заказов пуста</Text>
+          <Text style={styles.emptyText}>
+            Когда появятся оформленные заказы, они будут отображаться здесь.
+          </Text>
 
-        {loading ? (
-          <View style={styles.stateCard}>
-            <ActivityIndicator size="large" />
-            <Text style={styles.stateText}>Загружаем историю заказов...</Text>
-          </View>
-        ) : screenError ? (
-          <View style={styles.stateCard}>
-            <Text style={styles.stateTitle}>Не удалось загрузить историю</Text>
-            <Text style={styles.stateText}>{screenError}</Text>
+          {errorText ? <Text style={styles.errorText}>{errorText}</Text> : null}
 
-            <Pressable style={styles.primaryButton} onPress={handleRefresh}>
-              <Text style={styles.primaryButtonText}>Повторить</Text>
-            </Pressable>
+          <View style={styles.emptyButtons}>
+            <AppButton title="Создать заказ" onPress={handleCreateOrder} />
+            <AppButton
+              title="Обновить"
+              variant="outline"
+              onPress={handleRefresh}
+            />
           </View>
-        ) : orders.length === 0 ? (
-          <View style={styles.stateCard}>
-            <Text style={styles.stateTitle}>Заказов пока нет</Text>
-            <Text style={styles.stateText}>
-              Как только вы оформите первый заказ, он появится здесь.
+        </View>
+      ) : (
+        <ScreenSection>
+          <View style={styles.header}>
+            <Text style={styles.title}>История заказов</Text>
+            <Text style={styles.subtitle}>
+              Здесь хранятся все оформленные заказы. Можно обновить список,
+              открыть заказ и быстро повторить его.
             </Text>
-
-            <Pressable style={styles.primaryButton} onPress={handleGoHome}>
-              <Text style={styles.primaryButtonText}>На главную</Text>
-            </Pressable>
           </View>
-        ) : (
+
+          {errorText ? (
+            <AppCard style={styles.errorCard}>
+              <Text style={styles.errorTitle}>Не удалось полностью обновить данные</Text>
+              <Text style={styles.errorBody}>{errorText}</Text>
+              <AppButton
+                title="Обновить"
+                variant="secondary"
+                onPress={handleRefresh}
+              />
+            </AppCard>
+          ) : null}
+
           <View style={styles.list}>
-            {orders.map((order) => {
-              const statusStyles = getStatusStyles(order.status);
-              const isReordering = reorderingId === order.id;
+            {orders.map((order) => (
+              <AppCard key={order.id} style={styles.orderCard}>
+                <View style={styles.cardTopRow}>
+                  <View style={styles.cardTopText}>
+                    <Text style={styles.addressText}>
+                      {order.address || "Адрес не указан"}
+                    </Text>
+                    <Text style={styles.dateText}>
+                      {formatDate(order.created_at)}
+                    </Text>
+                  </View>
 
-              return (
-                <View key={order.id} style={styles.orderCard}>
-                  <Pressable onPress={() => handleOpenOrder(order.id)}>
-                    <View style={styles.orderTopRow}>
-                      <View style={styles.orderMainInfo}>
-                        <Text style={styles.orderTitle}>Заказ #{order.id}</Text>
-                        <Text style={styles.orderAddress}>{order.address || "—"}</Text>
-                      </View>
-
-                      <View style={[styles.statusBadge, { backgroundColor: statusStyles.badgeBg }]}>
-                        <Text style={[styles.statusBadgeText, { color: statusStyles.badgeText }]}>
-                          {getStatusLabel(order.status)}
-                        </Text>
-                      </View>
-                    </View>
-
-                    <View style={styles.orderMetaRow}>
-                      <View style={styles.metaBlock}>
-                        <Text style={styles.metaLabel}>Пакет</Text>
-                        <Text style={styles.metaValue}>{order.package_label || "—"}</Text>
-                      </View>
-
-                      <View style={styles.metaBlock}>
-                        <Text style={styles.metaLabel}>Сумма</Text>
-                        <Text style={styles.metaValue}>{formatPrice(order.total)}</Text>
-                      </View>
-                    </View>
-
-                    <View style={styles.orderFooter}>
-                      <Text style={styles.orderDate}>{formatDate(order.created_at)}</Text>
-                      <Text style={styles.orderLink}>Открыть</Text>
-                    </View>
-                  </Pressable>
-
-                  <View style={styles.cardActions}>
-                    <Pressable
-                      style={styles.reorderButton}
-                      onPress={() => handleReorder(order)}
-                      disabled={isReordering}
-                    >
-                      {isReordering ? (
-                        <ActivityIndicator color="#04110A" />
-                      ) : (
-                        <Text style={styles.reorderButtonText}>Повторить заказ</Text>
-                      )}
-                    </Pressable>
+                  <View style={styles.statusPill}>
+                    <Text style={styles.statusPillText}>
+                      {getStatusLabel(order.status)}
+                    </Text>
                   </View>
                 </View>
-              );
-            })}
-          </View>
-        )}
 
-        {!loading && orders.length > 0 ? (
-          <Pressable style={styles.secondaryButton} onPress={handleGoHome}>
-            <Text style={styles.secondaryButtonText}>На главную</Text>
-          </Pressable>
-        ) : null}
-      </ScrollView>
-    </SafeAreaView>
+                <View style={styles.infoList}>
+                  <InfoRow
+                    label="Тариф"
+                    value={order.package_name || "—"}
+                  />
+                  <InfoRow
+                    label="Сумма"
+                    value={formatPrice(order.total_price)}
+                  />
+                  <InfoRow
+                    label="Квартира"
+                    value={order.apartment || "Не указана"}
+                  />
+                  <InfoRow
+                    label="Подъезд"
+                    value={order.entrance || "Не указан"}
+                  />
+                  <InfoRow
+                    label="Комментарий"
+                    value={order.comment || "Нет комментария"}
+                    isLast
+                  />
+                </View>
+
+                <View style={styles.cardButtons}>
+                  <AppButton
+                    title={
+                      ACTIVE_ORDER_ALLOWED_STATUSES.has(String(order.status ?? ""))
+                        ? "Открыть заказ"
+                        : "Открыть"
+                    }
+                    onPress={() => handleOpenOrder(order)}
+                  />
+                  <AppButton
+                    title="Повторить"
+                    variant="outline"
+                    onPress={() => handleReorder(order)}
+                  />
+                </View>
+              </AppCard>
+            ))}
+          </View>
+        </ScreenSection>
+      )}
+    </AppScreen>
+  );
+}
+
+type InfoRowProps = {
+  label: string;
+  value: string;
+  isLast?: boolean;
+};
+
+function InfoRow({ label, value, isLast = false }: InfoRowProps) {
+  return (
+    <View style={[styles.infoRow, isLast && styles.infoRowLast]}>
+      <Text style={styles.infoLabel}>{label}</Text>
+      <Text style={styles.infoValue}>{value}</Text>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  safeArea: {
+  centerState: {
     flex: 1,
-    backgroundColor: "#031225",
+    minHeight: 520,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: spacing.xl,
+    gap: spacing.md,
   },
-  content: {
-    padding: 20,
-    gap: 16,
-    paddingBottom: 32,
+  centerText: {
+    fontSize: typography.body,
+    color: colors.textSecondary,
+    textAlign: "center",
+  },
+  emptyTitle: {
+    fontSize: typography.h1,
+    fontWeight: "800",
+    color: colors.text,
+    textAlign: "center",
+  },
+  emptyText: {
+    fontSize: typography.body,
+    lineHeight: 22,
+    color: colors.textSecondary,
+    textAlign: "center",
+  },
+  emptyButtons: {
+    width: "100%",
+    gap: spacing.md,
+    marginTop: spacing.sm,
+  },
+  errorText: {
+    fontSize: typography.bodySmall,
+    color: colors.errorText,
+    textAlign: "center",
+  },
+  header: {
+    gap: spacing.sm,
   },
   title: {
-    color: "#FFFFFF",
-    fontSize: 32,
+    fontSize: typography.h1,
     fontWeight: "800",
+    color: colors.text,
   },
   subtitle: {
-    color: "#CBD5E1",
-    fontSize: 15,
+    fontSize: typography.body,
     lineHeight: 22,
+    color: colors.textSecondary,
   },
-  statsHeader: {
-    gap: 12,
-  },
-  statsRow: {
-    flexDirection: "row",
-    gap: 12,
-  },
-  statsCard: {
-    flex: 1,
-    backgroundColor: "#081426",
-    borderRadius: 18,
-    padding: 16,
+  errorCard: {
+    backgroundColor: colors.errorBg,
     borderWidth: 1,
-    borderColor: "#0F2138",
+    borderColor: colors.errorBorder,
+    gap: spacing.sm,
   },
-  statsValue: {
-    color: "#FFFFFF",
-    fontSize: 24,
+  errorTitle: {
+    fontSize: 16,
     fontWeight: "800",
-    marginBottom: 4,
+    color: colors.errorTitle,
   },
-  statsLabel: {
-    color: "#94A3B8",
-    fontSize: 13,
-  },
-  refreshButton: {
-    backgroundColor: "#22C55E",
-    borderRadius: 16,
-    paddingVertical: 14,
-    alignItems: "center",
-  },
-  refreshButtonText: {
-    color: "#04110A",
-    fontSize: 15,
-    fontWeight: "800",
-  },
-  stateCard: {
-    backgroundColor: "#081426",
-    borderRadius: 24,
-    padding: 20,
-    gap: 12,
-    borderWidth: 1,
-    borderColor: "#0F2138",
-    alignItems: "center",
-  },
-  stateTitle: {
-    color: "#FFFFFF",
-    fontSize: 20,
-    fontWeight: "700",
-    textAlign: "center",
-  },
-  stateText: {
-    color: "#CBD5E1",
-    fontSize: 15,
-    lineHeight: 22,
-    textAlign: "center",
+  errorBody: {
+    fontSize: typography.bodySmall,
+    lineHeight: 20,
+    color: colors.errorText,
   },
   list: {
-    gap: 14,
+    gap: spacing.md,
   },
   orderCard: {
-    backgroundColor: "#081426",
-    borderRadius: 22,
-    padding: 18,
-    borderWidth: 1,
-    borderColor: "#0F2138",
-    gap: 14,
+    gap: spacing.md,
   },
-  orderTopRow: {
-    gap: 10,
-  },
-  orderMainInfo: {
-    gap: 6,
-  },
-  orderTitle: {
-    color: "#FFFFFF",
-    fontSize: 18,
-    fontWeight: "700",
-  },
-  orderAddress: {
-    color: "#CBD5E1",
-    fontSize: 15,
-    lineHeight: 21,
-  },
-  statusBadge: {
-    alignSelf: "flex-start",
-    borderRadius: 999,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-  },
-  statusBadgeText: {
-    fontSize: 13,
-    fontWeight: "700",
-  },
-  orderMetaRow: {
-    flexDirection: "row",
-    gap: 12,
-    marginTop: 14,
-  },
-  metaBlock: {
-    flex: 1,
-    backgroundColor: "#0B1A2E",
-    borderRadius: 16,
-    padding: 14,
-    borderWidth: 1,
-    borderColor: "#13243A",
-  },
-  metaLabel: {
-    color: "#94A3B8",
-    fontSize: 12,
-    marginBottom: 6,
-  },
-  metaValue: {
-    color: "#FFFFFF",
-    fontSize: 15,
-    fontWeight: "600",
-  },
-  orderFooter: {
+  cardTopRow: {
     flexDirection: "row",
     justifyContent: "space-between",
-    alignItems: "center",
-    marginTop: 14,
+    alignItems: "flex-start",
+    gap: spacing.md,
   },
-  orderDate: {
-    color: "#94A3B8",
-    fontSize: 13,
+  cardTopText: {
+    flex: 1,
+    gap: spacing.xs,
   },
-  orderLink: {
-    color: "#22C55E",
-    fontSize: 14,
-    fontWeight: "700",
-  },
-  cardActions: {
-    marginTop: 2,
-  },
-  reorderButton: {
-    backgroundColor: "#22C55E",
-    borderRadius: 16,
-    paddingVertical: 14,
-    alignItems: "center",
-  },
-  reorderButtonText: {
-    color: "#04110A",
-    fontSize: 16,
+  addressText: {
+    fontSize: typography.h3,
     fontWeight: "800",
+    color: colors.text,
   },
-  primaryButton: {
-    marginTop: 8,
-    backgroundColor: "#22C55E",
-    borderRadius: 16,
-    paddingVertical: 16,
-    paddingHorizontal: 24,
-    alignItems: "center",
-    minWidth: 180,
+  dateText: {
+    fontSize: typography.bodySmall,
+    color: colors.textSecondary,
   },
-  primaryButtonText: {
-    color: "#04110A",
-    fontSize: 16,
-    fontWeight: "800",
+  statusPill: {
+    alignSelf: "flex-start",
+    backgroundColor: colors.primarySoft,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: radii.pill,
   },
-  secondaryButton: {
-    backgroundColor: "#081426",
-    borderRadius: 18,
-    paddingVertical: 18,
-    alignItems: "center",
-    borderWidth: 1,
-    borderColor: "#0F2138",
-  },
-  secondaryButtonText: {
-    color: "#FFFFFF",
-    fontSize: 16,
+  statusPillText: {
+    fontSize: typography.caption,
     fontWeight: "700",
+    color: colors.primary,
+  },
+  infoList: {
+    marginTop: spacing.xs,
+  },
+  infoRow: {
+    paddingVertical: spacing.md,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
+    gap: spacing.xs,
+  },
+  infoRowLast: {
+    borderBottomWidth: 0,
+    paddingBottom: 0,
+  },
+  infoLabel: {
+    fontSize: typography.bodySmall,
+    fontWeight: "700",
+    color: colors.textSecondary,
+  },
+  infoValue: {
+    fontSize: typography.body,
+    lineHeight: 22,
+    fontWeight: "700",
+    color: colors.text,
+  },
+  cardButtons: {
+    gap: spacing.md,
   },
 });
