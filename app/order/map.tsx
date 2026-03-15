@@ -6,6 +6,7 @@ import * as Location from "expo-location";
 import AppButton from "../../components/ui/AppButton";
 import AppCard from "../../components/ui/AppCard";
 import AppScreen from "../../components/ui/AppScreen";
+import EmptyState from "../../components/ui/EmptyState";
 import ErrorCard from "../../components/ui/ErrorCard";
 import ScreenHeader from "../../components/ui/ScreenHeader";
 import ScreenSection from "../../components/ui/ScreenSection";
@@ -22,12 +23,16 @@ type MapParams = {
   comment?: string;
   leave_at_door?: string;
   call_required?: string;
+  latitude?: string;
+  longitude?: string;
 };
 
 type SelectedPoint = {
   latitude: number;
   longitude: number;
 };
+
+type PermissionState = "unknown" | "granted" | "denied";
 
 const DEFAULT_REGION: Region = {
   latitude: 43.238949,
@@ -36,17 +41,28 @@ const DEFAULT_REGION: Region = {
   longitudeDelta: 0.02,
 };
 
+function parseNumberParam(value?: string) {
+  if (!value) {
+    return null;
+  }
+
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
 function buildAddressLabel(
   reverseResult?: Location.LocationGeocodedAddress | null,
   fallbackPoint?: SelectedPoint | null
 ) {
   if (reverseResult) {
-    const parts = [
-      reverseResult.street,
-      reverseResult.streetNumber,
-      reverseResult.city,
-      reverseResult.region,
-    ].filter(Boolean);
+    const line1 = [reverseResult.street, reverseResult.streetNumber]
+      .filter(Boolean)
+      .join(" ");
+    const line2 = [reverseResult.city, reverseResult.region]
+      .filter(Boolean)
+      .join(", ");
+
+    const parts = [line1, line2].filter(Boolean);
 
     if (parts.length > 0) {
       return parts.join(", ");
@@ -54,7 +70,7 @@ function buildAddressLabel(
   }
 
   if (fallbackPoint) {
-    return `${fallbackPoint.latitude.toFixed(6)}, ${fallbackPoint.longitude.toFixed(6)}`;
+    return `Координаты: ${fallbackPoint.latitude.toFixed(6)}, ${fallbackPoint.longitude.toFixed(6)}`;
   }
 
   return "";
@@ -79,10 +95,38 @@ export default function OrderMapScreen() {
   const callRequired =
     typeof params.call_required === "string" ? params.call_required : "false";
 
-  const [region, setRegion] = useState<Region>(DEFAULT_REGION);
-  const [selectedPoint, setSelectedPoint] = useState<SelectedPoint | null>(null);
+  const initialLatitude = parseNumberParam(
+    typeof params.latitude === "string" ? params.latitude : undefined
+  );
+  const initialLongitude = parseNumberParam(
+    typeof params.longitude === "string" ? params.longitude : undefined
+  );
+
+  const initialPoint =
+    initialLatitude !== null && initialLongitude !== null
+      ? {
+          latitude: initialLatitude,
+          longitude: initialLongitude,
+        }
+      : null;
+
+  const [region, setRegion] = useState<Region>(
+    initialPoint
+      ? {
+          latitude: initialPoint.latitude,
+          longitude: initialPoint.longitude,
+          latitudeDelta: 0.01,
+          longitudeDelta: 0.01,
+        }
+      : DEFAULT_REGION
+  );
+  const [selectedPoint, setSelectedPoint] = useState<SelectedPoint | null>(
+    initialPoint
+  );
   const [resolvedAddress, setResolvedAddress] = useState(currentAddress);
-  const [isLoadingLocation, setIsLoadingLocation] = useState(true);
+  const [permissionState, setPermissionState] =
+    useState<PermissionState>("unknown");
+  const [isLoadingLocation, setIsLoadingLocation] = useState(!initialPoint);
   const [isResolvingAddress, setIsResolvingAddress] = useState(false);
   const [errorText, setErrorText] = useState<string | null>(null);
 
@@ -90,29 +134,26 @@ export default function OrderMapScreen() {
     return Boolean(selectedPoint && resolvedAddress.trim());
   }, [selectedPoint, resolvedAddress]);
 
-  const resolveAddressByCoords = useCallback(
-    async (point: SelectedPoint) => {
-      try {
-        setIsResolvingAddress(true);
-        setErrorText(null);
+  const resolveAddressByCoords = useCallback(async (point: SelectedPoint) => {
+    try {
+      setIsResolvingAddress(true);
+      setErrorText(null);
 
-        const result = await Location.reverseGeocodeAsync({
-          latitude: point.latitude,
-          longitude: point.longitude,
-        });
+      const result = await Location.reverseGeocodeAsync({
+        latitude: point.latitude,
+        longitude: point.longitude,
+      });
 
-        const addressLabel = buildAddressLabel(result?.[0], point);
-        setResolvedAddress(addressLabel);
-      } catch (error) {
-        console.error("Reverse geocode error:", error);
-        setResolvedAddress(buildAddressLabel(null, point));
-        setErrorText("Не удалось точно определить адрес. Можно использовать координаты.");
-      } finally {
-        setIsResolvingAddress(false);
-      }
-    },
-    []
-  );
+      const addressLabel = buildAddressLabel(result?.[0], point);
+      setResolvedAddress(addressLabel);
+    } catch (error) {
+      console.error("Reverse geocode error:", error);
+      setResolvedAddress(buildAddressLabel(null, point));
+      setErrorText("Не удалось точно определить адрес. Можно использовать выбранные координаты.");
+    } finally {
+      setIsResolvingAddress(false);
+    }
+  }, []);
 
   const moveToCurrentLocation = useCallback(async () => {
     try {
@@ -122,9 +163,12 @@ export default function OrderMapScreen() {
       const permission = await Location.requestForegroundPermissionsAsync();
 
       if (permission.status !== "granted") {
-        setErrorText("Нет доступа к геолокации. Разреши доступ или выбери точку вручную.");
+        setPermissionState("denied");
+        setErrorText("Нет доступа к геолокации. Можно выбрать точку вручную на карте.");
         return;
       }
+
+      setPermissionState("granted");
 
       const position = await Location.getCurrentPositionAsync({
         accuracy: Location.Accuracy.Balanced,
@@ -154,8 +198,10 @@ export default function OrderMapScreen() {
   }, [resolveAddressByCoords]);
 
   useEffect(() => {
-    moveToCurrentLocation();
-  }, [moveToCurrentLocation]);
+    if (!initialPoint) {
+      moveToCurrentLocation();
+    }
+  }, [initialPoint, moveToCurrentLocation]);
 
   const handleMapPress = useCallback(
     async (event: MapPressEvent) => {
@@ -165,6 +211,12 @@ export default function OrderMapScreen() {
       };
 
       setSelectedPoint(point);
+      setRegion((prev) => ({
+        ...prev,
+        latitude: point.latitude,
+        longitude: point.longitude,
+      }));
+
       await resolveAddressByCoords(point);
     },
     [resolveAddressByCoords]
@@ -188,6 +240,8 @@ export default function OrderMapScreen() {
         comment,
         leave_at_door: leaveAtDoor,
         call_required: callRequired,
+        latitude: String(selectedPoint.latitude),
+        longitude: String(selectedPoint.longitude),
       },
     });
   }, [
@@ -204,88 +258,122 @@ export default function OrderMapScreen() {
     selectedPoint,
   ]);
 
+  const handleBackToDetails = useCallback(() => {
+    router.back();
+  }, [router]);
+
+  const selectedCoordsText = selectedPoint
+    ? `${selectedPoint.latitude.toFixed(6)}, ${selectedPoint.longitude.toFixed(6)}`
+    : "Точка не выбрана";
+
   return (
     <>
       <Stack.Screen options={{ title: "Выбор адреса на карте" }} />
 
       <AppScreen>
-        <ScreenSection>
-          <ScreenHeader
-            title="Выбери адрес на карте"
-            subtitle="Можно использовать своё местоположение или нажать на точку на карте."
+        {permissionState === "denied" && !selectedPoint ? (
+          <EmptyState
+            title="Геолокация недоступна"
+            description="Разрешение на местоположение не выдано. Можно вернуться к ручному вводу или попробовать ещё раз."
+            extraText={errorText}
+            actions={
+              <>
+                <AppButton
+                  title="Попробовать снова"
+                  onPress={moveToCurrentLocation}
+                />
+                <AppButton
+                  title="Вернуться к форме"
+                  variant="outline"
+                  onPress={handleBackToDetails}
+                />
+              </>
+            }
           />
+        ) : (
+          <ScreenSection>
+            <ScreenHeader
+              title="Выбери адрес на карте"
+              subtitle="Можно использовать своё местоположение или нажать на точку на карте."
+            />
 
-          {errorText ? (
-            <ErrorCard
-              title="Есть проблема с геолокацией"
-              description={errorText}
-            >
-              <AppButton
-                title="Попробовать ещё раз"
-                variant="secondary"
-                onPress={moveToCurrentLocation}
-              />
-            </ErrorCard>
-          ) : null}
-
-          <AppCard style={styles.mapCard}>
-            <View style={styles.mapHeaderRow}>
-              <SectionTitle>Карта</SectionTitle>
-            </View>
-
-            <View style={styles.mapWrap}>
-              <MapView
-                style={styles.map}
-                initialRegion={region}
-                region={region}
-                onRegionChangeComplete={setRegion}
-                onPress={handleMapPress}
-                showsUserLocation
-                showsMyLocationButton={false}
+            {errorText ? (
+              <ErrorCard
+                title="Есть проблема с геолокацией"
+                description={errorText}
               >
-                {selectedPoint ? <Marker coordinate={selectedPoint} /> : null}
-              </MapView>
+                <AppButton
+                  title="Попробовать ещё раз"
+                  variant="secondary"
+                  onPress={moveToCurrentLocation}
+                />
+              </ErrorCard>
+            ) : null}
 
-              {isLoadingLocation ? (
-                <View style={styles.mapOverlay}>
-                  <ActivityIndicator size="large" />
-                  <Text style={styles.mapOverlayText}>Определяем местоположение...</Text>
-                </View>
-              ) : null}
-            </View>
-
-            <View style={styles.cardButtons}>
-              <AppButton
-                title="Моё местоположение"
-                variant="outline"
-                onPress={moveToCurrentLocation}
-              />
-            </View>
-          </AppCard>
-
-          <AppCard>
-            <SectionTitle>Выбранный адрес</SectionTitle>
-
-            {isResolvingAddress ? (
-              <View style={styles.resolvingRow}>
-                <ActivityIndicator />
-                <Text style={styles.resolvingText}>Определяем адрес...</Text>
+            <AppCard style={styles.mapCard}>
+              <View style={styles.mapHeaderRow}>
+                <SectionTitle>Карта</SectionTitle>
               </View>
-            ) : (
-              <Text style={styles.addressText}>
-                {resolvedAddress || "Пока ничего не выбрано"}
-              </Text>
-            )}
 
-            <View style={styles.confirmButtonWrap}>
-              <AppButton
-                title="Использовать этот адрес"
-                onPress={handleConfirmAddress}
-                disabled={!canConfirm}
-              />
-            </View>
-          </AppCard>
-        </ScreenSection>
+              <View style={styles.mapWrap}>
+                <MapView
+                  style={styles.map}
+                  initialRegion={region}
+                  region={region}
+                  onRegionChangeComplete={setRegion}
+                  onPress={handleMapPress}
+                  showsUserLocation
+                  showsMyLocationButton={false}
+                >
+                  {selectedPoint ? <Marker coordinate={selectedPoint} /> : null}
+                </MapView>
+
+                {isLoadingLocation ? (
+                  <View style={styles.mapOverlay}>
+                    <ActivityIndicator size="large" />
+                    <Text style={styles.mapOverlayText}>
+                      Определяем местоположение...
+                    </Text>
+                  </View>
+                ) : null}
+              </View>
+
+              <View style={styles.cardButtons}>
+                <AppButton
+                  title="Моё местоположение"
+                  variant="outline"
+                  onPress={moveToCurrentLocation}
+                />
+              </View>
+            </AppCard>
+
+            <AppCard>
+              <SectionTitle>Выбранный адрес</SectionTitle>
+
+              {isResolvingAddress ? (
+                <View style={styles.resolvingRow}>
+                  <ActivityIndicator />
+                  <Text style={styles.resolvingText}>Определяем адрес...</Text>
+                </View>
+              ) : (
+                <>
+                  <Text style={styles.addressText}>
+                    {resolvedAddress || "Пока ничего не выбрано"}
+                  </Text>
+                  <Text style={styles.coordsText}>{selectedCoordsText}</Text>
+                </>
+              )}
+
+              <View style={styles.confirmButtonWrap}>
+                <AppButton
+                  title="Использовать этот адрес"
+                  onPress={handleConfirmAddress}
+                  disabled={!canConfirm}
+                />
+              </View>
+            </AppCard>
+          </ScreenSection>
+        )}
       </AppScreen>
     </>
   );
@@ -336,6 +424,11 @@ const styles = StyleSheet.create({
     lineHeight: 22,
     color: colors.text,
     fontWeight: "700",
+  },
+  coordsText: {
+    marginTop: spacing.sm,
+    fontSize: typography.bodySmall,
+    color: colors.textSecondary,
   },
   confirmButtonWrap: {
     marginTop: spacing.lg,

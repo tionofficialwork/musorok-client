@@ -22,6 +22,8 @@ export default function OrderDetailsScreen() {
     comment?: string;
     leave_at_door?: string;
     call_required?: string;
+    latitude?: string;
+    longitude?: string;
   }>();
 
   const packageId = typeof params.packageId === "string" ? params.packageId : "";
@@ -35,6 +37,8 @@ export default function OrderDetailsScreen() {
   const [comment, setComment] = useState("");
   const [leaveAtDoor, setLeaveAtDoor] = useState(false);
   const [callRequired, setCallRequired] = useState(false);
+  const [latitude, setLatitude] = useState("");
+  const [longitude, setLongitude] = useState("");
 
   useEffect(() => {
     if (typeof params.address === "string") {
@@ -60,6 +64,14 @@ export default function OrderDetailsScreen() {
     if (typeof params.call_required === "string") {
       setCallRequired(params.call_required === "true");
     }
+
+    if (typeof params.latitude === "string") {
+      setLatitude(params.latitude);
+    }
+
+    if (typeof params.longitude === "string") {
+      setLongitude(params.longitude);
+    }
   }, [
     params.address,
     params.apartment,
@@ -67,11 +79,15 @@ export default function OrderDetailsScreen() {
     params.comment,
     params.entrance,
     params.leave_at_door,
+    params.latitude,
+    params.longitude,
   ]);
 
   const isFormValid = useMemo(() => {
     return address.trim().length > 0;
   }, [address]);
+
+  const hasMapPoint = Boolean(latitude && longitude);
 
   const handleOpenMap = () => {
     router.push({
@@ -86,6 +102,8 @@ export default function OrderDetailsScreen() {
         comment: comment.trim(),
         leave_at_door: leaveAtDoor ? "true" : "false",
         call_required: callRequired ? "true" : "false",
+        latitude,
+        longitude,
       },
     });
   };
@@ -137,10 +155,16 @@ export default function OrderDetailsScreen() {
               </View>
 
               <AppButton
-                title="Выбрать на карте"
+                title={hasMapPoint ? "Изменить точку на карте" : "Выбрать на карте"}
                 variant="outline"
                 onPress={handleOpenMap}
               />
+
+              {hasMapPoint ? (
+                <Text style={styles.mapHint}>
+                  Точка на карте выбрана и будет использована как основа адреса.
+                </Text>
+              ) : null}
 
               <View style={styles.row}>
                 <View style={styles.rowItem}>
@@ -268,6 +292,12 @@ const styles = StyleSheet.create({
     fontSize: typography.bodySmall,
     fontWeight: "700",
     color: colors.text,
+  },
+  mapHint: {
+    marginTop: -spacing.sm,
+    fontSize: typography.bodySmall,
+    lineHeight: 20,
+    color: colors.textSecondary,
   },
   row: {
     flexDirection: "row",
