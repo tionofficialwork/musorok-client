@@ -25,6 +25,10 @@ type OrderRow = {
   package_price: number | null;
   total: number | null;
   phone: string | null;
+  entrance: string | null;
+  comment: string | null;
+  leave_at_door: boolean | null;
+  call_required: boolean | null;
   payment_method: string | null;
   created_at: string | null;
 };
@@ -108,7 +112,7 @@ export default function ActiveOrderScreen() {
       const { data, error } = await supabase
         .from("orders")
         .select(
-          "id, status, address, package_id, package_label, package_price, total, phone, payment_method, created_at"
+          "id, status, address, package_id, package_label, package_price, total, phone, entrance, comment, leave_at_door, call_required, payment_method, created_at"
         )
         .eq("id", activeOrderId)
         .single();
@@ -260,6 +264,31 @@ export default function ActiveOrderScreen() {
               </View>
 
               <View style={styles.infoRow}>
+                <Text style={styles.infoLabel}>Телефон</Text>
+                <Text style={styles.infoValue}>{order.phone || "—"}</Text>
+              </View>
+
+              <View style={styles.infoRow}>
+                <Text style={styles.infoLabel}>Подъезд</Text>
+                <Text style={styles.infoValue}>{order.entrance || "—"}</Text>
+              </View>
+
+              <View style={styles.infoRow}>
+                <Text style={styles.infoLabel}>Комментарий</Text>
+                <Text style={styles.infoValue}>{order.comment || "—"}</Text>
+              </View>
+
+              <View style={styles.infoRow}>
+                <Text style={styles.infoLabel}>Оставить у двери</Text>
+                <Text style={styles.infoValue}>{order.leave_at_door ? "Да" : "Нет"}</Text>
+              </View>
+
+              <View style={styles.infoRow}>
+                <Text style={styles.infoLabel}>Нужно позвонить</Text>
+                <Text style={styles.infoValue}>{order.call_required ? "Да" : "Нет"}</Text>
+              </View>
+
+              <View style={styles.infoRow}>
                 <Text style={styles.infoLabel}>Пакет</Text>
                 <Text style={styles.infoValue}>{order.package_label || "—"}</Text>
               </View>
@@ -272,11 +301,6 @@ export default function ActiveOrderScreen() {
               <View style={styles.infoRow}>
                 <Text style={styles.infoLabel}>Итого</Text>
                 <Text style={styles.infoValue}>{formatPrice(order.total)}</Text>
-              </View>
-
-              <View style={styles.infoRow}>
-                <Text style={styles.infoLabel}>Телефон</Text>
-                <Text style={styles.infoValue}>{order.phone || "—"}</Text>
               </View>
 
               <View style={styles.infoRow}>

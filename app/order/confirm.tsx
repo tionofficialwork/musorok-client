@@ -1,8 +1,11 @@
 import { useState } from "react";
 import {
   ActivityIndicator,
+  KeyboardAvoidingView,
+  Platform,
   Pressable,
   SafeAreaView,
+  ScrollView,
   StyleSheet,
   Text,
   View,
@@ -20,6 +23,10 @@ export default function ConfirmScreen() {
     price?: string;
     address?: string;
     phone?: string;
+    entrance?: string;
+    comment?: string;
+    leaveAtDoor?: string;
+    callRequired?: string;
   }>();
 
   const packageId = typeof params.packageId === "string" ? params.packageId : "";
@@ -27,6 +34,10 @@ export default function ConfirmScreen() {
   const price = typeof params.price === "string" ? Number(params.price) : 0;
   const address = typeof params.address === "string" ? params.address : "";
   const phone = typeof params.phone === "string" ? params.phone : "";
+  const entrance = typeof params.entrance === "string" ? params.entrance : "";
+  const comment = typeof params.comment === "string" ? params.comment : "";
+  const leaveAtDoor = params.leaveAtDoor === "true";
+  const callRequired = params.callRequired === "true";
 
   const paymentMethod: PaymentMethod = "card";
   const total = price;
@@ -51,6 +62,10 @@ export default function ConfirmScreen() {
         total,
         address,
         phone,
+        entrance,
+        comment,
+        leave_at_door: leaveAtDoor,
+        call_required: callRequired,
         payment_method: paymentMethod,
       });
 
@@ -75,52 +90,76 @@ export default function ConfirmScreen() {
     <SafeAreaView style={styles.safeArea}>
       <Stack.Screen options={{ title: "Подтвердить заказ" }} />
 
-      <View style={styles.container}>
-        <Text style={styles.title}>Подтвердить заказ</Text>
+      <KeyboardAvoidingView
+        style={styles.flex}
+        behavior={Platform.OS === "ios" ? "padding" : undefined}
+      >
+        <ScrollView
+          contentContainerStyle={styles.content}
+          keyboardShouldPersistTaps="handled"
+          showsVerticalScrollIndicator={false}
+        >
+          <Text style={styles.title}>Подтвердить заказ</Text>
 
-        <View style={styles.card}>
-          <Text style={styles.label}>Адрес</Text>
-          <Text style={styles.value}>{address || "—"}</Text>
+          <View style={styles.card}>
+            <Text style={styles.label}>Адрес</Text>
+            <Text style={styles.value}>{address || "—"}</Text>
 
-          <Text style={styles.label}>Телефон</Text>
-          <Text style={styles.value}>{phone || "—"}</Text>
+            <Text style={styles.label}>Телефон</Text>
+            <Text style={styles.value}>{phone || "—"}</Text>
 
-          <Text style={styles.label}>Пакет</Text>
-          <Text style={styles.value}>{packageName || "—"}</Text>
+            <Text style={styles.label}>Подъезд</Text>
+            <Text style={styles.value}>{entrance || "—"}</Text>
 
-          <Text style={styles.label}>Цена</Text>
-          <Text style={styles.value}>{price ? `${price} ₽` : "—"}</Text>
+            <Text style={styles.label}>Комментарий</Text>
+            <Text style={styles.value}>{comment || "—"}</Text>
 
-          <Text style={styles.label}>Оплата</Text>
-          <Text style={styles.value}>Картой</Text>
+            <Text style={styles.label}>Оставить у двери</Text>
+            <Text style={styles.value}>{leaveAtDoor ? "Да" : "Нет"}</Text>
 
-          <Text style={styles.label}>Итого</Text>
-          <Text style={styles.value}>{total ? `${total} ₽` : "—"}</Text>
-        </View>
+            <Text style={styles.label}>Нужно позвонить</Text>
+            <Text style={styles.value}>{callRequired ? "Да" : "Нет"}</Text>
 
-        {error ? <Text style={styles.error}>{error}</Text> : null}
+            <Text style={styles.label}>Пакет</Text>
+            <Text style={styles.value}>{packageName || "—"}</Text>
 
-        <Pressable style={styles.button} onPress={handleConfirm} disabled={loading}>
-          {loading ? (
-            <ActivityIndicator color="#04110A" />
-          ) : (
-            <Text style={styles.buttonText}>Подтвердить</Text>
-          )}
-        </Pressable>
-      </View>
+            <Text style={styles.label}>Цена</Text>
+            <Text style={styles.value}>{price ? `${price} ₽` : "—"}</Text>
+
+            <Text style={styles.label}>Оплата</Text>
+            <Text style={styles.value}>Картой</Text>
+
+            <Text style={styles.label}>Итого</Text>
+            <Text style={styles.value}>{total ? `${total} ₽` : "—"}</Text>
+          </View>
+
+          {error ? <Text style={styles.error}>{error}</Text> : null}
+
+          <Pressable style={styles.button} onPress={handleConfirm} disabled={loading}>
+            {loading ? (
+              <ActivityIndicator color="#04110A" />
+            ) : (
+              <Text style={styles.buttonText}>Подтвердить</Text>
+            )}
+          </Pressable>
+        </ScrollView>
+      </KeyboardAvoidingView>
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
+  flex: {
+    flex: 1,
+  },
   safeArea: {
     flex: 1,
     backgroundColor: "#031225",
   },
-  container: {
-    flex: 1,
+  content: {
     padding: 20,
     gap: 20,
+    paddingBottom: 32,
   },
   title: {
     color: "#FFFFFF",
@@ -156,6 +195,7 @@ const styles = StyleSheet.create({
     borderRadius: 18,
     paddingVertical: 18,
     alignItems: "center",
+    marginBottom: 8,
   },
   buttonText: {
     color: "#04110A",

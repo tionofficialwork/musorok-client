@@ -6,6 +6,7 @@ import {
   SafeAreaView,
   ScrollView,
   StyleSheet,
+  Switch,
   Text,
   TextInput,
   View,
@@ -26,6 +27,10 @@ export default function OrderDetailsScreen() {
 
   const [address, setAddress] = useState("");
   const [phone, setPhone] = useState("");
+  const [entrance, setEntrance] = useState("");
+  const [comment, setComment] = useState("");
+  const [leaveAtDoor, setLeaveAtDoor] = useState(false);
+  const [callRequired, setCallRequired] = useState(false);
   const [error, setError] = useState("");
 
   const handleNext = () => {
@@ -54,6 +59,10 @@ export default function OrderDetailsScreen() {
         price,
         address: address.trim(),
         phone: phone.trim(),
+        entrance: entrance.trim(),
+        comment: comment.trim(),
+        leaveAtDoor: leaveAtDoor ? "true" : "false",
+        callRequired: callRequired ? "true" : "false",
       },
     });
   };
@@ -97,6 +106,47 @@ export default function OrderDetailsScreen() {
               style={styles.input}
             />
 
+            <Text style={styles.label}>Подъезд</Text>
+            <TextInput
+              value={entrance}
+              onChangeText={setEntrance}
+              placeholder="Например: 2"
+              placeholderTextColor="#6B7280"
+              style={styles.input}
+            />
+
+            <Text style={styles.label}>Комментарий</Text>
+            <TextInput
+              value={comment}
+              onChangeText={setComment}
+              placeholder="Например: домофон не работает"
+              placeholderTextColor="#6B7280"
+              style={[styles.input, styles.textArea]}
+              multiline
+              numberOfLines={4}
+              textAlignVertical="top"
+            />
+
+            <View style={styles.switchRow}>
+              <View style={styles.switchTextWrap}>
+                <Text style={styles.switchTitle}>Оставить у двери</Text>
+                <Text style={styles.switchDescription}>
+                  Курьер может оставить мусорный пакет у двери, если это допустимо.
+                </Text>
+              </View>
+              <Switch value={leaveAtDoor} onValueChange={setLeaveAtDoor} />
+            </View>
+
+            <View style={styles.switchRow}>
+              <View style={styles.switchTextWrap}>
+                <Text style={styles.switchTitle}>Нужно позвонить</Text>
+                <Text style={styles.switchDescription}>
+                  Курьер позвонит перед приходом.
+                </Text>
+              </View>
+              <Switch value={callRequired} onValueChange={setCallRequired} />
+            </View>
+
             {error ? <Text style={styles.error}>{error}</Text> : null}
           </View>
 
@@ -120,6 +170,7 @@ const styles = StyleSheet.create({
   content: {
     padding: 20,
     gap: 20,
+    paddingBottom: 32,
   },
   title: {
     color: "#FFFFFF",
@@ -166,6 +217,32 @@ const styles = StyleSheet.create({
     fontSize: 16,
     borderWidth: 1,
     borderColor: "#13243A",
+  },
+  textArea: {
+    minHeight: 110,
+  },
+  switchRow: {
+    marginTop: 8,
+    paddingVertical: 14,
+    paddingHorizontal: 4,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 16,
+  },
+  switchTextWrap: {
+    flex: 1,
+  },
+  switchTitle: {
+    color: "#FFFFFF",
+    fontSize: 16,
+    fontWeight: "600",
+  },
+  switchDescription: {
+    marginTop: 4,
+    color: "#94A3B8",
+    fontSize: 13,
+    lineHeight: 18,
   },
   error: {
     color: "#F87171",

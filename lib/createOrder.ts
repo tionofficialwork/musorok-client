@@ -9,6 +9,10 @@ export type CreateOrderInput = {
   total: number;
   address: string;
   phone: string;
+  entrance?: string;
+  comment?: string;
+  leave_at_door?: boolean;
+  call_required?: boolean;
   payment_method: PaymentMethod;
 };
 
@@ -21,6 +25,10 @@ export type CreateOrderResult = {
   total: number;
   address: string;
   phone: string;
+  entrance?: string | null;
+  comment?: string | null;
+  leave_at_door?: boolean | null;
+  call_required?: boolean | null;
   payment_method: PaymentMethod;
   created_at?: string;
 };
@@ -33,6 +41,10 @@ export async function createOrder(input: CreateOrderInput): Promise<CreateOrderR
     total,
     address,
     phone,
+    entrance,
+    comment,
+    leave_at_door = false,
+    call_required = false,
     payment_method,
   } = input;
 
@@ -74,12 +86,16 @@ export async function createOrder(input: CreateOrderInput): Promise<CreateOrderR
         total,
         address,
         phone,
+        entrance: entrance || null,
+        comment: comment || null,
+        leave_at_door,
+        call_required,
         payment_method,
         status: "new",
       },
     ])
     .select(
-      "id, status, package_id, package_label, package_price, total, address, phone, payment_method, created_at"
+      "id, status, package_id, package_label, package_price, total, address, phone, entrance, comment, leave_at_door, call_required, payment_method, created_at"
     )
     .single();
 
