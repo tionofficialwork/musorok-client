@@ -2,10 +2,12 @@ import { ReactNode } from "react";
 import {
   KeyboardAvoidingView,
   Platform,
+  RefreshControl,
   SafeAreaView,
   ScrollView,
   StyleProp,
   StyleSheet,
+  View,
   ViewStyle,
 } from "react-native";
 import { colors, spacing } from "../../lib/theme";
@@ -15,6 +17,7 @@ type AppScreenProps = {
   scrollable?: boolean;
   contentStyle?: StyleProp<ViewStyle>;
   keyboardAvoiding?: boolean;
+  refreshControl?: React.ReactElement<RefreshControl>;
 };
 
 export default function AppScreen({
@@ -22,18 +25,20 @@ export default function AppScreen({
   scrollable = true,
   contentStyle,
   keyboardAvoiding = false,
+  refreshControl,
 }: AppScreenProps) {
-  const content = scrollable ? (
+  const scrollView = (
     <ScrollView
       contentContainerStyle={[styles.scrollContent, contentStyle]}
       keyboardShouldPersistTaps="handled"
       showsVerticalScrollIndicator={false}
+      refreshControl={refreshControl}
     >
       {children}
     </ScrollView>
-  ) : (
-    children
   );
+
+  const content = scrollable ? scrollView : <View style={styles.flex}>{children}</View>;
 
   if (keyboardAvoiding) {
     return (
@@ -60,6 +65,7 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   scrollContent: {
+    flexGrow: 1,
     padding: spacing.xl,
     paddingBottom: spacing.xxxl,
     gap: spacing.lg,

@@ -1,522 +1,503 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
-  Pressable,
   RefreshControl,
-  SafeAreaView,
-  ScrollView,
   StyleSheet,
   Text,
   View,
 } from "react-native";
-import { Stack, useRouter } from "expo-router";
-
-import { clearActiveOrder, getActiveOrder } from "../../lib/activeOrder";
+import AsyncStorage from "@react-native-async-storage/async-storage";
+import { Stack, useLocalSearchParams, useRouter } from "expo-router";
+import { useFocusEffect } from "expo-router";
+import AppButton from "../../components/ui/AppButton";
+import AppCard from "../../components/ui/AppCard";
+import AppScreen from "../../components/ui/AppScreen";
+import ScreenSection from "../../components/ui/ScreenSection";
 import { supabase } from "../../lib/supabase";
+import { colors, radii, spacing, typography } from "../../lib/theme";
 
-type OrderStatus = "new" | "assigned" | "on_the_way" | "arrived" | "done" | "cancelled";
+type OrderStatus =
+  | "new"
+  | "searching"
+  | "assigned"
+  | "on_the_way"
+  | "arrived"
+  | "in_progress"
+  | "completed"
+  | "cancelled"
+  | string;
 
-type OrderRow = {
+type ActiveOrder = {
   id: string;
-  status: OrderStatus;
-  address: string | null;
-  package_id: string | null;
-  package_label: string | null;
-  package_price: number | null;
-  total: number | null;
-  phone: string | null;
-  entrance: string | null;
-  comment: string | null;
-  leave_at_door: boolean | null;
-  call_required: boolean | null;
-  payment_method: string | null;
-  created_at: string | null;
+  status?: OrderStatus | null;
+  address?: string | null;
+  apartment?: string | null;
+  entrance?: string | null;
+  comment?: string | null;
+  package_name?: string | null;
+  total_price?: number | null;
+  leave_at_door?: boolean | null;
+  call_required?: boolean | null;
+  created_at?: string | null;
 };
 
-const STATUS_STEPS: OrderStatus[] = ["new", "assigned", "on_the_way", "arrived", "done"];
-
-const STATUS_LABELS: Record<OrderStatus, string> = {
-  new: "Заказ создан",
-  assigned: "Курьер назначен",
-  on_the_way: "Курьер в пути",
-  arrived: "Курьер прибыл",
-  done: "Заказ выполнен",
-  cancelled: "Заказ отменён",
+type ActiveParams = {
+  orderId?: string;
 };
 
-const STATUS_DESCRIPTIONS: Record<OrderStatus, string> = {
-  new: "Мы получили ваш заказ и скоро начнем его обрабатывать.",
-  assigned: "Заказ взят в работу. Скоро курьер начнет движение.",
-  on_the_way: "Курьер уже направляется к вам.",
-  arrived: "Курьер на месте. Можно передавать мусор.",
-  done: "Спасибо! Заказ успешно завершен.",
-  cancelled: "Этот заказ был отменен.",
-};
+const ACTIVE_ORDER_STORAGE_KEYS = [
+  "activeOrder",
+  "active_order",
+  "musorok_active_order",
+];
 
-function formatPrice(value: number | null) {
-  if (typeof value !== "number") return "—";
+const FINISHED_STATUSES = new Set(["completed", "cancelled"]);
+
+function getStatusLabel(status?: string | null) {
+  switch (status) {
+    case "new":
+      return "Новый";
+    case "searching":
+      return "Ищем курьера";
+    case "assigned":
+      return "Курьер назначен";
+    case "on_the_way":
+      return "Курьер в пути";
+    case "arrived":
+      return "Курьер на месте";
+    case "in_progress":
+      return "Заказ выполняется";
+    case "completed":
+      return "Заказ выполнен";
+    case "cancelled":
+      return "Заказ отменён";
+    default:
+      return "Статус обновляется";
+  }
+}
+
+function getStatusDescription(status?: string | null) {
+  switch (status) {
+    case "new":
+      return "Заказ создан и ожидает обработки.";
+    case "searching":
+      return "Система ищет свободного курьера.";
+    case "assigned":
+      return "Курьер уже назначен на заказ.";
+    case "on_the_way":
+      return "Курьер едет к тебе.";
+    case "arrived":
+      return "Курьер уже прибыл по адресу.";
+    case "in_progress":
+      return "Заказ сейчас выполняется.";
+    case "completed":
+      return "Заказ завершён и скоро появится в истории.";
+    case "cancelled":
+      return "Заказ был отменён.";
+    default:
+      return "Обнови экран чуть позже, чтобы увидеть актуальные данные.";
+  }
+}
+
+function formatPrice(value?: number | null) {
+  if (typeof value !== "number" || Number.isNaN(value)) {
+    return "—";
+  }
+
   return `${value} ₽`;
 }
 
-function formatDate(value: string | null) {
-  if (!value) return "—";
-  return new Date(value).toLocaleString("ru-RU");
-}
-
-function formatPaymentMethod(value: string | null) {
-  if (!value) return "—";
-
-  if (value === "card") return "Картой";
-  if (value === "cash") return "Наличными";
-  if (value === "sbp") return "СБП";
-
-  return value;
+function formatBoolean(value?: boolean | null) {
+  return value ? "Да" : "Нет";
 }
 
 export default function ActiveOrderScreen() {
   const router = useRouter();
+  const params = useLocalSearchParams<ActiveParams>();
 
-  const [orderId, setOrderId] = useState<string>("");
-  const [order, setOrder] = useState<OrderRow | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
-  const [screenError, setScreenError] = useState<string | null>(null);
+  const paramOrderId =
+    typeof params.orderId === "string" ? params.orderId : undefined;
 
-  const currentStepIndex = useMemo(() => {
-    if (!order) return 0;
-    const index = STATUS_STEPS.indexOf(order.status);
-    return index === -1 ? 0 : index;
-  }, [order]);
+  const [order, setOrder] = useState<ActiveOrder | null>(null);
+  const [isInitialLoading, setIsInitialLoading] = useState(true);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const [errorText, setErrorText] = useState<string | null>(null);
 
-  const fetchOrder = useCallback(async (isRefresh = false) => {
-    try {
-      if (isRefresh) {
-        setRefreshing(true);
-      } else {
-        setLoading(true);
+  const statusLabel = useMemo(() => getStatusLabel(order?.status), [order?.status]);
+  const statusDescription = useMemo(
+    () => getStatusDescription(order?.status),
+    [order?.status]
+  );
+
+  const readStoredActiveOrderId = useCallback(async () => {
+    for (const key of ACTIVE_ORDER_STORAGE_KEYS) {
+      const rawValue = await AsyncStorage.getItem(key);
+
+      if (!rawValue) {
+        continue;
       }
 
-      setScreenError(null);
+      try {
+        const parsed = JSON.parse(rawValue) as { id?: string } | null;
 
-      const activeOrderId = await getActiveOrder();
-
-      if (!activeOrderId) {
-        setOrder(null);
-        setOrderId("");
-        setScreenError("Активный заказ не найден.");
-        return;
+        if (parsed?.id) {
+          return parsed.id;
+        }
+      } catch {
+        // ignore broken storage value
       }
-
-      setOrderId(activeOrderId);
-
-      const { data, error } = await supabase
-        .from("orders")
-        .select(
-          "id, status, address, package_id, package_label, package_price, total, phone, entrance, comment, leave_at_door, call_required, payment_method, created_at"
-        )
-        .eq("id", activeOrderId)
-        .single();
-
-      if (error) {
-        throw error;
-      }
-
-      const nextOrder = data as OrderRow;
-      setOrder(nextOrder);
-
-      if (nextOrder.status === "done" || nextOrder.status === "cancelled") {
-        await clearActiveOrder();
-      }
-    } catch (e: any) {
-      console.error("Failed to fetch active order:", e);
-      setScreenError(e?.message || "Не удалось загрузить активный заказ.");
-    } finally {
-      setLoading(false);
-      setRefreshing(false);
     }
+
+    return undefined;
   }, []);
 
-  useEffect(() => {
-    fetchOrder();
-  }, [fetchOrder]);
+  const removeStoredActiveOrder = useCallback(async () => {
+    await Promise.all(
+      ACTIVE_ORDER_STORAGE_KEYS.map((key) => AsyncStorage.removeItem(key))
+    );
+  }, []);
 
-  useEffect(() => {
-    if (!orderId) return;
-
-    const channel = supabase
-      .channel(`active-order-${orderId}`)
-      .on(
-        "postgres_changes",
-        {
-          event: "UPDATE",
-          schema: "public",
-          table: "orders",
-          filter: `id=eq.${orderId}`,
-        },
-        async (payload) => {
-          const next = payload.new as OrderRow;
-          setOrder(next);
-
-          if (next.status === "done" || next.status === "cancelled") {
-            await clearActiveOrder();
-          }
-        }
-      )
-      .subscribe();
-
-    return () => {
-      supabase.removeChannel(channel);
-    };
-  }, [orderId]);
-
-  const handleGoHome = async () => {
-    if (order?.status === "done" || order?.status === "cancelled") {
-      await clearActiveOrder();
+  const resolveOrderId = useCallback(async () => {
+    if (paramOrderId) {
+      return paramOrderId;
     }
 
+    return readStoredActiveOrderId();
+  }, [paramOrderId, readStoredActiveOrderId]);
+
+  const loadOrder = useCallback(
+    async (mode: "initial" | "refresh" = "initial") => {
+      try {
+        setErrorText(null);
+
+        if (mode === "initial") {
+          setIsInitialLoading(true);
+        } else {
+          setIsRefreshing(true);
+        }
+
+        const orderId = await resolveOrderId();
+
+        if (!orderId) {
+          setOrder(null);
+          return;
+        }
+
+        const { data, error } = await supabase
+          .from("orders")
+          .select(
+            "id, status, address, apartment, entrance, comment, package_name, total_price, leave_at_door, call_required, created_at"
+          )
+          .eq("id", orderId)
+          .single();
+
+        if (error) {
+          setErrorText("Не удалось загрузить активный заказ. Попробуй обновить экран.");
+          return;
+        }
+
+        if (!data) {
+          setOrder(null);
+          setErrorText("Активный заказ не найден.");
+          return;
+        }
+
+        if (FINISHED_STATUSES.has(String(data.status))) {
+          await removeStoredActiveOrder();
+        }
+
+        setOrder(data as ActiveOrder);
+      } catch (error) {
+        console.error("Active order load error:", error);
+        setErrorText("Произошла ошибка при загрузке заказа.");
+      } finally {
+        if (mode === "initial") {
+          setIsInitialLoading(false);
+        } else {
+          setIsRefreshing(false);
+        }
+      }
+    },
+    [removeStoredActiveOrder, resolveOrderId]
+  );
+
+  useEffect(() => {
+    loadOrder("initial");
+  }, [loadOrder]);
+
+  useFocusEffect(
+    useCallback(() => {
+      loadOrder("refresh");
+    }, [loadOrder])
+  );
+
+  const handleRefresh = useCallback(() => {
+    loadOrder("refresh");
+  }, [loadOrder]);
+
+  const handleGoHome = useCallback(() => {
     router.replace("/");
-  };
+  }, [router]);
 
-  const handleRefresh = async () => {
-    await fetchOrder(true);
-  };
-
-  const title = order ? STATUS_LABELS[order.status] : "Активный заказ";
-  const description = order ? STATUS_DESCRIPTIONS[order.status] : "Здесь будет отображаться текущий заказ.";
+  const handleOpenHistory = useCallback(() => {
+    router.push("/order/history");
+  }, [router]);
 
   return (
-    <SafeAreaView style={styles.safeArea}>
+    <>
       <Stack.Screen options={{ title: "Активный заказ" }} />
 
-      <ScrollView
-        contentContainerStyle={styles.content}
-        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={handleRefresh} />}
+      <AppScreen
+        refreshControl={
+          <RefreshControl refreshing={isRefreshing} onRefresh={handleRefresh} />
+        }
       >
-        <View style={styles.heroCard}>
-          <Text style={styles.heroBadge}>МУСОРОК</Text>
-          <Text style={styles.heroTitle}>{title}</Text>
-          <Text style={styles.heroDescription}>{description}</Text>
-        </View>
-
-        {loading ? (
-          <View style={styles.loadingCard}>
+        {isInitialLoading ? (
+          <View style={styles.centerState}>
             <ActivityIndicator size="large" />
-            <Text style={styles.loadingText}>Загружаем активный заказ...</Text>
+            <Text style={styles.centerStateText}>Загружаем активный заказ...</Text>
           </View>
-        ) : screenError ? (
-          <View style={styles.errorCard}>
-            <Text style={styles.errorTitle}>Нет активного заказа</Text>
-            <Text style={styles.errorText}>{screenError}</Text>
+        ) : !order ? (
+          <View style={styles.centerState}>
+            <Text style={styles.emptyTitle}>Активного заказа нет</Text>
+            <Text style={styles.emptyText}>
+              Когда создашь новый заказ, здесь появится его текущий статус.
+            </Text>
 
-            <Pressable style={styles.primaryButton} onPress={handleGoHome}>
-              <Text style={styles.primaryButtonText}>На главную</Text>
-            </Pressable>
+            {errorText ? <Text style={styles.errorText}>{errorText}</Text> : null}
+
+            <View style={styles.buttons}>
+              <AppButton title="На главную" onPress={handleGoHome} />
+              <AppButton
+                title="История заказов"
+                variant="outline"
+                onPress={handleOpenHistory}
+              />
+            </View>
           </View>
-        ) : order ? (
-          <>
-            <View style={styles.card}>
-              <View style={styles.cardHeader}>
-                <Text style={styles.cardTitle}>Прогресс заказа</Text>
+        ) : (
+          <ScreenSection>
+            <View style={styles.header}>
+              <Text style={styles.title}>Активный заказ</Text>
+              <Text style={styles.subtitle}>
+                Здесь можно смотреть текущий статус и основные детали заказа.
+              </Text>
+            </View>
 
-                <Pressable
-                  style={styles.inlineRefreshButton}
+            {errorText ? (
+              <AppCard style={styles.errorCard}>
+                <Text style={styles.errorTitle}>Не удалось полностью обновить данные</Text>
+                <Text style={styles.errorBody}>{errorText}</Text>
+                <AppButton
+                  title="Обновить"
+                  variant="secondary"
                   onPress={handleRefresh}
-                  disabled={refreshing}
-                >
-                  {refreshing ? (
-                    <ActivityIndicator size="small" color="#04110A" />
-                  ) : (
-                    <Text style={styles.inlineRefreshButtonText}>Обновить</Text>
-                  )}
-                </Pressable>
+                />
+              </AppCard>
+            ) : null}
+
+            <AppCard>
+              <View style={styles.topRow}>
+                <Text style={styles.cardTitle}>Статус заказа</Text>
+                <Text style={styles.refreshText} onPress={handleRefresh}>
+                  Обновить
+                </Text>
               </View>
 
-              <View style={styles.timeline}>
-                {STATUS_STEPS.map((step, index) => {
-                  const isCompleted = index <= currentStepIndex;
-                  const isCurrent = order.status === step;
-
-                  return (
-                    <View key={step} style={styles.timelineRow}>
-                      <View
-                        style={[
-                          styles.timelineDot,
-                          isCompleted && styles.timelineDotCompleted,
-                          isCurrent && styles.timelineDotCurrent,
-                        ]}
-                      />
-                      <View style={styles.timelineContent}>
-                        <Text
-                          style={[
-                            styles.timelineLabel,
-                            isCompleted && styles.timelineLabelCompleted,
-                          ]}
-                        >
-                          {STATUS_LABELS[step]}
-                        </Text>
-                        {isCurrent ? (
-                          <Text style={styles.timelineCurrent}>Текущий статус</Text>
-                        ) : null}
-                      </View>
-                    </View>
-                  );
-                })}
+              <View style={styles.statusPill}>
+                <Text style={styles.statusPillText}>{statusLabel}</Text>
               </View>
+
+              <Text style={styles.statusDescription}>{statusDescription}</Text>
+            </AppCard>
+
+            <AppCard>
+              <Text style={styles.cardTitle}>Основная информация</Text>
+
+              <View style={styles.rows}>
+                <InfoRow label="Адрес" value={order.address || "—"} />
+                <InfoRow label="Квартира" value={order.apartment || "Не указана"} />
+                <InfoRow label="Подъезд" value={order.entrance || "Не указан"} />
+                <InfoRow label="Тариф" value={order.package_name || "—"} />
+                <InfoRow label="Сумма" value={formatPrice(order.total_price)} />
+              </View>
+            </AppCard>
+
+            <AppCard>
+              <Text style={styles.cardTitle}>Дополнительно</Text>
+
+              <View style={styles.rows}>
+                <InfoRow
+                  label="Оставить у двери"
+                  value={formatBoolean(order.leave_at_door)}
+                />
+                <InfoRow
+                  label="Нужно позвонить"
+                  value={formatBoolean(order.call_required)}
+                />
+                <InfoRow
+                  label="Комментарий"
+                  value={order.comment || "Нет комментария"}
+                  isLast
+                />
+              </View>
+            </AppCard>
+
+            <View style={styles.buttons}>
+              <AppButton title="Обновить статус" onPress={handleRefresh} />
+              <AppButton
+                title="История заказов"
+                variant="outline"
+                onPress={handleOpenHistory}
+              />
+              <AppButton
+                title="На главную"
+                variant="outline"
+                onPress={handleGoHome}
+              />
             </View>
+          </ScreenSection>
+        )}
+      </AppScreen>
+    </>
+  );
+}
 
-            <View style={styles.card}>
-              <Text style={styles.cardTitle}>Детали заказа</Text>
+type InfoRowProps = {
+  label: string;
+  value: string;
+  isLast?: boolean;
+};
 
-              <View style={styles.infoRow}>
-                <Text style={styles.infoLabel}>Номер заказа</Text>
-                <Text style={styles.infoValue}>{order.id}</Text>
-              </View>
-
-              <View style={styles.infoRow}>
-                <Text style={styles.infoLabel}>Адрес</Text>
-                <Text style={styles.infoValue}>{order.address || "—"}</Text>
-              </View>
-
-              <View style={styles.infoRow}>
-                <Text style={styles.infoLabel}>Телефон</Text>
-                <Text style={styles.infoValue}>{order.phone || "—"}</Text>
-              </View>
-
-              <View style={styles.infoRow}>
-                <Text style={styles.infoLabel}>Подъезд</Text>
-                <Text style={styles.infoValue}>{order.entrance || "—"}</Text>
-              </View>
-
-              <View style={styles.infoRow}>
-                <Text style={styles.infoLabel}>Комментарий</Text>
-                <Text style={styles.infoValue}>{order.comment || "—"}</Text>
-              </View>
-
-              <View style={styles.infoRow}>
-                <Text style={styles.infoLabel}>Оставить у двери</Text>
-                <Text style={styles.infoValue}>{order.leave_at_door ? "Да" : "Нет"}</Text>
-              </View>
-
-              <View style={styles.infoRow}>
-                <Text style={styles.infoLabel}>Нужно позвонить</Text>
-                <Text style={styles.infoValue}>{order.call_required ? "Да" : "Нет"}</Text>
-              </View>
-
-              <View style={styles.infoRow}>
-                <Text style={styles.infoLabel}>Пакет</Text>
-                <Text style={styles.infoValue}>{order.package_label || "—"}</Text>
-              </View>
-
-              <View style={styles.infoRow}>
-                <Text style={styles.infoLabel}>Цена</Text>
-                <Text style={styles.infoValue}>{formatPrice(order.package_price)}</Text>
-              </View>
-
-              <View style={styles.infoRow}>
-                <Text style={styles.infoLabel}>Итого</Text>
-                <Text style={styles.infoValue}>{formatPrice(order.total)}</Text>
-              </View>
-
-              <View style={styles.infoRow}>
-                <Text style={styles.infoLabel}>Оплата</Text>
-                <Text style={styles.infoValue}>{formatPaymentMethod(order.payment_method)}</Text>
-              </View>
-
-              <View style={styles.infoRow}>
-                <Text style={styles.infoLabel}>Создан</Text>
-                <Text style={styles.infoValue}>{formatDate(order.created_at)}</Text>
-              </View>
-            </View>
-
-            {order.status === "done" || order.status === "cancelled" ? (
-              <Pressable style={styles.primaryButton} onPress={handleGoHome}>
-                <Text style={styles.primaryButtonText}>Готово</Text>
-              </Pressable>
-            ) : (
-              <Pressable style={styles.secondaryButton} onPress={handleGoHome}>
-                <Text style={styles.secondaryButtonText}>Вернуться на главную</Text>
-              </Pressable>
-            )}
-          </>
-        ) : null}
-      </ScrollView>
-    </SafeAreaView>
+function InfoRow({ label, value, isLast = false }: InfoRowProps) {
+  return (
+    <View style={[styles.infoRow, isLast && styles.infoRowLast]}>
+      <Text style={styles.infoLabel}>{label}</Text>
+      <Text style={styles.infoValue}>{value}</Text>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  safeArea: {
+  centerState: {
     flex: 1,
-    backgroundColor: "#0B1220",
-  },
-  content: {
-    padding: 16,
-    gap: 16,
-    paddingBottom: 32,
-  },
-  heroCard: {
-    backgroundColor: "#111827",
-    borderRadius: 20,
-    padding: 20,
-    borderWidth: 1,
-    borderColor: "#1F2937",
-  },
-  heroBadge: {
-    color: "#9CA3AF",
-    fontSize: 12,
-    marginBottom: 8,
-    textTransform: "uppercase",
-    letterSpacing: 1,
-  },
-  heroTitle: {
-    color: "#FFFFFF",
-    fontSize: 28,
-    fontWeight: "700",
-    marginBottom: 8,
-  },
-  heroDescription: {
-    color: "#D1D5DB",
-    fontSize: 15,
-    lineHeight: 22,
-  },
-  loadingCard: {
-    backgroundColor: "#111827",
-    borderRadius: 20,
-    padding: 24,
-    alignItems: "center",
-    gap: 12,
-    borderWidth: 1,
-    borderColor: "#1F2937",
-  },
-  loadingText: {
-    color: "#E5E7EB",
-    fontSize: 15,
-  },
-  errorCard: {
-    backgroundColor: "#111827",
-    borderRadius: 20,
-    padding: 20,
-    gap: 12,
-    borderWidth: 1,
-    borderColor: "#1F2937",
-  },
-  errorTitle: {
-    color: "#FFFFFF",
-    fontSize: 20,
-    fontWeight: "700",
-  },
-  errorText: {
-    color: "#D1D5DB",
-    fontSize: 15,
-    lineHeight: 22,
-  },
-  card: {
-    backgroundColor: "#111827",
-    borderRadius: 20,
-    padding: 20,
-    borderWidth: 1,
-    borderColor: "#1F2937",
-  },
-  cardHeader: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    gap: 12,
-    marginBottom: 16,
-  },
-  cardTitle: {
-    color: "#FFFFFF",
-    fontSize: 18,
-    fontWeight: "700",
-  },
-  inlineRefreshButton: {
-    backgroundColor: "#22C55E",
-    borderRadius: 999,
-    minWidth: 108,
-    paddingHorizontal: 14,
-    paddingVertical: 10,
+    minHeight: 520,
     alignItems: "center",
     justifyContent: "center",
+    paddingHorizontal: spacing.xl,
+    gap: spacing.md,
   },
-  inlineRefreshButtonText: {
-    color: "#04110A",
-    fontSize: 14,
+  centerStateText: {
+    fontSize: typography.body,
+    color: colors.textSecondary,
+    textAlign: "center",
+  },
+  emptyTitle: {
+    fontSize: typography.h1,
     fontWeight: "800",
+    color: colors.text,
+    textAlign: "center",
   },
-  timeline: {
-    gap: 14,
+  emptyText: {
+    fontSize: typography.body,
+    lineHeight: 22,
+    color: colors.textSecondary,
+    textAlign: "center",
   },
-  timelineRow: {
+  errorText: {
+    fontSize: typography.bodySmall,
+    color: colors.errorText,
+    textAlign: "center",
+  },
+  header: {
+    gap: spacing.sm,
+  },
+  title: {
+    fontSize: typography.h1,
+    fontWeight: "800",
+    color: colors.text,
+  },
+  subtitle: {
+    fontSize: typography.body,
+    lineHeight: 22,
+    color: colors.textSecondary,
+  },
+  errorCard: {
+    backgroundColor: colors.errorBg,
+    borderWidth: 1,
+    borderColor: colors.errorBorder,
+    gap: spacing.sm,
+  },
+  errorTitle: {
+    fontSize: 16,
+    fontWeight: "800",
+    color: colors.errorTitle,
+  },
+  errorBody: {
+    fontSize: typography.bodySmall,
+    lineHeight: 20,
+    color: colors.errorText,
+  },
+  topRow: {
     flexDirection: "row",
-    alignItems: "flex-start",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: spacing.md,
+    marginBottom: spacing.md,
   },
-  timelineDot: {
-    width: 14,
-    height: 14,
-    borderRadius: 7,
-    backgroundColor: "#374151",
-    marginTop: 4,
-    marginRight: 12,
+  cardTitle: {
+    fontSize: typography.h3,
+    fontWeight: "800",
+    color: colors.text,
   },
-  timelineDotCompleted: {
-    backgroundColor: "#22C55E",
+  refreshText: {
+    fontSize: typography.bodySmall,
+    fontWeight: "700",
+    color: colors.primary,
   },
-  timelineDotCurrent: {
-    transform: [{ scale: 1.15 }],
+  statusPill: {
+    alignSelf: "flex-start",
+    backgroundColor: colors.primarySoft,
+    borderRadius: radii.pill,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    marginBottom: spacing.md,
   },
-  timelineContent: {
-    flex: 1,
+  statusPillText: {
+    fontSize: typography.caption,
+    fontWeight: "700",
+    color: colors.primary,
   },
-  timelineLabel: {
-    color: "#9CA3AF",
-    fontSize: 15,
-    fontWeight: "600",
+  statusDescription: {
+    fontSize: typography.body,
+    lineHeight: 22,
+    color: colors.textSecondary,
   },
-  timelineLabelCompleted: {
-    color: "#FFFFFF",
-  },
-  timelineCurrent: {
-    color: "#22C55E",
-    fontSize: 13,
-    marginTop: 4,
+  rows: {
+    marginTop: spacing.md,
   },
   infoRow: {
-    paddingVertical: 10,
+    paddingVertical: spacing.md,
     borderBottomWidth: 1,
-    borderBottomColor: "#1F2937",
-    gap: 6,
+    borderBottomColor: colors.border,
+    gap: spacing.xs,
+  },
+  infoRowLast: {
+    borderBottomWidth: 0,
+    paddingBottom: 0,
   },
   infoLabel: {
-    color: "#9CA3AF",
-    fontSize: 13,
+    fontSize: typography.bodySmall,
+    fontWeight: "700",
+    color: colors.textSecondary,
   },
   infoValue: {
-    color: "#FFFFFF",
-    fontSize: 16,
-    fontWeight: "500",
-  },
-  primaryButton: {
-    backgroundColor: "#22C55E",
-    borderRadius: 16,
-    paddingVertical: 16,
-    alignItems: "center",
-  },
-  primaryButtonText: {
-    color: "#08110A",
-    fontSize: 16,
+    fontSize: typography.body,
+    lineHeight: 22,
     fontWeight: "700",
+    color: colors.text,
   },
-  secondaryButton: {
-    backgroundColor: "#111827",
-    borderRadius: 16,
-    paddingVertical: 16,
-    alignItems: "center",
-    borderWidth: 1,
-    borderColor: "#1F2937",
-  },
-  secondaryButtonText: {
-    color: "#FFFFFF",
-    fontSize: 16,
-    fontWeight: "700",
+  buttons: {
+    gap: spacing.md,
   },
 });
