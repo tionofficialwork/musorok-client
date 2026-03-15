@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Pressable, StyleSheet, Switch, Text, View } from "react-native";
 import { Stack, useLocalSearchParams, useRouter } from "expo-router";
 import AppButton from "../../components/ui/AppButton";
@@ -16,6 +16,12 @@ export default function OrderDetailsScreen() {
     packageId?: string;
     packageName?: string;
     price?: string;
+    address?: string;
+    apartment?: string;
+    entrance?: string;
+    comment?: string;
+    leave_at_door?: string;
+    call_required?: string;
   }>();
 
   const packageId = typeof params.packageId === "string" ? params.packageId : "";
@@ -30,9 +36,59 @@ export default function OrderDetailsScreen() {
   const [leaveAtDoor, setLeaveAtDoor] = useState(false);
   const [callRequired, setCallRequired] = useState(false);
 
+  useEffect(() => {
+    if (typeof params.address === "string") {
+      setAddress(params.address);
+    }
+
+    if (typeof params.apartment === "string") {
+      setApartment(params.apartment);
+    }
+
+    if (typeof params.entrance === "string") {
+      setEntrance(params.entrance);
+    }
+
+    if (typeof params.comment === "string") {
+      setComment(params.comment);
+    }
+
+    if (typeof params.leave_at_door === "string") {
+      setLeaveAtDoor(params.leave_at_door === "true");
+    }
+
+    if (typeof params.call_required === "string") {
+      setCallRequired(params.call_required === "true");
+    }
+  }, [
+    params.address,
+    params.apartment,
+    params.call_required,
+    params.comment,
+    params.entrance,
+    params.leave_at_door,
+  ]);
+
   const isFormValid = useMemo(() => {
     return address.trim().length > 0;
   }, [address]);
+
+  const handleOpenMap = () => {
+    router.push({
+      pathname: "/order/map",
+      params: {
+        packageId,
+        packageName,
+        price,
+        address: address.trim(),
+        apartment: apartment.trim(),
+        entrance: entrance.trim(),
+        comment: comment.trim(),
+        leave_at_door: leaveAtDoor ? "true" : "false",
+        call_required: callRequired ? "true" : "false",
+      },
+    });
+  };
 
   const handleContinue = () => {
     if (!isFormValid) {
@@ -79,6 +135,12 @@ export default function OrderDetailsScreen() {
                   returnKeyType="next"
                 />
               </View>
+
+              <AppButton
+                title="Выбрать на карте"
+                variant="outline"
+                onPress={handleOpenMap}
+              />
 
               <View style={styles.row}>
                 <View style={styles.rowItem}>
