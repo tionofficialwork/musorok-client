@@ -1,229 +1,333 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
+  Alert,
   Pressable,
+  RefreshControl,
   SafeAreaView,
+  ScrollView,
   StyleSheet,
   Text,
   View,
 } from "react-native";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useFocusEffect, useRouter } from "expo-router";
-
-import { getActiveOrder } from "../lib/activeOrder";
 import { supabase } from "../lib/supabase";
 
-type ActiveOrderPreview = {
+type ActiveOrderStatus =
+  | "new"
+  | "searching"
+  | "assigned"
+  | "on_the_way"
+  | "arrived"
+  | "in_progress"
+  | "completed"
+  | "cancelled"
+  | string;
+
+type ActiveOrder = {
   id: string;
-  status: string | null;
-  address: string | null;
-  total: number | null;
+  status?: ActiveOrderStatus | null;
+  address?: string | null;
+  total_price?: number | null;
+  package_name?: string | null;
+  entrance?: string | null;
+  comment?: string | null;
+  leave_at_door?: boolean | null;
+  call_required?: boolean | null;
 };
 
-function getStatusLabel(status: string | null | undefined) {
+const ACTIVE_ORDER_STORAGE_KEYS = [
+  "activeOrder",
+  "active_order",
+  "musorok_active_order",
+];
+
+const COMPLETED_STATUSES = new Set(["completed", "cancelled"]);
+
+function formatPrice(value?: number | null) {
+  if (typeof value !== "number" || Number.isNaN(value)) {
+    return "—";
+  }
+
+  return `${value} ₽`;
+}
+
+function getStatusLabel(status?: string | null) {
   switch (status) {
     case "new":
-      return "Заказ создан";
+      return "Новый";
+    case "searching":
+      return "Ищем курьера";
     case "assigned":
       return "Курьер назначен";
     case "on_the_way":
       return "Курьер в пути";
     case "arrived":
-      return "Курьер прибыл";
-    case "done":
+      return "Курьер на месте";
+    case "in_progress":
+      return "Заказ выполняется";
+    case "completed":
       return "Выполнен";
     case "cancelled":
       return "Отменён";
     default:
-      return "Активный заказ";
+      return "В обработке";
   }
-}
-
-function getStatusChipStyles(status: string | null | undefined) {
-  switch (status) {
-    case "assigned":
-    case "on_the_way":
-    case "arrived":
-      return {
-        backgroundColor: "#10233D",
-        textColor: "#60A5FA",
-      };
-    case "done":
-      return {
-        backgroundColor: "#0F2A1A",
-        textColor: "#4ADE80",
-      };
-    case "cancelled":
-      return {
-        backgroundColor: "#2A1215",
-        textColor: "#F87171",
-      };
-    case "new":
-    default:
-      return {
-        backgroundColor: "#1F2937",
-        textColor: "#D1D5DB",
-      };
-  }
-}
-
-function formatPrice(value: number | null) {
-  if (typeof value !== "number") return "—";
-  return `${value} ₽`;
 }
 
 export default function HomeScreen() {
   const router = useRouter();
 
-  const [checkingOrder, setCheckingOrder] = useState(true);
-  const [activeOrder, setActiveOrder] = useState<ActiveOrderPreview | null>(null);
+  const [activeOrder, setActiveOrder] = useState<ActiveOrder | null>(null);
+  const [isInitialLoading, setIsInitialLoading] = useState(true);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const [errorText, setErrorText] = useState<string | null>(null);
 
-  const loadActiveOrderState = useCallback(async () => {
-    try {
-      const storedActiveOrderId = await getActiveOrder();
+  const activeStatusLabel = useMemo(
+    () => getStatusLabel(activeOrder?.status),
+    [activeOrder?.status]
+  );
 
-      if (!storedActiveOrderId) {
-        setActiveOrder(null);
-        return;
+  const readStoredActiveOrder = useCallback(async (): Promise<ActiveOrder | null> => {
+    for (const key of ACTIVE_ORDER_STORAGE_KEYS) {
+      const rawValue = await AsyncStorage.getItem(key);
+
+      if (!rawValue) {
+        continue;
       }
 
-      const { data, error } = await supabase
-        .from("orders")
-        .select("id, status, address, total")
-        .eq("id", storedActiveOrderId)
-        .single();
+      try {
+        const parsed = JSON.parse(rawValue) as ActiveOrder | null;
 
-      if (error) {
-        setActiveOrder(null);
-        return;
+        if (parsed?.id) {
+          return parsed;
+        }
+      } catch {
+        // ignore broken value and continue
       }
-
-      const nextOrder = data as ActiveOrderPreview;
-
-      if (nextOrder.status === "done" || nextOrder.status === "cancelled") {
-        setActiveOrder(null);
-        return;
-      }
-
-      setActiveOrder(nextOrder);
-    } finally {
-      setCheckingOrder(false);
     }
+
+    return null;
   }, []);
 
+  const removeStoredActiveOrder = useCallback(async () => {
+    await Promise.all(
+      ACTIVE_ORDER_STORAGE_KEYS.map((key) => AsyncStorage.removeItem(key))
+    );
+  }, []);
+
+  const syncActiveOrder = useCallback(async () => {
+    setErrorText(null);
+
+    const stored = await readStoredActiveOrder();
+
+    if (!stored?.id) {
+      setActiveOrder(null);
+      return;
+    }
+
+    const { data, error } = await supabase
+      .from("orders")
+      .select(
+        "id, status, address, total_price, package_name, entrance, comment, leave_at_door, call_required"
+      )
+      .eq("id", stored.id)
+      .single();
+
+    if (error) {
+      setActiveOrder(stored);
+      setErrorText("Не удалось обновить активный заказ. Показаны сохранённые данные.");
+      return;
+    }
+
+    if (!data) {
+      setActiveOrder(stored);
+      setErrorText("Заказ не найден. Показаны сохранённые данные.");
+      return;
+    }
+
+    if (COMPLETED_STATUSES.has(String(data.status))) {
+      await removeStoredActiveOrder();
+      setActiveOrder(null);
+      return;
+    }
+
+    setActiveOrder(data as ActiveOrder);
+  }, [readStoredActiveOrder, removeStoredActiveOrder]);
+
+  const loadHomeData = useCallback(
+    async (mode: "initial" | "refresh" = "initial") => {
+      try {
+        if (mode === "initial") {
+          setIsInitialLoading(true);
+        } else {
+          setIsRefreshing(true);
+        }
+
+        await syncActiveOrder();
+      } catch (error) {
+        console.error("Home screen load error:", error);
+        setErrorText("Не удалось загрузить данные. Попробуй обновить экран.");
+      } finally {
+        if (mode === "initial") {
+          setIsInitialLoading(false);
+        } else {
+          setIsRefreshing(false);
+        }
+      }
+    },
+    [syncActiveOrder]
+  );
+
   useEffect(() => {
-    loadActiveOrderState();
-  }, [loadActiveOrderState]);
+    loadHomeData("initial");
+  }, [loadHomeData]);
 
   useFocusEffect(
     useCallback(() => {
-      loadActiveOrderState();
-    }, [loadActiveOrderState])
+      loadHomeData("refresh");
+    }, [loadHomeData])
   );
 
-  if (checkingOrder) {
-    return (
-      <SafeAreaView style={styles.safeArea}>
-        <View style={styles.centered}>
-          <ActivityIndicator size="large" />
-          <Text style={styles.loadingText}>Проверяем активный заказ...</Text>
-        </View>
-      </SafeAreaView>
-    );
-  }
+  const handleRefresh = useCallback(() => {
+    loadHomeData("refresh");
+  }, [loadHomeData]);
 
-  const hasActiveOrder = Boolean(activeOrder);
-  const statusChip = getStatusChipStyles(activeOrder?.status);
+  const handleOpenActiveOrder = useCallback(() => {
+    if (!activeOrder?.id) {
+      Alert.alert("Активный заказ не найден");
+      return;
+    }
+
+    router.push({
+      pathname: "/order/active",
+      params: {
+        orderId: activeOrder.id,
+      },
+    });
+  }, [activeOrder?.id, router]);
+
+  const handleCreateOrder = useCallback(() => {
+    router.push("/order/package");
+  }, [router]);
+
+  const handleOpenHistory = useCallback(() => {
+    router.push("/order/history");
+  }, [router]);
 
   return (
     <SafeAreaView style={styles.safeArea}>
-      <View style={styles.container}>
-        <Text style={styles.brand}>МУСОРОК</Text>
-        <Text style={styles.title}>Вынос мусора по кнопке</Text>
-        <Text style={styles.subtitle}>
-          Оформите заказ за пару шагов, а дальше мы возьмём всё на себя.
-        </Text>
+      <ScrollView
+        contentContainerStyle={styles.content}
+        refreshControl={
+          <RefreshControl refreshing={isRefreshing} onRefresh={handleRefresh} />
+        }
+      >
+        <View style={styles.header}>
+          <Text style={styles.title}>МусорОК</Text>
+          <Text style={styles.subtitle}>
+            Вынос бытового мусора по кнопке
+          </Text>
+        </View>
 
-        {hasActiveOrder ? (
-          <View style={styles.activeOrderCard}>
-            <View style={styles.activeOrderTop}>
-              <Text style={styles.activeOrderBadge}>АКТИВНЫЙ ЗАКАЗ</Text>
-
-              <View
-                style={[
-                  styles.statusChip,
-                  { backgroundColor: statusChip.backgroundColor },
-                ]}
-              >
-                <Text
-                  style={[
-                    styles.statusChipText,
-                    { color: statusChip.textColor },
-                  ]}
-                >
-                  {getStatusLabel(activeOrder?.status)}
-                </Text>
-              </View>
-            </View>
-
-            <Text style={styles.activeOrderTitle}>У вас есть активный заказ</Text>
-
-            <Text style={styles.activeOrderText}>
-              Заказ #{activeOrder?.id || "—"} сейчас в работе.
-            </Text>
-
-            <View style={styles.activeOrderInfoGrid}>
-              <View style={styles.infoCard}>
-                <Text style={styles.infoLabel}>Адрес</Text>
-                <Text style={styles.infoValue}>{activeOrder?.address || "—"}</Text>
-              </View>
-
-              <View style={styles.infoCard}>
-                <Text style={styles.infoLabel}>Сумма</Text>
-                <Text style={styles.infoValue}>{formatPrice(activeOrder?.total ?? null)}</Text>
-              </View>
-            </View>
-
-            <View style={styles.actions}>
-              <Pressable
-                style={styles.primaryButton}
-                onPress={() => router.push("/order/active")}
-              >
-                <Text style={styles.primaryButtonText}>Открыть заказ</Text>
-              </Pressable>
-
-              <Pressable
-                style={styles.secondaryButton}
-                onPress={() => router.push("/order/history")}
-              >
-                <Text style={styles.secondaryButtonText}>История заказов</Text>
-              </Pressable>
-
-              <Pressable
-                style={styles.ghostButton}
-                onPress={() => router.push("/order/package")}
-              >
-                <Text style={styles.ghostButtonText}>Новый заказ</Text>
-              </Pressable>
-            </View>
+        {isInitialLoading ? (
+          <View style={styles.centerState}>
+            <ActivityIndicator size="large" />
+            <Text style={styles.stateText}>Загружаем данные...</Text>
           </View>
         ) : (
-          <View style={styles.actions}>
-            <Pressable
-              style={styles.primaryButton}
-              onPress={() => router.push("/order/package")}
-            >
-              <Text style={styles.primaryButtonText}>Начать заказ</Text>
-            </Pressable>
+          <>
+            {errorText ? (
+              <View style={styles.errorCard}>
+                <Text style={styles.errorTitle}>Есть проблема с загрузкой</Text>
+                <Text style={styles.errorText}>{errorText}</Text>
 
-            <Pressable
-              style={styles.secondaryButton}
-              onPress={() => router.push("/order/history")}
-            >
-              <Text style={styles.secondaryButtonText}>История заказов</Text>
-            </Pressable>
-          </View>
+                <Pressable style={styles.secondaryButton} onPress={handleRefresh}>
+                  <Text style={styles.secondaryButtonText}>Обновить</Text>
+                </Pressable>
+              </View>
+            ) : null}
+
+            {activeOrder ? (
+              <View style={styles.activeOrderCard}>
+                <View style={styles.activeOrderTopRow}>
+                  <Text style={styles.cardTitle}>Активный заказ</Text>
+                  <Pressable onPress={handleRefresh} hitSlop={10}>
+                    <Text style={styles.refreshText}>Обновить</Text>
+                  </Pressable>
+                </View>
+
+                <View style={styles.statusPill}>
+                  <Text style={styles.statusPillText}>{activeStatusLabel}</Text>
+                </View>
+
+                <View style={styles.infoBlock}>
+                  <Text style={styles.infoLabel}>Адрес</Text>
+                  <Text style={styles.infoValue}>
+                    {activeOrder.address || "Адрес не указан"}
+                  </Text>
+                </View>
+
+                <View style={styles.row}>
+                  <View style={styles.rowItem}>
+                    <Text style={styles.infoLabel}>Тариф</Text>
+                    <Text style={styles.infoValue}>
+                      {activeOrder.package_name || "—"}
+                    </Text>
+                  </View>
+
+                  <View style={styles.rowItem}>
+                    <Text style={styles.infoLabel}>Сумма</Text>
+                    <Text style={styles.infoValue}>
+                      {formatPrice(activeOrder.total_price)}
+                    </Text>
+                  </View>
+                </View>
+
+                <Pressable
+                  style={styles.primaryButton}
+                  onPress={handleOpenActiveOrder}
+                >
+                  <Text style={styles.primaryButtonText}>Открыть активный заказ</Text>
+                </Pressable>
+              </View>
+            ) : (
+              <View style={styles.emptyCard}>
+                <Text style={styles.emptyTitle}>Активных заказов нет</Text>
+                <Text style={styles.emptyText}>
+                  Создай новый заказ, и он появится здесь.
+                </Text>
+
+                <Pressable
+                  style={styles.primaryButton}
+                  onPress={handleCreateOrder}
+                >
+                  <Text style={styles.primaryButtonText}>Создать заказ</Text>
+                </Pressable>
+              </View>
+            )}
+
+            <View style={styles.actionsBlock}>
+              <Pressable style={styles.outlineButton} onPress={handleCreateOrder}>
+                <Text style={styles.outlineButtonText}>Новый заказ</Text>
+              </Pressable>
+
+              <Pressable style={styles.outlineButton} onPress={handleOpenHistory}>
+                <Text style={styles.outlineButtonText}>История заказов</Text>
+              </Pressable>
+            </View>
+
+            <View style={styles.hintCard}>
+              <Text style={styles.hintTitle}>Как это работает</Text>
+              <Text style={styles.hintText}>
+                Выбираешь тариф, указываешь детали, подтверждаешь заказ — курьер
+                забирает мусор.
+              </Text>
+            </View>
+          </>
         )}
-      </View>
+      </ScrollView>
     </SafeAreaView>
   );
 }
@@ -231,144 +335,193 @@ export default function HomeScreen() {
 const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
-    backgroundColor: "#031225",
+    backgroundColor: "#F6F7FB",
   },
-  centered: {
-    flex: 1,
-    alignItems: "center",
-    justifyContent: "center",
-    padding: 24,
-    gap: 14,
-  },
-  loadingText: {
-    color: "#FFFFFF",
-    fontSize: 16,
-    textAlign: "center",
-  },
-  container: {
-    flex: 1,
-    padding: 24,
-    justifyContent: "center",
-  },
-  brand: {
-    color: "#94A3B8",
-    fontSize: 14,
-    letterSpacing: 2,
-    marginBottom: 12,
-  },
-  title: {
-    color: "#FFFFFF",
-    fontSize: 38,
-    fontWeight: "800",
-    lineHeight: 44,
-    marginBottom: 12,
-  },
-  subtitle: {
-    color: "#CBD5E1",
-    fontSize: 17,
-    lineHeight: 24,
-    marginBottom: 32,
-  },
-  activeOrderCard: {
-    backgroundColor: "#081426",
-    borderRadius: 24,
+  content: {
     padding: 20,
-    borderWidth: 1,
-    borderColor: "#0F2138",
+    paddingBottom: 32,
+    gap: 16,
   },
-  activeOrderTop: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    gap: 12,
-    marginBottom: 12,
-  },
-  activeOrderBadge: {
-    color: "#22C55E",
-    fontSize: 12,
-    fontWeight: "800",
-    letterSpacing: 1,
-  },
-  statusChip: {
-    borderRadius: 999,
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-  },
-  statusChipText: {
-    fontSize: 12,
-    fontWeight: "800",
-  },
-  activeOrderTitle: {
-    color: "#FFFFFF",
-    fontSize: 24,
-    fontWeight: "800",
+  header: {
+    marginTop: 8,
     marginBottom: 8,
   },
-  activeOrderText: {
-    color: "#CBD5E1",
+  title: {
+    fontSize: 32,
+    fontWeight: "800",
+    color: "#111111",
+  },
+  subtitle: {
+    marginTop: 6,
     fontSize: 15,
     lineHeight: 22,
-    marginBottom: 18,
+    color: "#6B7280",
   },
-  activeOrderInfoGrid: {
+  centerState: {
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: 60,
     gap: 12,
-    marginBottom: 20,
   },
-  infoCard: {
-    backgroundColor: "#0B1A2E",
-    borderRadius: 16,
-    padding: 14,
-    borderWidth: 1,
-    borderColor: "#13243A",
+  stateText: {
+    fontSize: 15,
+    color: "#6B7280",
+  },
+  activeOrderCard: {
+    backgroundColor: "#FFFFFF",
+    borderRadius: 20,
+    padding: 18,
+    gap: 14,
+    shadowColor: "#000",
+    shadowOpacity: 0.06,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 2,
+  },
+  activeOrderTopRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+  cardTitle: {
+    fontSize: 20,
+    fontWeight: "800",
+    color: "#111111",
+  },
+  refreshText: {
+    fontSize: 14,
+    fontWeight: "700",
+    color: "#E9281D",
+  },
+  statusPill: {
+    alignSelf: "flex-start",
+    backgroundColor: "#FFF1F0",
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 999,
+  },
+  statusPillText: {
+    fontSize: 13,
+    fontWeight: "700",
+    color: "#E9281D",
+  },
+  infoBlock: {
+    gap: 6,
   },
   infoLabel: {
-    color: "#94A3B8",
-    fontSize: 12,
-    marginBottom: 6,
+    fontSize: 13,
+    fontWeight: "600",
+    color: "#6B7280",
   },
   infoValue: {
-    color: "#FFFFFF",
-    fontSize: 15,
-    fontWeight: "600",
+    fontSize: 16,
+    fontWeight: "700",
+    color: "#111111",
   },
-  actions: {
+  row: {
+    flexDirection: "row",
     gap: 12,
   },
+  rowItem: {
+    flex: 1,
+    gap: 6,
+  },
   primaryButton: {
-    backgroundColor: "#22C55E",
-    borderRadius: 18,
-    paddingVertical: 18,
+    backgroundColor: "#E9281D",
+    borderRadius: 14,
+    paddingVertical: 16,
     alignItems: "center",
+    justifyContent: "center",
   },
   primaryButtonText: {
-    color: "#04110A",
-    fontSize: 18,
+    color: "#FFFFFF",
+    fontSize: 16,
     fontWeight: "800",
   },
   secondaryButton: {
-    backgroundColor: "#081426",
-    borderRadius: 18,
-    paddingVertical: 18,
-    alignItems: "center",
-    borderWidth: 1,
-    borderColor: "#0F2138",
+    alignSelf: "flex-start",
+    backgroundColor: "#111111",
+    borderRadius: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
   },
   secondaryButtonText: {
     color: "#FFFFFF",
-    fontSize: 18,
+    fontSize: 14,
     fontWeight: "700",
   },
-  ghostButton: {
-    backgroundColor: "#0B1A2E",
-    borderRadius: 18,
-    paddingVertical: 18,
-    alignItems: "center",
+  outlineButton: {
+    flex: 1,
     borderWidth: 1,
-    borderColor: "#13243A",
+    borderColor: "#E5E7EB",
+    backgroundColor: "#FFFFFF",
+    borderRadius: 14,
+    paddingVertical: 16,
+    alignItems: "center",
+    justifyContent: "center",
   },
-  ghostButtonText: {
-    color: "#CBD5E1",
-    fontSize: 17,
+  outlineButtonText: {
+    fontSize: 15,
     fontWeight: "700",
+    color: "#111111",
+  },
+  actionsBlock: {
+    flexDirection: "row",
+    gap: 12,
+  },
+  emptyCard: {
+    backgroundColor: "#FFFFFF",
+    borderRadius: 20,
+    padding: 20,
+    gap: 12,
+    shadowColor: "#000",
+    shadowOpacity: 0.05,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 2,
+  },
+  emptyTitle: {
+    fontSize: 20,
+    fontWeight: "800",
+    color: "#111111",
+  },
+  emptyText: {
+    fontSize: 15,
+    lineHeight: 22,
+    color: "#6B7280",
+  },
+  hintCard: {
+    backgroundColor: "#FFFFFF",
+    borderRadius: 20,
+    padding: 18,
+    gap: 8,
+  },
+  hintTitle: {
+    fontSize: 17,
+    fontWeight: "800",
+    color: "#111111",
+  },
+  hintText: {
+    fontSize: 15,
+    lineHeight: 22,
+    color: "#6B7280",
+  },
+  errorCard: {
+    backgroundColor: "#FFF4F4",
+    borderRadius: 16,
+    padding: 16,
+    gap: 10,
+    borderWidth: 1,
+    borderColor: "#FFD6D3",
+  },
+  errorTitle: {
+    fontSize: 16,
+    fontWeight: "800",
+    color: "#7F1D1D",
+  },
+  errorText: {
+    fontSize: 14,
+    lineHeight: 20,
+    color: "#991B1B",
   },
 });
