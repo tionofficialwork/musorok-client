@@ -1,16 +1,17 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
   Pressable,
+  RefreshControl,
   SafeAreaView,
   ScrollView,
   StyleSheet,
   Text,
   View,
 } from "react-native";
-import { Stack, useLocalSearchParams, useRouter } from "expo-router";
+import { Stack, useRouter } from "expo-router";
 
-import { clearActiveOrder, saveActiveOrder } from "../../lib/activeOrder";
+import { clearActiveOrder, getActiveOrder } from "../../lib/activeOrder";
 import { supabase } from "../../lib/supabase";
 
 type OrderStatus = "new" | "assigned" | "on_the_way" | "arrived" | "done" | "cancelled";
@@ -68,13 +69,13 @@ function formatPaymentMethod(value: string | null) {
   return value;
 }
 
-export default function OrderSuccessScreen() {
+export default function ActiveOrderScreen() {
   const router = useRouter();
-  const params = useLocalSearchParams<{ orderId?: string }>();
-  const orderId = typeof params.orderId === "string" ? params.orderId : "";
 
+  const [orderId, setOrderId] = useState<string>("");
   const [order, setOrder] = useState<OrderRow | null>(null);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [screenError, setScreenError] = useState<string | null>(null);
 
   const currentStepIndex = useMemo(() => {
@@ -83,35 +84,37 @@ export default function OrderSuccessScreen() {
     return index === -1 ? 0 : index;
   }, [order]);
 
-  useEffect(() => {
-    if (!orderId) {
-      setLoading(false);
-      setScreenError("Не найден ID заказа. Попробуйте оформить заказ заново.");
-      return;
-    }
+  const fetchOrder = useCallback(async (isRefresh = false) => {
+    try {
+      if (isRefresh) {
+        setRefreshing(true);
+      } else {
+        setLoading(true);
+      }
 
-    let isMounted = true;
-
-    const init = async () => {
-      await saveActiveOrder(orderId);
-
-      setLoading(true);
       setScreenError(null);
+
+      const activeOrderId = await getActiveOrder();
+
+      if (!activeOrderId) {
+        setOrder(null);
+        setOrderId("");
+        setScreenError("Активный заказ не найден.");
+        return;
+      }
+
+      setOrderId(activeOrderId);
 
       const { data, error } = await supabase
         .from("orders")
         .select(
           "id, status, address, package_id, package_label, package_price, total, phone, payment_method, created_at"
         )
-        .eq("id", orderId)
+        .eq("id", activeOrderId)
         .single();
 
-      if (!isMounted) return;
-
       if (error) {
-        setScreenError(error.message || "Не удалось загрузить заказ.");
-        setLoading(false);
-        return;
+        throw error;
       }
 
       const nextOrder = data as OrderRow;
@@ -120,14 +123,24 @@ export default function OrderSuccessScreen() {
       if (nextOrder.status === "done" || nextOrder.status === "cancelled") {
         await clearActiveOrder();
       }
-
+    } catch (e: any) {
+      console.error("Failed to fetch active order:", e);
+      setScreenError(e?.message || "Не удалось загрузить активный заказ.");
+    } finally {
       setLoading(false);
-    };
+      setRefreshing(false);
+    }
+  }, []);
 
-    init();
+  useEffect(() => {
+    fetchOrder();
+  }, [fetchOrder]);
+
+  useEffect(() => {
+    if (!orderId) return;
 
     const channel = supabase
-      .channel(`order-${orderId}`)
+      .channel(`active-order-${orderId}`)
       .on(
         "postgres_changes",
         {
@@ -148,7 +161,6 @@ export default function OrderSuccessScreen() {
       .subscribe();
 
     return () => {
-      isMounted = false;
       supabase.removeChannel(channel);
     };
   }, [orderId]);
@@ -161,18 +173,21 @@ export default function OrderSuccessScreen() {
     router.replace("/");
   };
 
-  const handleOpenActiveOrder = () => {
-    router.replace("/order/active");
+  const handleRefresh = async () => {
+    await fetchOrder(true);
   };
 
-  const title = order ? STATUS_LABELS[order.status] : "Заказ создан";
-  const description = order ? STATUS_DESCRIPTIONS[order.status] : "Мы получили ваш заказ.";
+  const title = order ? STATUS_LABELS[order.status] : "Активный заказ";
+  const description = order ? STATUS_DESCRIPTIONS[order.status] : "Здесь будет отображаться текущий заказ.";
 
   return (
     <SafeAreaView style={styles.safeArea}>
-      <Stack.Screen options={{ title: "Активный заказ", headerBackVisible: false }} />
+      <Stack.Screen options={{ title: "Активный заказ" }} />
 
-      <ScrollView contentContainerStyle={styles.content}>
+      <ScrollView
+        contentContainerStyle={styles.content}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={handleRefresh} />}
+      >
         <View style={styles.heroCard}>
           <Text style={styles.heroBadge}>МУСОРОК</Text>
           <Text style={styles.heroTitle}>{title}</Text>
@@ -182,11 +197,11 @@ export default function OrderSuccessScreen() {
         {loading ? (
           <View style={styles.loadingCard}>
             <ActivityIndicator size="large" />
-            <Text style={styles.loadingText}>Загружаем заказ...</Text>
+            <Text style={styles.loadingText}>Загружаем активный заказ...</Text>
           </View>
         ) : screenError ? (
           <View style={styles.errorCard}>
-            <Text style={styles.errorTitle}>Не удалось открыть заказ</Text>
+            <Text style={styles.errorTitle}>Нет активного заказа</Text>
             <Text style={styles.errorText}>{screenError}</Text>
 
             <Pressable style={styles.primaryButton} onPress={handleGoHome}>
@@ -280,15 +295,9 @@ export default function OrderSuccessScreen() {
                 <Text style={styles.primaryButtonText}>Готово</Text>
               </Pressable>
             ) : (
-              <>
-                <Pressable style={styles.primaryButton} onPress={handleOpenActiveOrder}>
-                  <Text style={styles.primaryButtonText}>Открыть экран заказа</Text>
-                </Pressable>
-
-                <Pressable style={styles.secondaryButton} onPress={handleGoHome}>
-                  <Text style={styles.secondaryButtonText}>Вернуться на главную</Text>
-                </Pressable>
-              </>
+              <Pressable style={styles.secondaryButton} onPress={handleGoHome}>
+                <Text style={styles.secondaryButtonText}>Вернуться на главную</Text>
+              </Pressable>
             )}
           </>
         ) : null}
@@ -446,7 +455,6 @@ const styles = StyleSheet.create({
     alignItems: "center",
     borderWidth: 1,
     borderColor: "#1F2937",
-    marginTop: 12,
   },
   secondaryButtonText: {
     color: "#FFFFFF",

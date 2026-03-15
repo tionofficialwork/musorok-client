@@ -3,7 +3,6 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 const ACTIVE_ORDER_ID_KEY = "musorok_active_order_id";
 
 export async function saveActiveOrder(orderId: string) {
-  if (!orderId) return;
   await AsyncStorage.setItem(ACTIVE_ORDER_ID_KEY, orderId);
 }
 
