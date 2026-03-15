@@ -1,17 +1,12 @@
-import { useState } from "react";
-import {
-  KeyboardAvoidingView,
-  Platform,
-  Pressable,
-  SafeAreaView,
-  ScrollView,
-  StyleSheet,
-  Switch,
-  Text,
-  TextInput,
-  View,
-} from "react-native";
+import { useMemo, useState } from "react";
+import { Pressable, StyleSheet, Switch, Text, View } from "react-native";
 import { Stack, useLocalSearchParams, useRouter } from "expo-router";
+import AppButton from "../../components/ui/AppButton";
+import AppCard from "../../components/ui/AppCard";
+import AppInput from "../../components/ui/AppInput";
+import AppScreen from "../../components/ui/AppScreen";
+import ScreenSection from "../../components/ui/ScreenSection";
+import { colors, radii, spacing, typography } from "../../lib/theme";
 
 export default function OrderDetailsScreen() {
   const router = useRouter();
@@ -22,34 +17,25 @@ export default function OrderDetailsScreen() {
   }>();
 
   const packageId = typeof params.packageId === "string" ? params.packageId : "";
-  const packageName = typeof params.packageName === "string" ? params.packageName : "";
+  const packageName =
+    typeof params.packageName === "string" ? params.packageName : "";
   const price = typeof params.price === "string" ? params.price : "";
 
   const [address, setAddress] = useState("");
-  const [phone, setPhone] = useState("");
+  const [apartment, setApartment] = useState("");
   const [entrance, setEntrance] = useState("");
   const [comment, setComment] = useState("");
   const [leaveAtDoor, setLeaveAtDoor] = useState(false);
   const [callRequired, setCallRequired] = useState(false);
-  const [error, setError] = useState("");
 
-  const handleNext = () => {
-    if (!packageId || !packageName || !price) {
-      setError("Не выбран пакет. Вернитесь назад и выберите пакет заново.");
+  const isFormValid = useMemo(() => {
+    return address.trim().length > 0;
+  }, [address]);
+
+  const handleContinue = () => {
+    if (!isFormValid) {
       return;
     }
-
-    if (!address.trim()) {
-      setError("Введите адрес.");
-      return;
-    }
-
-    if (!phone.trim()) {
-      setError("Введите телефон.");
-      return;
-    }
-
-    setError("");
 
     router.push({
       pathname: "/order/confirm",
@@ -58,206 +44,262 @@ export default function OrderDetailsScreen() {
         packageName,
         price,
         address: address.trim(),
-        phone: phone.trim(),
+        apartment: apartment.trim(),
         entrance: entrance.trim(),
         comment: comment.trim(),
-        leaveAtDoor: leaveAtDoor ? "true" : "false",
-        callRequired: callRequired ? "true" : "false",
+        leave_at_door: leaveAtDoor ? "true" : "false",
+        call_required: callRequired ? "true" : "false",
       },
     });
   };
 
   return (
-    <SafeAreaView style={styles.safeArea}>
-      <Stack.Screen options={{ title: "Адрес и телефон" }} />
+    <>
+      <Stack.Screen options={{ title: "Детали заказа" }} />
 
-      <KeyboardAvoidingView
-        style={styles.flex}
-        behavior={Platform.OS === "ios" ? "padding" : undefined}
-      >
-        <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
-          <Text style={styles.title}>Укажите детали заказа</Text>
-
-          <View style={styles.summaryCard}>
-            <Text style={styles.summaryLabel}>Пакет</Text>
-            <Text style={styles.summaryValue}>{packageName || "—"}</Text>
-
-            <Text style={styles.summaryLabel}>Цена</Text>
-            <Text style={styles.summaryValue}>{price ? `${price} ₽` : "—"}</Text>
+      <AppScreen keyboardAvoiding>
+        <ScreenSection>
+          <View style={styles.header}>
+            <Text style={styles.title}>Укажи детали</Text>
+            <Text style={styles.subtitle}>
+              Заполни адрес и дополнительные параметры, чтобы курьер быстро нашёл
+              тебя и забрал мусор без лишних звонков.
+            </Text>
           </View>
 
-          <View style={styles.formCard}>
-            <Text style={styles.label}>Адрес</Text>
-            <TextInput
-              value={address}
-              onChangeText={setAddress}
-              placeholder="Например: Грязная 5"
-              placeholderTextColor="#6B7280"
-              style={styles.input}
-            />
+          <AppCard>
+            <Text style={styles.sectionTitle}>Адрес</Text>
 
-            <Text style={styles.label}>Телефон</Text>
-            <TextInput
-              value={phone}
-              onChangeText={setPhone}
-              placeholder="+7..."
-              placeholderTextColor="#6B7280"
-              keyboardType="phone-pad"
-              style={styles.input}
-            />
-
-            <Text style={styles.label}>Подъезд</Text>
-            <TextInput
-              value={entrance}
-              onChangeText={setEntrance}
-              placeholder="Например: 2"
-              placeholderTextColor="#6B7280"
-              style={styles.input}
-            />
-
-            <Text style={styles.label}>Комментарий</Text>
-            <TextInput
-              value={comment}
-              onChangeText={setComment}
-              placeholder="Например: домофон не работает"
-              placeholderTextColor="#6B7280"
-              style={[styles.input, styles.textArea]}
-              multiline
-              numberOfLines={4}
-              textAlignVertical="top"
-            />
-
-            <View style={styles.switchRow}>
-              <View style={styles.switchTextWrap}>
-                <Text style={styles.switchTitle}>Оставить у двери</Text>
-                <Text style={styles.switchDescription}>
-                  Курьер может оставить мусорный пакет у двери, если это допустимо.
-                </Text>
+            <View style={styles.formGroup}>
+              <View style={styles.fieldGroup}>
+                <Text style={styles.label}>Адрес *</Text>
+                <AppInput
+                  value={address}
+                  onChangeText={setAddress}
+                  placeholder="Например: ул. Абая 21"
+                  returnKeyType="next"
+                />
               </View>
-              <Switch value={leaveAtDoor} onValueChange={setLeaveAtDoor} />
+
+              <View style={styles.row}>
+                <View style={styles.rowItem}>
+                  <Text style={styles.label}>Квартира</Text>
+                  <AppInput
+                    value={apartment}
+                    onChangeText={setApartment}
+                    placeholder="12"
+                    keyboardType="default"
+                    returnKeyType="next"
+                  />
+                </View>
+
+                <View style={styles.rowItem}>
+                  <Text style={styles.label}>Подъезд</Text>
+                  <AppInput
+                    value={entrance}
+                    onChangeText={setEntrance}
+                    placeholder="2"
+                    keyboardType="default"
+                    returnKeyType="next"
+                  />
+                </View>
+              </View>
+
+              <View style={styles.fieldGroup}>
+                <Text style={styles.label}>Комментарий</Text>
+                <AppInput
+                  value={comment}
+                  onChangeText={setComment}
+                  placeholder="Например: домофон не работает"
+                  multiline
+                  textAlignVertical="top"
+                  style={styles.textArea}
+                />
+              </View>
+            </View>
+          </AppCard>
+
+          <AppCard>
+            <Text style={styles.sectionTitle}>Дополнительно</Text>
+
+            <View style={styles.optionsList}>
+              <OptionRow
+                title="Оставить у двери"
+                description="Подойдёт, если не хочешь лично передавать мусор."
+                value={leaveAtDoor}
+                onValueChange={setLeaveAtDoor}
+              />
+
+              <OptionRow
+                title="Нужно позвонить"
+                description="Курьер позвонит перед приходом."
+                value={callRequired}
+                onValueChange={setCallRequired}
+              />
+            </View>
+          </AppCard>
+
+          <AppCard>
+            <Text style={styles.summaryTitle}>Текущий тариф</Text>
+            <View style={styles.summaryRow}>
+              <Text style={styles.summaryName}>
+                {packageName || "Тариф не выбран"}
+              </Text>
+              <Text style={styles.summaryPrice}>{price ? `${price} ₽` : "—"}</Text>
             </View>
 
-            <View style={styles.switchRow}>
-              <View style={styles.switchTextWrap}>
-                <Text style={styles.switchTitle}>Нужно позвонить</Text>
-                <Text style={styles.switchDescription}>
-                  Курьер позвонит перед приходом.
-                </Text>
-              </View>
-              <Switch value={callRequired} onValueChange={setCallRequired} />
+            <View style={styles.summaryButtonWrap}>
+              <AppButton
+                title="Продолжить"
+                onPress={handleContinue}
+                disabled={!isFormValid}
+              />
             </View>
 
-            {error ? <Text style={styles.error}>{error}</Text> : null}
-          </View>
+            {!isFormValid ? (
+              <Text style={styles.validationText}>
+                Чтобы продолжить, укажи адрес.
+              </Text>
+            ) : null}
+          </AppCard>
+        </ScreenSection>
+      </AppScreen>
+    </>
+  );
+}
 
-          <Pressable style={styles.button} onPress={handleNext}>
-            <Text style={styles.buttonText}>Далее</Text>
-          </Pressable>
-        </ScrollView>
-      </KeyboardAvoidingView>
-    </SafeAreaView>
+type OptionRowProps = {
+  title: string;
+  description: string;
+  value: boolean;
+  onValueChange: (value: boolean) => void;
+};
+
+function OptionRow({
+  title,
+  description,
+  value,
+  onValueChange,
+}: OptionRowProps) {
+  return (
+    <Pressable
+      onPress={() => onValueChange(!value)}
+      style={({ pressed }) => [styles.optionRow, pressed && styles.optionPressed]}
+    >
+      <View style={styles.optionTextBlock}>
+        <Text style={styles.optionTitle}>{title}</Text>
+        <Text style={styles.optionDescription}>{description}</Text>
+      </View>
+
+      <Switch value={value} onValueChange={onValueChange} />
+    </Pressable>
   );
 }
 
 const styles = StyleSheet.create({
-  flex: {
-    flex: 1,
-  },
-  safeArea: {
-    flex: 1,
-    backgroundColor: "#031225",
-  },
-  content: {
-    padding: 20,
-    gap: 20,
-    paddingBottom: 32,
+  header: {
+    gap: spacing.sm,
   },
   title: {
-    color: "#FFFFFF",
-    fontSize: 32,
+    fontSize: typography.h1,
     fontWeight: "800",
+    color: colors.text,
   },
-  summaryCard: {
-    backgroundColor: "#081426",
-    borderRadius: 24,
-    padding: 20,
-    gap: 8,
-    borderWidth: 1,
-    borderColor: "#0F2138",
+  subtitle: {
+    fontSize: typography.body,
+    lineHeight: 22,
+    color: colors.textSecondary,
   },
-  summaryLabel: {
-    color: "#94A3B8",
-    fontSize: 13,
-    marginTop: 8,
+  sectionTitle: {
+    fontSize: typography.h3,
+    fontWeight: "800",
+    color: colors.text,
+    marginBottom: spacing.md,
   },
-  summaryValue: {
-    color: "#FFFFFF",
-    fontSize: 22,
-    fontWeight: "600",
+  formGroup: {
+    gap: spacing.lg,
   },
-  formCard: {
-    backgroundColor: "#081426",
-    borderRadius: 24,
-    padding: 20,
-    gap: 10,
-    borderWidth: 1,
-    borderColor: "#0F2138",
+  fieldGroup: {
+    gap: spacing.sm,
   },
   label: {
-    color: "#94A3B8",
-    fontSize: 14,
-    marginTop: 4,
+    fontSize: typography.bodySmall,
+    fontWeight: "700",
+    color: colors.text,
   },
-  input: {
-    backgroundColor: "#0B1A2E",
-    borderRadius: 14,
-    paddingHorizontal: 16,
-    paddingVertical: 16,
-    color: "#FFFFFF",
-    fontSize: 16,
-    borderWidth: 1,
-    borderColor: "#13243A",
+  row: {
+    flexDirection: "row",
+    gap: spacing.md,
+  },
+  rowItem: {
+    flex: 1,
+    gap: spacing.sm,
   },
   textArea: {
     minHeight: 110,
+    paddingTop: 14,
   },
-  switchRow: {
-    marginTop: 8,
-    paddingVertical: 14,
-    paddingHorizontal: 4,
+  optionsList: {
+    gap: spacing.md,
+  },
+  optionRow: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    gap: 16,
+    gap: spacing.md,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radii.lg,
+    padding: spacing.lg,
+    backgroundColor: colors.surface,
   },
-  switchTextWrap: {
+  optionPressed: {
+    opacity: 0.96,
+  },
+  optionTextBlock: {
     flex: 1,
+    gap: spacing.xs,
+    paddingRight: spacing.sm,
   },
-  switchTitle: {
-    color: "#FFFFFF",
-    fontSize: 16,
-    fontWeight: "600",
-  },
-  switchDescription: {
-    marginTop: 4,
-    color: "#94A3B8",
-    fontSize: 13,
-    lineHeight: 18,
-  },
-  error: {
-    color: "#F87171",
-    fontSize: 14,
-    marginTop: 6,
-  },
-  button: {
-    backgroundColor: "#22C55E",
-    borderRadius: 18,
-    paddingVertical: 18,
-    alignItems: "center",
-  },
-  buttonText: {
-    color: "#04110A",
-    fontSize: 18,
+  optionTitle: {
+    fontSize: typography.body,
     fontWeight: "800",
+    color: colors.text,
+  },
+  optionDescription: {
+    fontSize: typography.bodySmall,
+    lineHeight: 20,
+    color: colors.textSecondary,
+  },
+  summaryTitle: {
+    fontSize: typography.bodySmall,
+    fontWeight: "700",
+    color: colors.textSecondary,
+  },
+  summaryRow: {
+    marginTop: spacing.sm,
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    gap: spacing.md,
+  },
+  summaryName: {
+    flex: 1,
+    fontSize: typography.h3,
+    fontWeight: "800",
+    color: colors.text,
+  },
+  summaryPrice: {
+    fontSize: 20,
+    fontWeight: "800",
+    color: colors.primary,
+  },
+  summaryButtonWrap: {
+    marginTop: spacing.lg,
+  },
+  validationText: {
+    marginTop: spacing.sm,
+    fontSize: typography.bodySmall,
+    color: colors.errorText,
   },
 });

@@ -1,205 +1,297 @@
-import { useState } from "react";
-import {
-  ActivityIndicator,
-  KeyboardAvoidingView,
-  Platform,
-  Pressable,
-  SafeAreaView,
-  ScrollView,
-  StyleSheet,
-  Text,
-  View,
-} from "react-native";
+import { useMemo, useState } from "react";
+import { ActivityIndicator, Alert, StyleSheet, Text, View } from "react-native";
 import { Stack, useLocalSearchParams, useRouter } from "expo-router";
+import AppButton from "../../components/ui/AppButton";
+import AppCard from "../../components/ui/AppCard";
+import AppScreen from "../../components/ui/AppScreen";
+import ScreenSection from "../../components/ui/ScreenSection";
+import { createOrder } from "../../lib/createOrder";
+import { colors, spacing, typography } from "../../lib/theme";
 
-import { createOrder, PaymentMethod } from "../../lib/createOrder";
+type ConfirmParams = {
+  packageId?: string;
+  packageName?: string;
+  price?: string;
+  address?: string;
+  apartment?: string;
+  entrance?: string;
+  comment?: string;
+  leave_at_door?: string;
+  call_required?: string;
+};
 
-export default function ConfirmScreen() {
+function parseBooleanParam(value?: string) {
+  return value === "true";
+}
+
+function formatPrice(price?: string) {
+  if (!price) {
+    return "—";
+  }
+
+  return `${price} ₽`;
+}
+
+export default function OrderConfirmScreen() {
   const router = useRouter();
-
-  const params = useLocalSearchParams<{
-    packageId?: string;
-    packageName?: string;
-    price?: string;
-    address?: string;
-    phone?: string;
-    entrance?: string;
-    comment?: string;
-    leaveAtDoor?: string;
-    callRequired?: string;
-  }>();
+  const params = useLocalSearchParams<ConfirmParams>();
 
   const packageId = typeof params.packageId === "string" ? params.packageId : "";
-  const packageName = typeof params.packageName === "string" ? params.packageName : "";
-  const price = typeof params.price === "string" ? Number(params.price) : 0;
+  const packageName =
+    typeof params.packageName === "string" ? params.packageName : "";
+  const price = typeof params.price === "string" ? params.price : "";
   const address = typeof params.address === "string" ? params.address : "";
-  const phone = typeof params.phone === "string" ? params.phone : "";
+  const apartment =
+    typeof params.apartment === "string" ? params.apartment : "";
   const entrance = typeof params.entrance === "string" ? params.entrance : "";
   const comment = typeof params.comment === "string" ? params.comment : "";
-  const leaveAtDoor = params.leaveAtDoor === "true";
-  const callRequired = params.callRequired === "true";
+  const leaveAtDoor = parseBooleanParam(
+    typeof params.leave_at_door === "string" ? params.leave_at_door : undefined
+  );
+  const callRequired = parseBooleanParam(
+    typeof params.call_required === "string" ? params.call_required : undefined
+  );
 
-  const paymentMethod: PaymentMethod = "card";
-  const total = price;
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState("");
+  const detailsRows = useMemo(
+    () => [
+      {
+        label: "Адрес",
+        value: address || "—",
+      },
+      {
+        label: "Квартира",
+        value: apartment || "Не указана",
+      },
+      {
+        label: "Подъезд",
+        value: entrance || "Не указан",
+      },
+      {
+        label: "Комментарий",
+        value: comment || "Нет комментария",
+      },
+      {
+        label: "Оставить у двери",
+        value: leaveAtDoor ? "Да" : "Нет",
+      },
+      {
+        label: "Нужно позвонить",
+        value: callRequired ? "Да" : "Нет",
+      },
+    ],
+    [address, apartment, entrance, comment, leaveAtDoor, callRequired]
+  );
 
-  const handleConfirm = async () => {
-    if (!packageId || !packageName || !price || !address || !phone) {
-      setError("Не хватает данных заказа. Вернитесь назад и заполните шаги заново.");
+  const handleCreateOrder = async () => {
+    if (isSubmitting) {
+      return;
+    }
+
+    if (!packageId || !packageName || !price || !address.trim()) {
+      Alert.alert("Недостаточно данных", "Вернись назад и проверь заполнение заказа.");
       return;
     }
 
     try {
-      setLoading(true);
-      setError("");
+      setIsSubmitting(true);
 
       const order = await createOrder({
         package_id: packageId,
-        package_label: packageName,
-        package_price: price,
-        total,
-        address,
-        phone,
-        entrance,
-        comment,
+        package_name: packageName,
+        total_price: Number(price),
+        address: address.trim(),
+        apartment: apartment.trim(),
+        entrance: entrance.trim(),
+        comment: comment.trim(),
         leave_at_door: leaveAtDoor,
         call_required: callRequired,
-        payment_method: paymentMethod,
       });
-
-      if (!order?.id) {
-        throw new Error("Не удалось получить ID созданного заказа.");
-      }
 
       router.replace({
         pathname: "/order/success",
         params: {
-          orderId: String(order.id),
+          orderId: order.id,
         },
       });
-    } catch (e: any) {
-      setError(e?.message || "Ошибка создания заказа");
+    } catch (error) {
+      console.error("Create order error:", error);
+      Alert.alert(
+        "Не удалось создать заказ",
+        "Попробуй ещё раз. Если ошибка повторится, проверь интернет и настройки Supabase."
+      );
     } finally {
-      setLoading(false);
+      setIsSubmitting(false);
     }
   };
 
   return (
-    <SafeAreaView style={styles.safeArea}>
-      <Stack.Screen options={{ title: "Подтвердить заказ" }} />
+    <>
+      <Stack.Screen options={{ title: "Подтверждение заказа" }} />
 
-      <KeyboardAvoidingView
-        style={styles.flex}
-        behavior={Platform.OS === "ios" ? "padding" : undefined}
-      >
-        <ScrollView
-          contentContainerStyle={styles.content}
-          keyboardShouldPersistTaps="handled"
-          showsVerticalScrollIndicator={false}
-        >
-          <Text style={styles.title}>Подтвердить заказ</Text>
-
-          <View style={styles.card}>
-            <Text style={styles.label}>Адрес</Text>
-            <Text style={styles.value}>{address || "—"}</Text>
-
-            <Text style={styles.label}>Телефон</Text>
-            <Text style={styles.value}>{phone || "—"}</Text>
-
-            <Text style={styles.label}>Подъезд</Text>
-            <Text style={styles.value}>{entrance || "—"}</Text>
-
-            <Text style={styles.label}>Комментарий</Text>
-            <Text style={styles.value}>{comment || "—"}</Text>
-
-            <Text style={styles.label}>Оставить у двери</Text>
-            <Text style={styles.value}>{leaveAtDoor ? "Да" : "Нет"}</Text>
-
-            <Text style={styles.label}>Нужно позвонить</Text>
-            <Text style={styles.value}>{callRequired ? "Да" : "Нет"}</Text>
-
-            <Text style={styles.label}>Пакет</Text>
-            <Text style={styles.value}>{packageName || "—"}</Text>
-
-            <Text style={styles.label}>Цена</Text>
-            <Text style={styles.value}>{price ? `${price} ₽` : "—"}</Text>
-
-            <Text style={styles.label}>Оплата</Text>
-            <Text style={styles.value}>Картой</Text>
-
-            <Text style={styles.label}>Итого</Text>
-            <Text style={styles.value}>{total ? `${total} ₽` : "—"}</Text>
+      <AppScreen>
+        <ScreenSection>
+          <View style={styles.header}>
+            <Text style={styles.title}>Проверь заказ</Text>
+            <Text style={styles.subtitle}>
+              Перед отправкой убедись, что все данные заполнены верно.
+            </Text>
           </View>
 
-          {error ? <Text style={styles.error}>{error}</Text> : null}
+          <AppCard>
+            <Text style={styles.sectionTitle}>Тариф</Text>
 
-          <Pressable style={styles.button} onPress={handleConfirm} disabled={loading}>
-            {loading ? (
-              <ActivityIndicator color="#04110A" />
-            ) : (
-              <Text style={styles.buttonText}>Подтвердить</Text>
-            )}
-          </Pressable>
-        </ScrollView>
-      </KeyboardAvoidingView>
-    </SafeAreaView>
+            <View style={styles.summaryTopRow}>
+              <Text style={styles.packageName}>
+                {packageName || "Тариф не выбран"}
+              </Text>
+              <Text style={styles.price}>{formatPrice(price)}</Text>
+            </View>
+          </AppCard>
+
+          <AppCard>
+            <Text style={styles.sectionTitle}>Детали заказа</Text>
+
+            <View style={styles.rows}>
+              {detailsRows.map((row) => (
+                <View key={row.label} style={styles.row}>
+                  <Text style={styles.rowLabel}>{row.label}</Text>
+                  <Text style={styles.rowValue}>{row.value}</Text>
+                </View>
+              ))}
+            </View>
+          </AppCard>
+
+          <AppCard>
+            <Text style={styles.finalTitle}>Итого к оплате</Text>
+            <View style={styles.finalRow}>
+              <Text style={styles.finalLabel}>Сумма заказа</Text>
+              <Text style={styles.finalPrice}>{formatPrice(price)}</Text>
+            </View>
+
+            <View style={styles.buttonWrap}>
+              {isSubmitting ? (
+                <View style={styles.loadingButton}>
+                  <ActivityIndicator color={colors.white} />
+                  <Text style={styles.loadingButtonText}>Создаём заказ...</Text>
+                </View>
+              ) : (
+                <AppButton title="Создать заказ" onPress={handleCreateOrder} />
+              )}
+            </View>
+
+            <Text style={styles.bottomHint}>
+              После создания заказ появится в системе и станет доступен курьеру.
+            </Text>
+          </AppCard>
+        </ScreenSection>
+      </AppScreen>
+    </>
   );
 }
 
 const styles = StyleSheet.create({
-  flex: {
-    flex: 1,
-  },
-  safeArea: {
-    flex: 1,
-    backgroundColor: "#031225",
-  },
-  content: {
-    padding: 20,
-    gap: 20,
-    paddingBottom: 32,
+  header: {
+    gap: spacing.sm,
   },
   title: {
-    color: "#FFFFFF",
-    fontSize: 32,
+    fontSize: typography.h1,
     fontWeight: "800",
+    color: colors.text,
   },
-  card: {
-    backgroundColor: "#081426",
-    borderRadius: 24,
-    padding: 20,
-    gap: 10,
-    borderWidth: 1,
-    borderColor: "#0F2138",
+  subtitle: {
+    fontSize: typography.body,
+    lineHeight: 22,
+    color: colors.textSecondary,
   },
-  label: {
-    color: "#94A3B8",
-    fontSize: 14,
-    marginTop: 10,
+  sectionTitle: {
+    fontSize: typography.h3,
+    fontWeight: "800",
+    color: colors.text,
+    marginBottom: spacing.md,
   },
-  value: {
-    color: "#FFFFFF",
-    fontSize: 16,
-    fontWeight: "600",
-    marginBottom: 8,
-  },
-  error: {
-    color: "#F87171",
-    fontSize: 14,
-    lineHeight: 20,
-  },
-  button: {
-    backgroundColor: "#22C55E",
-    borderRadius: 18,
-    paddingVertical: 18,
+  summaryTopRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
     alignItems: "center",
-    marginBottom: 8,
+    gap: spacing.md,
   },
-  buttonText: {
-    color: "#04110A",
-    fontSize: 18,
+  packageName: {
+    flex: 1,
+    fontSize: typography.h2,
     fontWeight: "800",
+    color: colors.text,
+  },
+  price: {
+    fontSize: 22,
+    fontWeight: "800",
+    color: colors.primary,
+  },
+  rows: {
+    gap: spacing.md,
+  },
+  row: {
+    gap: spacing.xs,
+    paddingBottom: spacing.md,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
+  },
+  rowLabel: {
+    fontSize: typography.bodySmall,
+    fontWeight: "700",
+    color: colors.textSecondary,
+  },
+  rowValue: {
+    fontSize: typography.body,
+    lineHeight: 22,
+    fontWeight: "700",
+    color: colors.text,
+  },
+  finalTitle: {
+    fontSize: typography.bodySmall,
+    fontWeight: "700",
+    color: colors.textSecondary,
+  },
+  finalRow: {
+    marginTop: spacing.sm,
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    gap: spacing.md,
+  },
+  finalLabel: {
+    fontSize: typography.body,
+    fontWeight: "700",
+    color: colors.text,
+  },
+  finalPrice: {
+    fontSize: 24,
+    fontWeight: "800",
+    color: colors.primary,
+  },
+  buttonWrap: {
+    marginTop: spacing.lg,
+  },
+  loadingButton: {
+    minHeight: 52,
+    borderRadius: 14,
+    backgroundColor: colors.primary,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: spacing.sm,
+    paddingHorizontal: spacing.lg,
+  },
+  loadingButtonText: {
+    fontSize: typography.body,
+    fontWeight: "800",
+    color: colors.white,
+  },
+  bottomHint: {
+    marginTop: spacing.md,
+    fontSize: typography.bodySmall,
+    lineHeight: 20,
+    color: colors.textSecondary,
   },
 });

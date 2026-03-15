@@ -1,42 +1,58 @@
-import { useState } from "react";
-import {
-  SafeAreaView,
-  View,
-  Text,
-  Pressable,
-  StyleSheet,
-  ScrollView,
-} from "react-native";
+import { useMemo, useState } from "react";
+import { Pressable, StyleSheet, Text, View } from "react-native";
 import { Stack, useRouter } from "expo-router";
+import AppButton from "../../components/ui/AppButton";
+import AppCard from "../../components/ui/AppCard";
+import AppScreen from "../../components/ui/AppScreen";
+import ScreenSection from "../../components/ui/ScreenSection";
+import { colors, radii, spacing, typography } from "../../lib/theme";
 
-const PACKAGES = [
+type PackageOption = {
+  id: string;
+  name: string;
+  price: number;
+  description: string;
+};
+
+const PACKAGE_OPTIONS: PackageOption[] = [
   {
     id: "small",
     name: "Маленький пакет",
-    price: 99,
+    price: 199,
+    description: "Подойдёт для небольшого объёма бытового мусора.",
   },
   {
-    id: "medium",
-    name: "Средний пакет",
-    price: 149,
+    id: "standard",
+    name: "Стандарт",
+    price: 299,
+    description: "Оптимальный вариант для большинства квартир.",
   },
   {
     id: "large",
-    name: "Большой пакет",
-    price: 199,
+    name: "Большой объём",
+    price: 399,
+    description: "Когда мусора больше обычного или пакетов несколько.",
   },
 ];
 
-export default function PackageScreen() {
+function formatPrice(price: number) {
+  return `${price} ₽`;
+}
+
+export default function OrderPackageScreen() {
   const router = useRouter();
+  const [selectedPackageId, setSelectedPackageId] = useState<string>(
+    PACKAGE_OPTIONS[1]?.id ?? PACKAGE_OPTIONS[0].id
+  );
 
-  const [selected, setSelected] = useState<string | null>(null);
+  const selectedPackage = useMemo(
+    () =>
+      PACKAGE_OPTIONS.find((item) => item.id === selectedPackageId) ??
+      PACKAGE_OPTIONS[0],
+    [selectedPackageId]
+  );
 
-  const selectedPackage = PACKAGES.find((p) => p.id === selected);
-
-  const handleNext = () => {
-    if (!selectedPackage) return;
-
+  const handleContinue = () => {
     router.push({
       pathname: "/order/details",
       params: {
@@ -48,93 +64,210 @@ export default function PackageScreen() {
   };
 
   return (
-    <SafeAreaView style={styles.safeArea}>
-      <Stack.Screen options={{ title: "Выберите пакет" }} />
+    <>
+      <Stack.Screen options={{ title: "Выбор тарифа" }} />
 
-      <ScrollView contentContainerStyle={styles.container}>
-        <Text style={styles.title}>Выберите пакет</Text>
+      <AppScreen>
+        <ScreenSection>
+          <View style={styles.header}>
+            <Text style={styles.title}>Выбери тариф</Text>
+            <Text style={styles.subtitle}>
+              Сначала выберем подходящий вариант, затем заполним детали заказа.
+            </Text>
+          </View>
 
-        {PACKAGES.map((item) => {
-          const isSelected = selected === item.id;
+          <View style={styles.cardsList}>
+            {PACKAGE_OPTIONS.map((item) => {
+              const isSelected = item.id === selectedPackageId;
 
-          return (
-            <Pressable
-              key={item.id}
-              style={[
-                styles.card,
-                isSelected && styles.cardSelected,
-              ]}
-              onPress={() => setSelected(item.id)}
-            >
-              <Text style={styles.packageName}>{item.name}</Text>
+              return (
+                <Pressable
+                  key={item.id}
+                  onPress={() => setSelectedPackageId(item.id)}
+                  style={({ pressed }) => [
+                    styles.pressableCard,
+                    pressed && styles.cardPressed,
+                  ]}
+                >
+                  <AppCard
+                    style={[
+                      styles.packageCard,
+                      isSelected && styles.packageCardSelected,
+                    ]}
+                  >
+                    <View style={styles.cardTopRow}>
+                      <View style={styles.cardTextBlock}>
+                        <Text style={styles.packageName}>{item.name}</Text>
+                        <Text style={styles.packageDescription}>
+                          {item.description}
+                        </Text>
+                      </View>
 
-              <Text style={styles.price}>{item.price} ₽</Text>
-            </Pressable>
-          );
-        })}
+                      <View
+                        style={[
+                          styles.radio,
+                          isSelected && styles.radioSelected,
+                        ]}
+                      >
+                        {isSelected ? <View style={styles.radioInner} /> : null}
+                      </View>
+                    </View>
 
-        <Pressable
-          style={[
-            styles.button,
-            !selected && styles.buttonDisabled,
-          ]}
-          disabled={!selected}
-          onPress={handleNext}
-        >
-          <Text style={styles.buttonText}>Далее</Text>
-        </Pressable>
-      </ScrollView>
-    </SafeAreaView>
+                    <View style={styles.priceRow}>
+                      <Text style={styles.priceLabel}>Цена</Text>
+                      <Text style={styles.priceValue}>
+                        {formatPrice(item.price)}
+                      </Text>
+                    </View>
+                  </AppCard>
+                </Pressable>
+              );
+            })}
+          </View>
+
+          <AppCard>
+            <Text style={styles.summaryTitle}>Выбранный тариф</Text>
+            <Text style={styles.summaryName}>{selectedPackage.name}</Text>
+            <Text style={styles.summaryDescription}>
+              {selectedPackage.description}
+            </Text>
+
+            <View style={styles.summaryPriceRow}>
+              <Text style={styles.summaryPriceLabel}>Итого</Text>
+              <Text style={styles.summaryPriceValue}>
+                {formatPrice(selectedPackage.price)}
+              </Text>
+            </View>
+
+            <View style={styles.summaryButtonWrap}>
+              <AppButton title="Продолжить" onPress={handleContinue} />
+            </View>
+          </AppCard>
+        </ScreenSection>
+      </AppScreen>
+    </>
   );
 }
 
 const styles = StyleSheet.create({
-  safeArea: {
-    flex: 1,
-    backgroundColor: "#031225",
-  },
-  container: {
-    padding: 20,
-    gap: 20,
+  header: {
+    gap: spacing.sm,
   },
   title: {
-    fontSize: 32,
+    fontSize: typography.h1,
     fontWeight: "800",
-    color: "#fff",
+    color: colors.text,
   },
-  card: {
-    backgroundColor: "#081426",
-    borderRadius: 20,
-    padding: 20,
+  subtitle: {
+    fontSize: typography.body,
+    lineHeight: 22,
+    color: colors.textSecondary,
+  },
+  cardsList: {
+    gap: spacing.md,
+  },
+  pressableCard: {
+    borderRadius: radii.xl,
+  },
+  cardPressed: {
+    opacity: 0.96,
+  },
+  packageCard: {
     borderWidth: 1,
-    borderColor: "#0F2138",
+    borderColor: "transparent",
+    gap: spacing.md,
   },
-  cardSelected: {
-    borderColor: "#22C55E",
+  packageCardSelected: {
+    borderColor: colors.primary,
+    backgroundColor: "#FFFDFC",
+  },
+  cardTopRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    gap: spacing.md,
+  },
+  cardTextBlock: {
+    flex: 1,
+    gap: spacing.xs,
   },
   packageName: {
-    color: "#fff",
-    fontSize: 20,
-    fontWeight: "600",
+    fontSize: typography.h2,
+    fontWeight: "800",
+    color: colors.text,
   },
-  price: {
-    color: "#9CA3AF",
-    marginTop: 6,
-    fontSize: 16,
+  packageDescription: {
+    fontSize: typography.body,
+    lineHeight: 22,
+    color: colors.textSecondary,
   },
-  button: {
-    backgroundColor: "#22C55E",
-    padding: 18,
-    borderRadius: 18,
+  radio: {
+    width: 22,
+    height: 22,
+    borderRadius: radii.pill,
+    borderWidth: 2,
+    borderColor: colors.border,
     alignItems: "center",
-    marginTop: 20,
+    justifyContent: "center",
+    marginTop: 2,
   },
-  buttonDisabled: {
-    opacity: 0.4,
+  radioSelected: {
+    borderColor: colors.primary,
   },
-  buttonText: {
+  radioInner: {
+    width: 10,
+    height: 10,
+    borderRadius: radii.pill,
+    backgroundColor: colors.primary,
+  },
+  priceRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+  },
+  priceLabel: {
+    fontSize: typography.bodySmall,
+    fontWeight: "600",
+    color: colors.textSecondary,
+  },
+  priceValue: {
     fontSize: 18,
     fontWeight: "800",
-    color: "#04110A",
+    color: colors.text,
+  },
+  summaryTitle: {
+    fontSize: typography.h3,
+    fontWeight: "800",
+    color: colors.text,
+  },
+  summaryName: {
+    marginTop: spacing.sm,
+    fontSize: typography.h2,
+    fontWeight: "800",
+    color: colors.text,
+  },
+  summaryDescription: {
+    marginTop: spacing.xs,
+    fontSize: typography.body,
+    lineHeight: 22,
+    color: colors.textSecondary,
+  },
+  summaryPriceRow: {
+    marginTop: spacing.lg,
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+  },
+  summaryPriceLabel: {
+    fontSize: typography.body,
+    fontWeight: "700",
+    color: colors.textSecondary,
+  },
+  summaryPriceValue: {
+    fontSize: 22,
+    fontWeight: "800",
+    color: colors.primary,
+  },
+  summaryButtonWrap: {
+    marginTop: spacing.lg,
   },
 });
