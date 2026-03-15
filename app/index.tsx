@@ -25,10 +25,7 @@ export default function HomeScreen() {
         if (!isMounted) return;
 
         if (activeOrderId) {
-          router.replace({
-            pathname: "/order/success",
-            params: { orderId: activeOrderId },
-          });
+          router.replace("/order/active");
           return;
         }
       } finally {
