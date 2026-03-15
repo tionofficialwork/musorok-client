@@ -62,12 +62,21 @@ export default function HomeScreen() {
           Оформите заказ за пару шагов, а дальше мы возьмём всё на себя.
         </Text>
 
-        <Pressable
-          style={styles.button}
-          onPress={() => router.push("/order/package")}
-        >
-          <Text style={styles.buttonText}>Начать заказ</Text>
-        </Pressable>
+        <View style={styles.actions}>
+          <Pressable
+            style={styles.primaryButton}
+            onPress={() => router.push("/order/package")}
+          >
+            <Text style={styles.primaryButtonText}>Начать заказ</Text>
+          </Pressable>
+
+          <Pressable
+            style={styles.secondaryButton}
+            onPress={() => router.push("/order/history")}
+          >
+            <Text style={styles.secondaryButtonText}>История заказов</Text>
+          </Pressable>
+        </View>
       </View>
     </SafeAreaView>
   );
@@ -114,15 +123,31 @@ const styles = StyleSheet.create({
     lineHeight: 24,
     marginBottom: 32,
   },
-  button: {
+  actions: {
+    gap: 12,
+  },
+  primaryButton: {
     backgroundColor: "#22C55E",
     borderRadius: 18,
     paddingVertical: 18,
     alignItems: "center",
   },
-  buttonText: {
+  primaryButtonText: {
     color: "#04110A",
     fontSize: 18,
     fontWeight: "800",
+  },
+  secondaryButton: {
+    backgroundColor: "#081426",
+    borderRadius: 18,
+    paddingVertical: 18,
+    alignItems: "center",
+    borderWidth: 1,
+    borderColor: "#0F2138",
+  },
+  secondaryButtonText: {
+    color: "#FFFFFF",
+    fontSize: 18,
+    fontWeight: "700",
   },
 });
