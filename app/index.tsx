@@ -14,8 +14,10 @@ import { useFocusEffect, useRouter } from "expo-router";
 import { supabase } from "../lib/supabase";
 import AppButton from "../components/ui/AppButton";
 import AppCard from "../components/ui/AppCard";
+import ErrorCard from "../components/ui/ErrorCard";
 import ScreenSection from "../components/ui/ScreenSection";
-import { colors, radii, spacing, typography } from "../lib/theme";
+import StatusPill from "../components/ui/StatusPill";
+import { colors, spacing, typography } from "../lib/theme";
 
 type ActiveOrderStatus =
   | "new"
@@ -240,15 +242,16 @@ export default function HomeScreen() {
         ) : (
           <ScreenSection>
             {errorText ? (
-              <AppCard style={styles.errorCard}>
-                <Text style={styles.errorTitle}>Есть проблема с загрузкой</Text>
-                <Text style={styles.errorText}>{errorText}</Text>
+              <ErrorCard
+                title="Есть проблема с загрузкой"
+                description={errorText}
+              >
                 <AppButton
                   title="Обновить"
                   variant="secondary"
                   onPress={handleRefresh}
                 />
-              </AppCard>
+              </ErrorCard>
             ) : null}
 
             {activeOrder ? (
@@ -260,9 +263,7 @@ export default function HomeScreen() {
                   </Text>
                 </View>
 
-                <View style={styles.statusPill}>
-                  <Text style={styles.statusPillText}>{activeStatusLabel}</Text>
-                </View>
+                <StatusPill label={activeStatusLabel} />
 
                 <View style={styles.infoBlock}>
                   <Text style={styles.infoLabel}>Адрес</Text>
@@ -385,21 +386,9 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     color: colors.primary,
   },
-  statusPill: {
-    alignSelf: "flex-start",
-    backgroundColor: colors.primarySoft,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: radii.pill,
-    marginBottom: spacing.md,
-  },
-  statusPillText: {
-    fontSize: typography.caption,
-    fontWeight: "700",
-    color: colors.primary,
-  },
   infoBlock: {
     gap: spacing.xs,
+    marginTop: spacing.md,
     marginBottom: spacing.md,
   },
   infoLabel: {
@@ -445,21 +434,5 @@ const styles = StyleSheet.create({
     fontSize: typography.body,
     lineHeight: 22,
     color: colors.textSecondary,
-  },
-  errorCard: {
-    backgroundColor: colors.errorBg,
-    borderWidth: 1,
-    borderColor: colors.errorBorder,
-    gap: spacing.sm,
-  },
-  errorTitle: {
-    fontSize: 16,
-    fontWeight: "800",
-    color: colors.errorTitle,
-  },
-  errorText: {
-    fontSize: typography.bodySmall,
-    lineHeight: 20,
-    color: colors.errorText,
   },
 });

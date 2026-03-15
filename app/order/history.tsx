@@ -1,18 +1,16 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import {
-  ActivityIndicator,
-  RefreshControl,
-  StyleSheet,
-  Text,
-  View,
-} from "react-native";
+import { ActivityIndicator, RefreshControl, StyleSheet, Text, View } from "react-native";
 import { useRouter } from "expo-router";
 import AppButton from "../../components/ui/AppButton";
 import AppCard from "../../components/ui/AppCard";
 import AppScreen from "../../components/ui/AppScreen";
+import EmptyState from "../../components/ui/EmptyState";
+import ErrorCard from "../../components/ui/ErrorCard";
+import InfoRow from "../../components/ui/InfoRow";
 import ScreenSection from "../../components/ui/ScreenSection";
+import StatusPill from "../../components/ui/StatusPill";
 import { supabase } from "../../lib/supabase";
-import { colors, radii, spacing, typography } from "../../lib/theme";
+import { colors, spacing, typography } from "../../lib/theme";
 
 type HistoryOrderStatus =
   | "new"
@@ -210,23 +208,21 @@ export default function OrderHistoryScreen() {
           <Text style={styles.centerText}>Загружаем историю заказов...</Text>
         </View>
       ) : !hasOrders ? (
-        <View style={styles.centerState}>
-          <Text style={styles.emptyTitle}>История заказов пуста</Text>
-          <Text style={styles.emptyText}>
-            Когда появятся оформленные заказы, они будут отображаться здесь.
-          </Text>
-
-          {errorText ? <Text style={styles.errorText}>{errorText}</Text> : null}
-
-          <View style={styles.emptyButtons}>
-            <AppButton title="Создать заказ" onPress={handleCreateOrder} />
-            <AppButton
-              title="Обновить"
-              variant="outline"
-              onPress={handleRefresh}
-            />
-          </View>
-        </View>
+        <EmptyState
+          title="История заказов пуста"
+          description="Когда появятся оформленные заказы, они будут отображаться здесь."
+          extraText={errorText}
+          actions={
+            <>
+              <AppButton title="Создать заказ" onPress={handleCreateOrder} />
+              <AppButton
+                title="Обновить"
+                variant="outline"
+                onPress={handleRefresh}
+              />
+            </>
+          }
+        />
       ) : (
         <ScreenSection>
           <View style={styles.header}>
@@ -238,15 +234,16 @@ export default function OrderHistoryScreen() {
           </View>
 
           {errorText ? (
-            <AppCard style={styles.errorCard}>
-              <Text style={styles.errorTitle}>Не удалось полностью обновить данные</Text>
-              <Text style={styles.errorBody}>{errorText}</Text>
+            <ErrorCard
+              title="Не удалось полностью обновить данные"
+              description={errorText}
+            >
               <AppButton
                 title="Обновить"
                 variant="secondary"
                 onPress={handleRefresh}
               />
-            </AppCard>
+            </ErrorCard>
           ) : null}
 
           <View style={styles.list}>
@@ -262,30 +259,14 @@ export default function OrderHistoryScreen() {
                     </Text>
                   </View>
 
-                  <View style={styles.statusPill}>
-                    <Text style={styles.statusPillText}>
-                      {getStatusLabel(order.status)}
-                    </Text>
-                  </View>
+                  <StatusPill label={getStatusLabel(order.status)} />
                 </View>
 
                 <View style={styles.infoList}>
-                  <InfoRow
-                    label="Тариф"
-                    value={order.package_name || "—"}
-                  />
-                  <InfoRow
-                    label="Сумма"
-                    value={formatPrice(order.total_price)}
-                  />
-                  <InfoRow
-                    label="Квартира"
-                    value={order.apartment || "Не указана"}
-                  />
-                  <InfoRow
-                    label="Подъезд"
-                    value={order.entrance || "Не указан"}
-                  />
+                  <InfoRow label="Тариф" value={order.package_name || "—"} />
+                  <InfoRow label="Сумма" value={formatPrice(order.total_price)} />
+                  <InfoRow label="Квартира" value={order.apartment || "Не указана"} />
+                  <InfoRow label="Подъезд" value={order.entrance || "Не указан"} />
                   <InfoRow
                     label="Комментарий"
                     value={order.comment || "Нет комментария"}
@@ -317,21 +298,6 @@ export default function OrderHistoryScreen() {
   );
 }
 
-type InfoRowProps = {
-  label: string;
-  value: string;
-  isLast?: boolean;
-};
-
-function InfoRow({ label, value, isLast = false }: InfoRowProps) {
-  return (
-    <View style={[styles.infoRow, isLast && styles.infoRowLast]}>
-      <Text style={styles.infoLabel}>{label}</Text>
-      <Text style={styles.infoValue}>{value}</Text>
-    </View>
-  );
-}
-
 const styles = StyleSheet.create({
   centerState: {
     flex: 1,
@@ -346,28 +312,6 @@ const styles = StyleSheet.create({
     color: colors.textSecondary,
     textAlign: "center",
   },
-  emptyTitle: {
-    fontSize: typography.h1,
-    fontWeight: "800",
-    color: colors.text,
-    textAlign: "center",
-  },
-  emptyText: {
-    fontSize: typography.body,
-    lineHeight: 22,
-    color: colors.textSecondary,
-    textAlign: "center",
-  },
-  emptyButtons: {
-    width: "100%",
-    gap: spacing.md,
-    marginTop: spacing.sm,
-  },
-  errorText: {
-    fontSize: typography.bodySmall,
-    color: colors.errorText,
-    textAlign: "center",
-  },
   header: {
     gap: spacing.sm,
   },
@@ -380,22 +324,6 @@ const styles = StyleSheet.create({
     fontSize: typography.body,
     lineHeight: 22,
     color: colors.textSecondary,
-  },
-  errorCard: {
-    backgroundColor: colors.errorBg,
-    borderWidth: 1,
-    borderColor: colors.errorBorder,
-    gap: spacing.sm,
-  },
-  errorTitle: {
-    fontSize: 16,
-    fontWeight: "800",
-    color: colors.errorTitle,
-  },
-  errorBody: {
-    fontSize: typography.bodySmall,
-    lineHeight: 20,
-    color: colors.errorText,
   },
   list: {
     gap: spacing.md,
@@ -422,41 +350,8 @@ const styles = StyleSheet.create({
     fontSize: typography.bodySmall,
     color: colors.textSecondary,
   },
-  statusPill: {
-    alignSelf: "flex-start",
-    backgroundColor: colors.primarySoft,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: radii.pill,
-  },
-  statusPillText: {
-    fontSize: typography.caption,
-    fontWeight: "700",
-    color: colors.primary,
-  },
   infoList: {
     marginTop: spacing.xs,
-  },
-  infoRow: {
-    paddingVertical: spacing.md,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.border,
-    gap: spacing.xs,
-  },
-  infoRowLast: {
-    borderBottomWidth: 0,
-    paddingBottom: 0,
-  },
-  infoLabel: {
-    fontSize: typography.bodySmall,
-    fontWeight: "700",
-    color: colors.textSecondary,
-  },
-  infoValue: {
-    fontSize: typography.body,
-    lineHeight: 22,
-    fontWeight: "700",
-    color: colors.text,
   },
   cardButtons: {
     gap: spacing.md,
