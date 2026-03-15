@@ -7,40 +7,38 @@ import {
   Text,
   View,
 } from "react-native";
-import { useRouter } from "expo-router";
+import { useFocusEffect, useRouter } from "expo-router";
+import { useCallback } from "react";
 
 import { getActiveOrder } from "../lib/activeOrder";
 
 export default function HomeScreen() {
   const router = useRouter();
+
   const [checkingOrder, setCheckingOrder] = useState(true);
+  const [hasActiveOrder, setHasActiveOrder] = useState(false);
+  const [activeOrderId, setActiveOrderId] = useState<string | null>(null);
+
+  const loadActiveOrderState = useCallback(async () => {
+    try {
+      const storedActiveOrderId = await getActiveOrder();
+
+      setActiveOrderId(storedActiveOrderId);
+      setHasActiveOrder(Boolean(storedActiveOrderId));
+    } finally {
+      setCheckingOrder(false);
+    }
+  }, []);
 
   useEffect(() => {
-    let isMounted = true;
+    loadActiveOrderState();
+  }, [loadActiveOrderState]);
 
-    const restoreActiveOrder = async () => {
-      try {
-        const activeOrderId = await getActiveOrder();
-
-        if (!isMounted) return;
-
-        if (activeOrderId) {
-          router.replace("/order/active");
-          return;
-        }
-      } finally {
-        if (isMounted) {
-          setCheckingOrder(false);
-        }
-      }
-    };
-
-    restoreActiveOrder();
-
-    return () => {
-      isMounted = false;
-    };
-  }, [router]);
+  useFocusEffect(
+    useCallback(() => {
+      loadActiveOrderState();
+    }, [loadActiveOrderState])
+  );
 
   if (checkingOrder) {
     return (
@@ -62,21 +60,56 @@ export default function HomeScreen() {
           Оформите заказ за пару шагов, а дальше мы возьмём всё на себя.
         </Text>
 
-        <View style={styles.actions}>
-          <Pressable
-            style={styles.primaryButton}
-            onPress={() => router.push("/order/package")}
-          >
-            <Text style={styles.primaryButtonText}>Начать заказ</Text>
-          </Pressable>
+        {hasActiveOrder ? (
+          <View style={styles.activeOrderCard}>
+            <Text style={styles.activeOrderBadge}>АКТИВНЫЙ ЗАКАЗ</Text>
+            <Text style={styles.activeOrderTitle}>У вас есть активный заказ</Text>
+            <Text style={styles.activeOrderText}>
+              {activeOrderId
+                ? `Заказ #${activeOrderId} сейчас в работе.`
+                : "Ваш заказ сейчас в работе."}
+            </Text>
 
-          <Pressable
-            style={styles.secondaryButton}
-            onPress={() => router.push("/order/history")}
-          >
-            <Text style={styles.secondaryButtonText}>История заказов</Text>
-          </Pressable>
-        </View>
+            <View style={styles.actions}>
+              <Pressable
+                style={styles.primaryButton}
+                onPress={() => router.push("/order/active")}
+              >
+                <Text style={styles.primaryButtonText}>Открыть заказ</Text>
+              </Pressable>
+
+              <Pressable
+                style={styles.secondaryButton}
+                onPress={() => router.push("/order/history")}
+              >
+                <Text style={styles.secondaryButtonText}>История заказов</Text>
+              </Pressable>
+
+              <Pressable
+                style={styles.ghostButton}
+                onPress={() => router.push("/order/package")}
+              >
+                <Text style={styles.ghostButtonText}>Новый заказ</Text>
+              </Pressable>
+            </View>
+          </View>
+        ) : (
+          <View style={styles.actions}>
+            <Pressable
+              style={styles.primaryButton}
+              onPress={() => router.push("/order/package")}
+            >
+              <Text style={styles.primaryButtonText}>Начать заказ</Text>
+            </Pressable>
+
+            <Pressable
+              style={styles.secondaryButton}
+              onPress={() => router.push("/order/history")}
+            >
+              <Text style={styles.secondaryButtonText}>История заказов</Text>
+            </Pressable>
+          </View>
+        )}
       </View>
     </SafeAreaView>
   );
@@ -123,6 +156,32 @@ const styles = StyleSheet.create({
     lineHeight: 24,
     marginBottom: 32,
   },
+  activeOrderCard: {
+    backgroundColor: "#081426",
+    borderRadius: 24,
+    padding: 20,
+    borderWidth: 1,
+    borderColor: "#0F2138",
+  },
+  activeOrderBadge: {
+    color: "#22C55E",
+    fontSize: 12,
+    fontWeight: "800",
+    letterSpacing: 1,
+    marginBottom: 10,
+  },
+  activeOrderTitle: {
+    color: "#FFFFFF",
+    fontSize: 24,
+    fontWeight: "800",
+    marginBottom: 8,
+  },
+  activeOrderText: {
+    color: "#CBD5E1",
+    fontSize: 15,
+    lineHeight: 22,
+    marginBottom: 20,
+  },
   actions: {
     gap: 12,
   },
@@ -148,6 +207,19 @@ const styles = StyleSheet.create({
   secondaryButtonText: {
     color: "#FFFFFF",
     fontSize: 18,
+    fontWeight: "700",
+  },
+  ghostButton: {
+    backgroundColor: "#0B1A2E",
+    borderRadius: 18,
+    paddingVertical: 18,
+    alignItems: "center",
+    borderWidth: 1,
+    borderColor: "#13243A",
+  },
+  ghostButtonText: {
+    color: "#CBD5E1",
+    fontSize: 17,
     fontWeight: "700",
   },
 });
