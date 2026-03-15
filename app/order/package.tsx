@@ -4,7 +4,9 @@ import { Stack, useRouter } from "expo-router";
 import AppButton from "../../components/ui/AppButton";
 import AppCard from "../../components/ui/AppCard";
 import AppScreen from "../../components/ui/AppScreen";
+import ScreenHeader from "../../components/ui/ScreenHeader";
 import ScreenSection from "../../components/ui/ScreenSection";
+import SectionTitle from "../../components/ui/SectionTitle";
 import { colors, radii, spacing, typography } from "../../lib/theme";
 
 type PackageOption = {
@@ -69,12 +71,10 @@ export default function OrderPackageScreen() {
 
       <AppScreen>
         <ScreenSection>
-          <View style={styles.header}>
-            <Text style={styles.title}>Выбери тариф</Text>
-            <Text style={styles.subtitle}>
-              Сначала выберем подходящий вариант, затем заполним детали заказа.
-            </Text>
-          </View>
+          <ScreenHeader
+            title="Выбери тариф"
+            subtitle="Сначала выберем подходящий вариант, затем заполним детали заказа."
+          />
 
           <View style={styles.cardsList}>
             {PACKAGE_OPTIONS.map((item) => {
@@ -126,7 +126,7 @@ export default function OrderPackageScreen() {
           </View>
 
           <AppCard>
-            <Text style={styles.summaryTitle}>Выбранный тариф</Text>
+            <SectionTitle>Выбранный тариф</SectionTitle>
             <Text style={styles.summaryName}>{selectedPackage.name}</Text>
             <Text style={styles.summaryDescription}>
               {selectedPackage.description}
@@ -150,19 +150,6 @@ export default function OrderPackageScreen() {
 }
 
 const styles = StyleSheet.create({
-  header: {
-    gap: spacing.sm,
-  },
-  title: {
-    fontSize: typography.h1,
-    fontWeight: "800",
-    color: colors.text,
-  },
-  subtitle: {
-    fontSize: typography.body,
-    lineHeight: 22,
-    color: colors.textSecondary,
-  },
   cardsList: {
     gap: spacing.md,
   },
@@ -234,13 +221,7 @@ const styles = StyleSheet.create({
     fontWeight: "800",
     color: colors.text,
   },
-  summaryTitle: {
-    fontSize: typography.h3,
-    fontWeight: "800",
-    color: colors.text,
-  },
   summaryName: {
-    marginTop: spacing.sm,
     fontSize: typography.h2,
     fontWeight: "800",
     color: colors.text,

@@ -4,7 +4,10 @@ import { Stack, useLocalSearchParams, useRouter } from "expo-router";
 import AppButton from "../../components/ui/AppButton";
 import AppCard from "../../components/ui/AppCard";
 import AppScreen from "../../components/ui/AppScreen";
+import InfoRow from "../../components/ui/InfoRow";
+import ScreenHeader from "../../components/ui/ScreenHeader";
 import ScreenSection from "../../components/ui/ScreenSection";
+import SectionTitle from "../../components/ui/SectionTitle";
 import { createOrder } from "../../lib/createOrder";
 import { colors, spacing, typography } from "../../lib/theme";
 
@@ -132,15 +135,13 @@ export default function OrderConfirmScreen() {
 
       <AppScreen>
         <ScreenSection>
-          <View style={styles.header}>
-            <Text style={styles.title}>Проверь заказ</Text>
-            <Text style={styles.subtitle}>
-              Перед отправкой убедись, что все данные заполнены верно.
-            </Text>
-          </View>
+          <ScreenHeader
+            title="Проверь заказ"
+            subtitle="Перед отправкой убедись, что все данные заполнены верно."
+          />
 
           <AppCard>
-            <Text style={styles.sectionTitle}>Тариф</Text>
+            <SectionTitle>Тариф</SectionTitle>
 
             <View style={styles.summaryTopRow}>
               <Text style={styles.packageName}>
@@ -151,14 +152,16 @@ export default function OrderConfirmScreen() {
           </AppCard>
 
           <AppCard>
-            <Text style={styles.sectionTitle}>Детали заказа</Text>
+            <SectionTitle>Детали заказа</SectionTitle>
 
             <View style={styles.rows}>
-              {detailsRows.map((row) => (
-                <View key={row.label} style={styles.row}>
-                  <Text style={styles.rowLabel}>{row.label}</Text>
-                  <Text style={styles.rowValue}>{row.value}</Text>
-                </View>
+              {detailsRows.map((row, index) => (
+                <InfoRow
+                  key={row.label}
+                  label={row.label}
+                  value={row.value}
+                  isLast={index === detailsRows.length - 1}
+                />
               ))}
             </View>
           </AppCard>
@@ -192,25 +195,6 @@ export default function OrderConfirmScreen() {
 }
 
 const styles = StyleSheet.create({
-  header: {
-    gap: spacing.sm,
-  },
-  title: {
-    fontSize: typography.h1,
-    fontWeight: "800",
-    color: colors.text,
-  },
-  subtitle: {
-    fontSize: typography.body,
-    lineHeight: 22,
-    color: colors.textSecondary,
-  },
-  sectionTitle: {
-    fontSize: typography.h3,
-    fontWeight: "800",
-    color: colors.text,
-    marginBottom: spacing.md,
-  },
   summaryTopRow: {
     flexDirection: "row",
     justifyContent: "space-between",
@@ -229,24 +213,7 @@ const styles = StyleSheet.create({
     color: colors.primary,
   },
   rows: {
-    gap: spacing.md,
-  },
-  row: {
-    gap: spacing.xs,
-    paddingBottom: spacing.md,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.border,
-  },
-  rowLabel: {
-    fontSize: typography.bodySmall,
-    fontWeight: "700",
-    color: colors.textSecondary,
-  },
-  rowValue: {
-    fontSize: typography.body,
-    lineHeight: 22,
-    fontWeight: "700",
-    color: colors.text,
+    gap: 0,
   },
   finalTitle: {
     fontSize: typography.bodySmall,

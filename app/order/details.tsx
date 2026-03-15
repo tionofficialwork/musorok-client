@@ -5,7 +5,9 @@ import AppButton from "../../components/ui/AppButton";
 import AppCard from "../../components/ui/AppCard";
 import AppInput from "../../components/ui/AppInput";
 import AppScreen from "../../components/ui/AppScreen";
+import ScreenHeader from "../../components/ui/ScreenHeader";
 import ScreenSection from "../../components/ui/ScreenSection";
+import SectionTitle from "../../components/ui/SectionTitle";
 import { colors, radii, spacing, typography } from "../../lib/theme";
 
 export default function OrderDetailsScreen() {
@@ -59,16 +61,13 @@ export default function OrderDetailsScreen() {
 
       <AppScreen keyboardAvoiding>
         <ScreenSection>
-          <View style={styles.header}>
-            <Text style={styles.title}>Укажи детали</Text>
-            <Text style={styles.subtitle}>
-              Заполни адрес и дополнительные параметры, чтобы курьер быстро нашёл
-              тебя и забрал мусор без лишних звонков.
-            </Text>
-          </View>
+          <ScreenHeader
+            title="Укажи детали"
+            subtitle="Заполни адрес и дополнительные параметры, чтобы курьер быстро нашёл тебя и забрал мусор без лишних звонков."
+          />
 
           <AppCard>
-            <Text style={styles.sectionTitle}>Адрес</Text>
+            <SectionTitle>Адрес</SectionTitle>
 
             <View style={styles.formGroup}>
               <View style={styles.fieldGroup}>
@@ -120,7 +119,7 @@ export default function OrderDetailsScreen() {
           </AppCard>
 
           <AppCard>
-            <Text style={styles.sectionTitle}>Дополнительно</Text>
+            <SectionTitle>Дополнительно</SectionTitle>
 
             <View style={styles.optionsList}>
               <OptionRow
@@ -197,25 +196,6 @@ function OptionRow({
 }
 
 const styles = StyleSheet.create({
-  header: {
-    gap: spacing.sm,
-  },
-  title: {
-    fontSize: typography.h1,
-    fontWeight: "800",
-    color: colors.text,
-  },
-  subtitle: {
-    fontSize: typography.body,
-    lineHeight: 22,
-    color: colors.textSecondary,
-  },
-  sectionTitle: {
-    fontSize: typography.h3,
-    fontWeight: "800",
-    color: colors.text,
-    marginBottom: spacing.md,
-  },
   formGroup: {
     gap: spacing.lg,
   },
