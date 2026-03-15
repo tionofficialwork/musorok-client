@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import {
   ActivityIndicator,
   Pressable,
@@ -8,23 +8,103 @@ import {
   View,
 } from "react-native";
 import { useFocusEffect, useRouter } from "expo-router";
-import { useCallback } from "react";
 
 import { getActiveOrder } from "../lib/activeOrder";
+import { supabase } from "../lib/supabase";
+
+type ActiveOrderPreview = {
+  id: string;
+  status: string | null;
+  address: string | null;
+  total: number | null;
+};
+
+function getStatusLabel(status: string | null | undefined) {
+  switch (status) {
+    case "new":
+      return "Заказ создан";
+    case "assigned":
+      return "Курьер назначен";
+    case "on_the_way":
+      return "Курьер в пути";
+    case "arrived":
+      return "Курьер прибыл";
+    case "done":
+      return "Выполнен";
+    case "cancelled":
+      return "Отменён";
+    default:
+      return "Активный заказ";
+  }
+}
+
+function getStatusChipStyles(status: string | null | undefined) {
+  switch (status) {
+    case "assigned":
+    case "on_the_way":
+    case "arrived":
+      return {
+        backgroundColor: "#10233D",
+        textColor: "#60A5FA",
+      };
+    case "done":
+      return {
+        backgroundColor: "#0F2A1A",
+        textColor: "#4ADE80",
+      };
+    case "cancelled":
+      return {
+        backgroundColor: "#2A1215",
+        textColor: "#F87171",
+      };
+    case "new":
+    default:
+      return {
+        backgroundColor: "#1F2937",
+        textColor: "#D1D5DB",
+      };
+  }
+}
+
+function formatPrice(value: number | null) {
+  if (typeof value !== "number") return "—";
+  return `${value} ₽`;
+}
 
 export default function HomeScreen() {
   const router = useRouter();
 
   const [checkingOrder, setCheckingOrder] = useState(true);
-  const [hasActiveOrder, setHasActiveOrder] = useState(false);
-  const [activeOrderId, setActiveOrderId] = useState<string | null>(null);
+  const [activeOrder, setActiveOrder] = useState<ActiveOrderPreview | null>(null);
 
   const loadActiveOrderState = useCallback(async () => {
     try {
       const storedActiveOrderId = await getActiveOrder();
 
-      setActiveOrderId(storedActiveOrderId);
-      setHasActiveOrder(Boolean(storedActiveOrderId));
+      if (!storedActiveOrderId) {
+        setActiveOrder(null);
+        return;
+      }
+
+      const { data, error } = await supabase
+        .from("orders")
+        .select("id, status, address, total")
+        .eq("id", storedActiveOrderId)
+        .single();
+
+      if (error) {
+        setActiveOrder(null);
+        return;
+      }
+
+      const nextOrder = data as ActiveOrderPreview;
+
+      if (nextOrder.status === "done" || nextOrder.status === "cancelled") {
+        setActiveOrder(null);
+        return;
+      }
+
+      setActiveOrder(nextOrder);
     } finally {
       setCheckingOrder(false);
     }
@@ -51,6 +131,9 @@ export default function HomeScreen() {
     );
   }
 
+  const hasActiveOrder = Boolean(activeOrder);
+  const statusChip = getStatusChipStyles(activeOrder?.status);
+
   return (
     <SafeAreaView style={styles.safeArea}>
       <View style={styles.container}>
@@ -62,13 +145,43 @@ export default function HomeScreen() {
 
         {hasActiveOrder ? (
           <View style={styles.activeOrderCard}>
-            <Text style={styles.activeOrderBadge}>АКТИВНЫЙ ЗАКАЗ</Text>
+            <View style={styles.activeOrderTop}>
+              <Text style={styles.activeOrderBadge}>АКТИВНЫЙ ЗАКАЗ</Text>
+
+              <View
+                style={[
+                  styles.statusChip,
+                  { backgroundColor: statusChip.backgroundColor },
+                ]}
+              >
+                <Text
+                  style={[
+                    styles.statusChipText,
+                    { color: statusChip.textColor },
+                  ]}
+                >
+                  {getStatusLabel(activeOrder?.status)}
+                </Text>
+              </View>
+            </View>
+
             <Text style={styles.activeOrderTitle}>У вас есть активный заказ</Text>
+
             <Text style={styles.activeOrderText}>
-              {activeOrderId
-                ? `Заказ #${activeOrderId} сейчас в работе.`
-                : "Ваш заказ сейчас в работе."}
+              Заказ #{activeOrder?.id || "—"} сейчас в работе.
             </Text>
+
+            <View style={styles.activeOrderInfoGrid}>
+              <View style={styles.infoCard}>
+                <Text style={styles.infoLabel}>Адрес</Text>
+                <Text style={styles.infoValue}>{activeOrder?.address || "—"}</Text>
+              </View>
+
+              <View style={styles.infoCard}>
+                <Text style={styles.infoLabel}>Сумма</Text>
+                <Text style={styles.infoValue}>{formatPrice(activeOrder?.total ?? null)}</Text>
+              </View>
+            </View>
 
             <View style={styles.actions}>
               <Pressable
@@ -163,12 +276,27 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: "#0F2138",
   },
+  activeOrderTop: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    gap: 12,
+    marginBottom: 12,
+  },
   activeOrderBadge: {
     color: "#22C55E",
     fontSize: 12,
     fontWeight: "800",
     letterSpacing: 1,
-    marginBottom: 10,
+  },
+  statusChip: {
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+  },
+  statusChipText: {
+    fontSize: 12,
+    fontWeight: "800",
   },
   activeOrderTitle: {
     color: "#FFFFFF",
@@ -180,7 +308,28 @@ const styles = StyleSheet.create({
     color: "#CBD5E1",
     fontSize: 15,
     lineHeight: 22,
+    marginBottom: 18,
+  },
+  activeOrderInfoGrid: {
+    gap: 12,
     marginBottom: 20,
+  },
+  infoCard: {
+    backgroundColor: "#0B1A2E",
+    borderRadius: 16,
+    padding: 14,
+    borderWidth: 1,
+    borderColor: "#13243A",
+  },
+  infoLabel: {
+    color: "#94A3B8",
+    fontSize: 12,
+    marginBottom: 6,
+  },
+  infoValue: {
+    color: "#FFFFFF",
+    fontSize: 15,
+    fontWeight: "600",
   },
   actions: {
     gap: 12,
