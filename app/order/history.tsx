@@ -19,7 +19,14 @@ type OrderHistoryRow = {
   id: string;
   status: OrderStatus;
   address: string | null;
+  phone: string | null;
+  entrance: string | null;
+  comment: string | null;
+  leave_at_door: boolean | null;
+  call_required: boolean | null;
+  package_id: string | null;
   package_label: string | null;
+  package_price: number | null;
   total: number | null;
   created_at: string | null;
 };
@@ -88,6 +95,7 @@ export default function OrderHistoryScreen() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [screenError, setScreenError] = useState<string | null>(null);
+  const [reorderingId, setReorderingId] = useState<string | null>(null);
 
   const fetchOrders = useCallback(async (isRefresh = false) => {
     try {
@@ -101,7 +109,9 @@ export default function OrderHistoryScreen() {
 
       const { data, error } = await supabase
         .from("orders")
-        .select("id, status, address, package_label, total, created_at")
+        .select(
+          "id, status, address, phone, entrance, comment, leave_at_door, call_required, package_id, package_label, package_price, total, created_at"
+        )
         .order("created_at", { ascending: false });
 
       if (error) {
@@ -144,6 +154,40 @@ export default function OrderHistoryScreen() {
       pathname: "/order/success",
       params: { orderId },
     });
+  };
+
+  const handleReorder = async (order: OrderHistoryRow) => {
+    if (!order.package_id || !order.package_label || typeof order.package_price !== "number") {
+      setScreenError("У этого заказа не хватает данных для повторного оформления.");
+      return;
+    }
+
+    if (!order.address || !order.phone) {
+      setScreenError("У этого заказа не хватает адреса или телефона для повторного оформления.");
+      return;
+    }
+
+    try {
+      setReorderingId(order.id);
+      setScreenError(null);
+
+      router.push({
+        pathname: "/order/confirm",
+        params: {
+          packageId: order.package_id,
+          packageName: order.package_label,
+          price: String(order.package_price),
+          address: order.address,
+          phone: order.phone,
+          entrance: order.entrance || "",
+          comment: order.comment || "",
+          leaveAtDoor: order.leave_at_door ? "true" : "false",
+          callRequired: order.call_required ? "true" : "false",
+        },
+      });
+    } finally {
+      setReorderingId(null);
+    }
   };
 
   const handleGoHome = () => {
@@ -213,43 +257,56 @@ export default function OrderHistoryScreen() {
           <View style={styles.list}>
             {orders.map((order) => {
               const statusStyles = getStatusStyles(order.status);
+              const isReordering = reorderingId === order.id;
 
               return (
-                <Pressable
-                  key={order.id}
-                  style={styles.orderCard}
-                  onPress={() => handleOpenOrder(order.id)}
-                >
-                  <View style={styles.orderTopRow}>
-                    <View style={styles.orderMainInfo}>
-                      <Text style={styles.orderTitle}>Заказ #{order.id}</Text>
-                      <Text style={styles.orderAddress}>{order.address || "—"}</Text>
+                <View key={order.id} style={styles.orderCard}>
+                  <Pressable onPress={() => handleOpenOrder(order.id)}>
+                    <View style={styles.orderTopRow}>
+                      <View style={styles.orderMainInfo}>
+                        <Text style={styles.orderTitle}>Заказ #{order.id}</Text>
+                        <Text style={styles.orderAddress}>{order.address || "—"}</Text>
+                      </View>
+
+                      <View style={[styles.statusBadge, { backgroundColor: statusStyles.badgeBg }]}>
+                        <Text style={[styles.statusBadgeText, { color: statusStyles.badgeText }]}>
+                          {getStatusLabel(order.status)}
+                        </Text>
+                      </View>
                     </View>
 
-                    <View style={[styles.statusBadge, { backgroundColor: statusStyles.badgeBg }]}>
-                      <Text style={[styles.statusBadgeText, { color: statusStyles.badgeText }]}>
-                        {getStatusLabel(order.status)}
-                      </Text>
+                    <View style={styles.orderMetaRow}>
+                      <View style={styles.metaBlock}>
+                        <Text style={styles.metaLabel}>Пакет</Text>
+                        <Text style={styles.metaValue}>{order.package_label || "—"}</Text>
+                      </View>
+
+                      <View style={styles.metaBlock}>
+                        <Text style={styles.metaLabel}>Сумма</Text>
+                        <Text style={styles.metaValue}>{formatPrice(order.total)}</Text>
+                      </View>
                     </View>
+
+                    <View style={styles.orderFooter}>
+                      <Text style={styles.orderDate}>{formatDate(order.created_at)}</Text>
+                      <Text style={styles.orderLink}>Открыть</Text>
+                    </View>
+                  </Pressable>
+
+                  <View style={styles.cardActions}>
+                    <Pressable
+                      style={styles.reorderButton}
+                      onPress={() => handleReorder(order)}
+                      disabled={isReordering}
+                    >
+                      {isReordering ? (
+                        <ActivityIndicator color="#04110A" />
+                      ) : (
+                        <Text style={styles.reorderButtonText}>Повторить заказ</Text>
+                      )}
+                    </Pressable>
                   </View>
-
-                  <View style={styles.orderMetaRow}>
-                    <View style={styles.metaBlock}>
-                      <Text style={styles.metaLabel}>Пакет</Text>
-                      <Text style={styles.metaValue}>{order.package_label || "—"}</Text>
-                    </View>
-
-                    <View style={styles.metaBlock}>
-                      <Text style={styles.metaLabel}>Сумма</Text>
-                      <Text style={styles.metaValue}>{formatPrice(order.total)}</Text>
-                    </View>
-                  </View>
-
-                  <View style={styles.orderFooter}>
-                    <Text style={styles.orderDate}>{formatDate(order.created_at)}</Text>
-                    <Text style={styles.orderLink}>Открыть</Text>
-                  </View>
-                </Pressable>
+                </View>
               );
             })}
           </View>
@@ -368,6 +425,7 @@ const styles = StyleSheet.create({
   orderMetaRow: {
     flexDirection: "row",
     gap: 12,
+    marginTop: 14,
   },
   metaBlock: {
     flex: 1,
@@ -391,6 +449,7 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
+    marginTop: 14,
   },
   orderDate: {
     color: "#94A3B8",
@@ -400,6 +459,20 @@ const styles = StyleSheet.create({
     color: "#22C55E",
     fontSize: 14,
     fontWeight: "700",
+  },
+  cardActions: {
+    marginTop: 2,
+  },
+  reorderButton: {
+    backgroundColor: "#22C55E",
+    borderRadius: 16,
+    paddingVertical: 14,
+    alignItems: "center",
+  },
+  reorderButtonText: {
+    color: "#04110A",
+    fontSize: 16,
+    fontWeight: "800",
   },
   primaryButton: {
     marginTop: 8,
