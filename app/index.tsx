@@ -2,7 +2,6 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
-  Pressable,
   RefreshControl,
   SafeAreaView,
   ScrollView,
@@ -13,6 +12,10 @@ import {
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useFocusEffect, useRouter } from "expo-router";
 import { supabase } from "../lib/supabase";
+import AppButton from "../components/ui/AppButton";
+import AppCard from "../components/ui/AppCard";
+import ScreenSection from "../components/ui/ScreenSection";
+import { colors, radii, spacing, typography } from "../lib/theme";
 
 type ActiveOrderStatus =
   | "new"
@@ -104,7 +107,7 @@ export default function HomeScreen() {
           return parsed;
         }
       } catch {
-        // ignore broken value and continue
+        // ignore broken value
       }
     }
 
@@ -226,9 +229,7 @@ export default function HomeScreen() {
       >
         <View style={styles.header}>
           <Text style={styles.title}>МусорОК</Text>
-          <Text style={styles.subtitle}>
-            Вынос бытового мусора по кнопке
-          </Text>
+          <Text style={styles.subtitle}>Вынос бытового мусора по кнопке</Text>
         </View>
 
         {isInitialLoading ? (
@@ -237,25 +238,26 @@ export default function HomeScreen() {
             <Text style={styles.stateText}>Загружаем данные...</Text>
           </View>
         ) : (
-          <>
+          <ScreenSection>
             {errorText ? (
-              <View style={styles.errorCard}>
+              <AppCard style={styles.errorCard}>
                 <Text style={styles.errorTitle}>Есть проблема с загрузкой</Text>
                 <Text style={styles.errorText}>{errorText}</Text>
-
-                <Pressable style={styles.secondaryButton} onPress={handleRefresh}>
-                  <Text style={styles.secondaryButtonText}>Обновить</Text>
-                </Pressable>
-              </View>
+                <AppButton
+                  title="Обновить"
+                  variant="secondary"
+                  onPress={handleRefresh}
+                />
+              </AppCard>
             ) : null}
 
             {activeOrder ? (
-              <View style={styles.activeOrderCard}>
+              <AppCard>
                 <View style={styles.activeOrderTopRow}>
                   <Text style={styles.cardTitle}>Активный заказ</Text>
-                  <Pressable onPress={handleRefresh} hitSlop={10}>
-                    <Text style={styles.refreshText}>Обновить</Text>
-                  </Pressable>
+                  <Text style={styles.refreshText} onPress={handleRefresh}>
+                    Обновить
+                  </Text>
                 </View>
 
                 <View style={styles.statusPill}>
@@ -285,47 +287,47 @@ export default function HomeScreen() {
                   </View>
                 </View>
 
-                <Pressable
-                  style={styles.primaryButton}
+                <AppButton
+                  title="Открыть активный заказ"
                   onPress={handleOpenActiveOrder}
-                >
-                  <Text style={styles.primaryButtonText}>Открыть активный заказ</Text>
-                </Pressable>
-              </View>
+                />
+              </AppCard>
             ) : (
-              <View style={styles.emptyCard}>
-                <Text style={styles.emptyTitle}>Активных заказов нет</Text>
+              <AppCard>
+                <Text style={styles.cardTitle}>Активных заказов нет</Text>
                 <Text style={styles.emptyText}>
                   Создай новый заказ, и он появится здесь.
                 </Text>
-
-                <Pressable
-                  style={styles.primaryButton}
-                  onPress={handleCreateOrder}
-                >
-                  <Text style={styles.primaryButtonText}>Создать заказ</Text>
-                </Pressable>
-              </View>
+                <AppButton title="Создать заказ" onPress={handleCreateOrder} />
+              </AppCard>
             )}
 
             <View style={styles.actionsBlock}>
-              <Pressable style={styles.outlineButton} onPress={handleCreateOrder}>
-                <Text style={styles.outlineButtonText}>Новый заказ</Text>
-              </Pressable>
+              <View style={styles.actionItem}>
+                <AppButton
+                  title="Новый заказ"
+                  variant="outline"
+                  onPress={handleCreateOrder}
+                />
+              </View>
 
-              <Pressable style={styles.outlineButton} onPress={handleOpenHistory}>
-                <Text style={styles.outlineButtonText}>История заказов</Text>
-              </Pressable>
+              <View style={styles.actionItem}>
+                <AppButton
+                  title="История заказов"
+                  variant="outline"
+                  onPress={handleOpenHistory}
+                />
+              </View>
             </View>
 
-            <View style={styles.hintCard}>
+            <AppCard>
               <Text style={styles.hintTitle}>Как это работает</Text>
               <Text style={styles.hintText}>
                 Выбираешь тариф, указываешь детали, подтверждаешь заказ — курьер
                 забирает мусор.
               </Text>
-            </View>
-          </>
+            </AppCard>
+          </ScreenSection>
         )}
       </ScrollView>
     </SafeAreaView>
@@ -335,193 +337,129 @@ export default function HomeScreen() {
 const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
-    backgroundColor: "#F6F7FB",
+    backgroundColor: colors.background,
   },
   content: {
-    padding: 20,
-    paddingBottom: 32,
-    gap: 16,
+    padding: spacing.xl,
+    paddingBottom: spacing.xxxl,
+    gap: spacing.lg,
   },
   header: {
-    marginTop: 8,
-    marginBottom: 8,
+    marginTop: spacing.sm,
+    marginBottom: spacing.sm,
   },
   title: {
-    fontSize: 32,
+    fontSize: typography.title,
     fontWeight: "800",
-    color: "#111111",
+    color: colors.text,
   },
   subtitle: {
-    marginTop: 6,
-    fontSize: 15,
+    marginTop: spacing.xs,
+    fontSize: typography.body,
     lineHeight: 22,
-    color: "#6B7280",
+    color: colors.textSecondary,
   },
   centerState: {
     alignItems: "center",
     justifyContent: "center",
     paddingVertical: 60,
-    gap: 12,
+    gap: spacing.md,
   },
   stateText: {
-    fontSize: 15,
-    color: "#6B7280",
-  },
-  activeOrderCard: {
-    backgroundColor: "#FFFFFF",
-    borderRadius: 20,
-    padding: 18,
-    gap: 14,
-    shadowColor: "#000",
-    shadowOpacity: 0.06,
-    shadowRadius: 12,
-    shadowOffset: { width: 0, height: 4 },
-    elevation: 2,
+    fontSize: typography.body,
+    color: colors.textSecondary,
   },
   activeOrderTopRow: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
+    marginBottom: spacing.md,
   },
   cardTitle: {
-    fontSize: 20,
+    fontSize: typography.h2,
     fontWeight: "800",
-    color: "#111111",
+    color: colors.text,
   },
   refreshText: {
-    fontSize: 14,
+    fontSize: typography.bodySmall,
     fontWeight: "700",
-    color: "#E9281D",
+    color: colors.primary,
   },
   statusPill: {
     alignSelf: "flex-start",
-    backgroundColor: "#FFF1F0",
+    backgroundColor: colors.primarySoft,
     paddingHorizontal: 12,
     paddingVertical: 8,
-    borderRadius: 999,
+    borderRadius: radii.pill,
+    marginBottom: spacing.md,
   },
   statusPillText: {
-    fontSize: 13,
+    fontSize: typography.caption,
     fontWeight: "700",
-    color: "#E9281D",
+    color: colors.primary,
   },
   infoBlock: {
-    gap: 6,
+    gap: spacing.xs,
+    marginBottom: spacing.md,
   },
   infoLabel: {
-    fontSize: 13,
+    fontSize: typography.caption,
     fontWeight: "600",
-    color: "#6B7280",
+    color: colors.textSecondary,
   },
   infoValue: {
     fontSize: 16,
     fontWeight: "700",
-    color: "#111111",
+    color: colors.text,
   },
   row: {
     flexDirection: "row",
-    gap: 12,
+    gap: spacing.md,
+    marginBottom: spacing.md,
   },
   rowItem: {
     flex: 1,
-    gap: 6,
-  },
-  primaryButton: {
-    backgroundColor: "#E9281D",
-    borderRadius: 14,
-    paddingVertical: 16,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  primaryButtonText: {
-    color: "#FFFFFF",
-    fontSize: 16,
-    fontWeight: "800",
-  },
-  secondaryButton: {
-    alignSelf: "flex-start",
-    backgroundColor: "#111111",
-    borderRadius: 12,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-  },
-  secondaryButtonText: {
-    color: "#FFFFFF",
-    fontSize: 14,
-    fontWeight: "700",
-  },
-  outlineButton: {
-    flex: 1,
-    borderWidth: 1,
-    borderColor: "#E5E7EB",
-    backgroundColor: "#FFFFFF",
-    borderRadius: 14,
-    paddingVertical: 16,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  outlineButtonText: {
-    fontSize: 15,
-    fontWeight: "700",
-    color: "#111111",
+    gap: spacing.xs,
   },
   actionsBlock: {
     flexDirection: "row",
-    gap: 12,
+    gap: spacing.md,
   },
-  emptyCard: {
-    backgroundColor: "#FFFFFF",
-    borderRadius: 20,
-    padding: 20,
-    gap: 12,
-    shadowColor: "#000",
-    shadowOpacity: 0.05,
-    shadowRadius: 12,
-    shadowOffset: { width: 0, height: 4 },
-    elevation: 2,
-  },
-  emptyTitle: {
-    fontSize: 20,
-    fontWeight: "800",
-    color: "#111111",
+  actionItem: {
+    flex: 1,
   },
   emptyText: {
-    fontSize: 15,
+    fontSize: typography.body,
     lineHeight: 22,
-    color: "#6B7280",
-  },
-  hintCard: {
-    backgroundColor: "#FFFFFF",
-    borderRadius: 20,
-    padding: 18,
-    gap: 8,
+    color: colors.textSecondary,
+    marginTop: spacing.sm,
+    marginBottom: spacing.md,
   },
   hintTitle: {
-    fontSize: 17,
+    fontSize: typography.h3,
     fontWeight: "800",
-    color: "#111111",
+    color: colors.text,
+    marginBottom: spacing.sm,
   },
   hintText: {
-    fontSize: 15,
+    fontSize: typography.body,
     lineHeight: 22,
-    color: "#6B7280",
+    color: colors.textSecondary,
   },
   errorCard: {
-    backgroundColor: "#FFF4F4",
-    borderRadius: 16,
-    padding: 16,
-    gap: 10,
+    backgroundColor: colors.errorBg,
     borderWidth: 1,
-    borderColor: "#FFD6D3",
+    borderColor: colors.errorBorder,
+    gap: spacing.sm,
   },
   errorTitle: {
     fontSize: 16,
     fontWeight: "800",
-    color: "#7F1D1D",
+    color: colors.errorTitle,
   },
   errorText: {
-    fontSize: 14,
+    fontSize: typography.bodySmall,
     lineHeight: 20,
-    color: "#991B1B",
+    color: colors.errorText,
   },
 });
