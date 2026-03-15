@@ -10,7 +10,7 @@ import {
 } from "react-native";
 import { Stack, useLocalSearchParams, useRouter } from "expo-router";
 
-import { clearActiveOrder, saveActiveOrder } from "../../lib/activeOrder";
+import { clearActiveOrder, getActiveOrder, saveActiveOrder } from "../../lib/activeOrder";
 import { supabase } from "../../lib/supabase";
 
 type OrderStatus = "new" | "assigned" | "on_the_way" | "arrived" | "done" | "cancelled";
@@ -72,6 +72,10 @@ function formatPaymentMethod(value: string | null) {
   return value;
 }
 
+function isFinishedStatus(status: OrderStatus) {
+  return status === "done" || status === "cancelled";
+}
+
 export default function OrderSuccessScreen() {
   const router = useRouter();
   const params = useLocalSearchParams<{ orderId?: string }>();
@@ -96,9 +100,21 @@ export default function OrderSuccessScreen() {
 
     let isMounted = true;
 
-    const init = async () => {
-      await saveActiveOrder(orderId);
+    const syncActiveOrderState = async (nextOrder: OrderRow) => {
+      if (isFinishedStatus(nextOrder.status)) {
+        const activeOrderId = await getActiveOrder();
 
+        if (activeOrderId === nextOrder.id) {
+          await clearActiveOrder();
+        }
+
+        return;
+      }
+
+      await saveActiveOrder(nextOrder.id);
+    };
+
+    const init = async () => {
       setLoading(true);
       setScreenError(null);
 
@@ -120,11 +136,7 @@ export default function OrderSuccessScreen() {
 
       const nextOrder = data as OrderRow;
       setOrder(nextOrder);
-
-      if (nextOrder.status === "done" || nextOrder.status === "cancelled") {
-        await clearActiveOrder();
-      }
-
+      await syncActiveOrderState(nextOrder);
       setLoading(false);
     };
 
@@ -143,10 +155,7 @@ export default function OrderSuccessScreen() {
         async (payload) => {
           const next = payload.new as OrderRow;
           setOrder(next);
-
-          if (next.status === "done" || next.status === "cancelled") {
-            await clearActiveOrder();
-          }
+          await syncActiveOrderState(next);
         }
       )
       .subscribe();
@@ -158,8 +167,12 @@ export default function OrderSuccessScreen() {
   }, [orderId]);
 
   const handleGoHome = async () => {
-    if (order?.status === "done" || order?.status === "cancelled") {
-      await clearActiveOrder();
+    if (order && isFinishedStatus(order.status)) {
+      const activeOrderId = await getActiveOrder();
+
+      if (activeOrderId === order.id) {
+        await clearActiveOrder();
+      }
     }
 
     router.replace("/");
@@ -299,7 +312,7 @@ export default function OrderSuccessScreen() {
               </View>
             </View>
 
-            {order.status === "done" || order.status === "cancelled" ? (
+            {isFinishedStatus(order.status) ? (
               <Pressable style={styles.primaryButton} onPress={handleGoHome}>
                 <Text style={styles.primaryButtonText}>Готово</Text>
               </Pressable>
