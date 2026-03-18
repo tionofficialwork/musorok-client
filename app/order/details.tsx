@@ -13,7 +13,10 @@ import {
 import { Stack, useLocalSearchParams, useRouter } from "expo-router";
 
 import AppButton from "../../components/ui/AppButton";
+import AppCard from "../../components/ui/AppCard";
+import ScreenSection from "../../components/ui/ScreenSection";
 import { supabase } from "../../lib/supabase";
+import { colors, radii, spacing, typography } from "../../lib/theme";
 
 type DetailsParams = {
   packageId?: string;
@@ -34,7 +37,7 @@ function resolvePackageLabel(packageId: string, packageName: string) {
     case "large":
       return "Большой пакет";
     case "1":
-        return "1 пакет";
+      return "1 пакет";
     case "2-3":
       return "2-3 пакета";
     case "4+":
@@ -71,7 +74,6 @@ function resolvePackagePrice(rawPrice: string, packageId: string) {
 
 export default function OrderDetailsScreen() {
   const router = useRouter();
-
   const params = useLocalSearchParams<DetailsParams>();
 
   const packageId =
@@ -131,8 +133,6 @@ export default function OrderDetailsScreen() {
         call_required: false,
       };
 
-      console.log("CREATE ORDER PAYLOAD", orderPayload);
-
       const { data, error } = await supabase
         .from("orders")
         .insert([orderPayload])
@@ -140,7 +140,6 @@ export default function OrderDetailsScreen() {
         .single();
 
       if (error) {
-        console.log("CREATE ORDER ERROR", error);
         throw error;
       }
 
@@ -148,14 +147,10 @@ export default function OrderDetailsScreen() {
         throw new Error("Заказ не вернулся после создания");
       }
 
-      console.log("CREATE ORDER SUCCESS", data);
-
       Alert.alert("Успех", "Заказ создан");
 
       router.replace("/");
     } catch (error: any) {
-      console.log("CREATE ORDER FAILED", error);
-
       Alert.alert(
         "Ошибка",
         typeof error?.message === "string"
@@ -171,51 +166,125 @@ export default function OrderDetailsScreen() {
     <>
       <Stack.Screen options={{ title: "Детали заказа" }} />
 
-      <SafeAreaView style={styles.safe}>
+      <SafeAreaView style={styles.safeArea}>
         <KeyboardAvoidingView
-          style={styles.container}
+          style={styles.keyboard}
           behavior={Platform.OS === "ios" ? "padding" : undefined}
         >
           <ScrollView
+            style={styles.container}
             contentContainerStyle={styles.content}
             keyboardShouldPersistTaps="handled"
             showsVerticalScrollIndicator={false}
           >
-            <View style={styles.card}>
-              <Text style={styles.title}>{resolvedPackageLabel}</Text>
-              <Text style={styles.price}>{resolvedPackagePrice} ₽</Text>
+            <View style={styles.hero}>
+              <Text style={styles.eyebrow}>Шаг 2 из 2</Text>
+              <Text style={styles.title}>Укажи детали заказа</Text>
+              <Text style={styles.subtitle}>
+                Заполни адрес и комментарий. После этого заказ сразу создастся и появится в админке.
+              </Text>
             </View>
 
-            <View style={styles.section}>
-              <Text style={styles.label}>Адрес</Text>
-              <TextInput
-                style={styles.input}
-                placeholder="Введите адрес"
-                value={address}
-                onChangeText={setAddress}
-                autoCapitalize="sentences"
-              />
-            </View>
+            <ScreenSection
+              title="Выбранный тариф"
+              subtitle="Проверь пакет перед созданием заказа"
+            >
+              <AppCard>
+                <View style={styles.summaryRow}>
+                  <View style={styles.summaryTextBlock}>
+                    <Text style={styles.summaryTitle}>{resolvedPackageLabel}</Text>
+                    <Text style={styles.summarySubtitle}>
+                      Стоимость фиксирована для выбранного тарифа.
+                    </Text>
+                  </View>
 
-            <View style={styles.section}>
-              <Text style={styles.label}>Комментарий</Text>
-              <TextInput
-                style={[styles.input, styles.textarea]}
-                placeholder="Например: домофон не работает"
-                value={comment}
-                onChangeText={setComment}
-                multiline
-                textAlignVertical="top"
-              />
-            </View>
+                  <View style={styles.priceBadge}>
+                    <Text style={styles.priceBadgeText}>{resolvedPackagePrice} ₽</Text>
+                  </View>
+                </View>
+              </AppCard>
+            </ScreenSection>
 
-            <View style={styles.buttonWrap}>
-              <AppButton
-                title={loading ? "Создание..." : "Создать заказ"}
-                onPress={handleCreateOrder}
-              />
-            </View>
+            <ScreenSection
+              title="Адрес"
+              subtitle="Куда должен приехать курьер"
+            >
+              <AppCard>
+                <View style={styles.formGroup}>
+                  <Text style={styles.label}>Адрес</Text>
+                  <TextInput
+                    style={styles.input}
+                    placeholder="Введите адрес"
+                    placeholderTextColor={colors.textMuted}
+                    value={address}
+                    onChangeText={setAddress}
+                    autoCapitalize="sentences"
+                  />
+                </View>
+              </AppCard>
+            </ScreenSection>
+
+            <ScreenSection
+              title="Комментарий"
+              subtitle="Дополнительная информация для курьера"
+            >
+              <AppCard>
+                <View style={styles.formGroupNoMargin}>
+                  <Text style={styles.label}>Комментарий</Text>
+                  <TextInput
+                    style={[styles.input, styles.textarea]}
+                    placeholder="Например: домофон не работает"
+                    placeholderTextColor={colors.textMuted}
+                    value={comment}
+                    onChangeText={setComment}
+                    multiline
+                    textAlignVertical="top"
+                  />
+                </View>
+              </AppCard>
+            </ScreenSection>
+
+            <ScreenSection
+              title="Что будет дальше"
+              subtitle="После нажатия на кнопку"
+            >
+              <AppCard>
+                <View style={styles.stepRow}>
+                  <View style={styles.stepBadge}>
+                    <Text style={styles.stepBadgeText}>1</Text>
+                  </View>
+                  <View style={styles.stepContent}>
+                    <Text style={styles.stepTitle}>Заказ создастся</Text>
+                    <Text style={styles.stepText}>
+                      Мы отправим заявку в таблицу `orders` со статусом `new`.
+                    </Text>
+                  </View>
+                </View>
+
+                <View style={styles.stepDivider} />
+
+                <View style={styles.stepRow}>
+                  <View style={styles.stepBadge}>
+                    <Text style={styles.stepBadgeText}>2</Text>
+                  </View>
+                  <View style={styles.stepContent}>
+                    <Text style={styles.stepTitle}>Он появится в админке</Text>
+                    <Text style={styles.stepText}>
+                      После создания заказ должен сразу отображаться в панели управления.
+                    </Text>
+                  </View>
+                </View>
+              </AppCard>
+            </ScreenSection>
           </ScrollView>
+
+          <View style={styles.footer}>
+            <AppButton
+              title={loading ? "Создание..." : "Создать заказ"}
+              onPress={handleCreateOrder}
+              disabled={loading}
+            />
+          </View>
         </KeyboardAvoidingView>
       </SafeAreaView>
     </>
@@ -223,53 +292,144 @@ export default function OrderDetailsScreen() {
 }
 
 const styles = StyleSheet.create({
-  safe: {
+  safeArea: {
     flex: 1,
-    backgroundColor: "#fff",
+    backgroundColor: colors.background,
+  },
+  keyboard: {
+    flex: 1,
   },
   container: {
     flex: 1,
+    backgroundColor: colors.background,
   },
   content: {
-    padding: 16,
-    paddingBottom: 40,
+    paddingHorizontal: spacing.lg,
+    paddingTop: spacing.lg,
+    paddingBottom: 120,
+    gap: spacing.lg,
   },
-  card: {
-    backgroundColor: "#f5f5f5",
-    padding: 16,
-    borderRadius: 12,
-    marginBottom: 20,
+  hero: {
+    paddingTop: spacing.sm,
+    gap: spacing.sm,
+  },
+  eyebrow: {
+    fontSize: typography.caption,
+    fontWeight: "700",
+    color: colors.primary,
+    textTransform: "uppercase",
+    letterSpacing: 0.6,
   },
   title: {
-    fontSize: 18,
-    fontWeight: "600",
-    marginBottom: 4,
-    color: "#111",
+    fontSize: typography.h1,
+    fontWeight: "800",
+    color: colors.text,
   },
-  price: {
-    fontSize: 16,
-    color: "#666",
+  subtitle: {
+    fontSize: typography.body,
+    lineHeight: 22,
+    color: colors.textMuted,
   },
-  section: {
-    marginBottom: 16,
+  summaryRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: spacing.md,
+  },
+  summaryTextBlock: {
+    flex: 1,
+    gap: 4,
+  },
+  summaryTitle: {
+    fontSize: typography.h3,
+    fontWeight: "800",
+    color: colors.text,
+  },
+  summarySubtitle: {
+    fontSize: typography.body,
+    lineHeight: 21,
+    color: colors.textMuted,
+  },
+  priceBadge: {
+    borderRadius: 999,
+    backgroundColor: colors.primarySoft,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+  },
+  priceBadgeText: {
+    fontSize: typography.body,
+    fontWeight: "800",
+    color: colors.primary,
+  },
+  formGroup: {
+    marginBottom: spacing.xs,
+  },
+  formGroupNoMargin: {
+    marginBottom: 0,
   },
   label: {
-    marginBottom: 6,
-    fontSize: 14,
-    color: "#333",
+    fontSize: typography.body,
+    fontWeight: "700",
+    color: colors.text,
+    marginBottom: spacing.sm,
   },
   input: {
+    minHeight: 52,
     borderWidth: 1,
-    borderColor: "#ddd",
-    borderRadius: 10,
-    padding: 12,
-    backgroundColor: "#fff",
-    color: "#111",
+    borderColor: colors.border,
+    borderRadius: radii.lg,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.md,
+    fontSize: typography.body,
+    color: colors.text,
+    backgroundColor: colors.surfaceSecondary,
   },
   textarea: {
-    minHeight: 100,
+    minHeight: 120,
   },
-  buttonWrap: {
-    marginTop: 20,
+  stepRow: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: spacing.md,
+  },
+  stepBadge: {
+    width: 32,
+    height: 32,
+    borderRadius: 999,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: colors.primarySoft,
+  },
+  stepBadgeText: {
+    fontSize: typography.body,
+    fontWeight: "800",
+    color: colors.primary,
+  },
+  stepContent: {
+    flex: 1,
+    gap: 4,
+  },
+  stepTitle: {
+    fontSize: typography.body,
+    fontWeight: "700",
+    color: colors.text,
+  },
+  stepText: {
+    fontSize: typography.body,
+    lineHeight: 21,
+    color: colors.textMuted,
+  },
+  stepDivider: {
+    height: 1,
+    backgroundColor: colors.border,
+    marginVertical: spacing.md,
+  },
+  footer: {
+    paddingHorizontal: spacing.lg,
+    paddingTop: spacing.md,
+    paddingBottom: spacing.lg,
+    borderTopWidth: 1,
+    borderTopColor: colors.border,
+    backgroundColor: colors.background,
   },
 });
