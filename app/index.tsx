@@ -1,7 +1,6 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import {
   ActivityIndicator,
-  Alert,
   RefreshControl,
   SafeAreaView,
   ScrollView,
@@ -9,130 +8,141 @@ import {
   Text,
   View,
 } from "react-native";
-import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useFocusEffect, useRouter } from "expo-router";
-
-import { supabase } from "../lib/supabase";
 import AppButton from "../components/ui/AppButton";
 import AppCard from "../components/ui/AppCard";
 import ErrorCard from "../components/ui/ErrorCard";
 import ScreenSection from "../components/ui/ScreenSection";
 import StatusPill from "../components/ui/StatusPill";
+import {
+  clearActiveOrder,
+  getActiveOrder,
+  isActiveOrderStatus,
+  syncActiveOrder,
+  type StoredActiveOrder,
+} from "../lib/activeOrder";
+import { supabase } from "../lib/supabase";
+import { colors, radii, spacing, typography } from "../lib/theme";
 
-type ActiveOrder = {
-  id: string;
+type OrderRow = {
+  id: string | number;
+  created_at: string | null;
   status: string | null;
   address: string | null;
+  package_id: string | null;
   package_label: string | null;
   package_price: number | null;
+  apartment: string | null;
+  entrance: string | null;
+  comment: string | null;
+  leave_at_door: boolean | null;
+  phone: string | null;
+  should_call: boolean | null;
+  payment_method: string | null;
+  tip: number | null;
   total: number | null;
-  created_at: string | null;
+  courier_id: string | null;
+  call_required: boolean | null;
 };
 
-const ACTIVE_ORDER_STORAGE_KEY = "active_order_id";
+const ACTIVE_STATUSES = [
+  "pending",
+  "assigned",
+  "accepted",
+  "in_progress",
+  "on_the_way",
+];
 
 export default function HomeScreen() {
   const router = useRouter();
 
-  const [activeOrder, setActiveOrder] = useState<ActiveOrder | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [activeOrder, setActiveOrder] = useState<OrderRow | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const [errorText, setErrorText] = useState<string | null>(null);
 
-  const activeOrderCreatedAt = useMemo(() => {
-    if (!activeOrder?.created_at) {
-      return null;
+  const applyStoredOrder = useCallback(async () => {
+    const storedOrder = await getActiveOrder();
+
+    if (storedOrder) {
+      setActiveOrder(mapStoredOrderToOrderRow(storedOrder));
+      return true;
     }
 
-    const date = new Date(activeOrder.created_at);
-
-    if (Number.isNaN(date.getTime())) {
-      return null;
-    }
-
-    return date.toLocaleString("ru-RU", {
-      day: "2-digit",
-      month: "2-digit",
-      hour: "2-digit",
-      minute: "2-digit",
-    });
-  }, [activeOrder?.created_at]);
-
-  const loadActiveOrder = useCallback(async () => {
-    try {
-      setError(null);
-
-      const storedOrderId = await AsyncStorage.getItem(ACTIVE_ORDER_STORAGE_KEY);
-
-      if (!storedOrderId) {
-        setActiveOrder(null);
-        return;
-      }
-
-      const { data, error: fetchError } = await supabase
-        .from("orders")
-        .select("id, status, address, package_label, package_price, total, created_at")
-        .eq("id", storedOrderId)
-        .single();
-
-      if (fetchError) {
-        await AsyncStorage.removeItem(ACTIVE_ORDER_STORAGE_KEY);
-        setActiveOrder(null);
-        return;
-      }
-
-      if (!data) {
-        await AsyncStorage.removeItem(ACTIVE_ORDER_STORAGE_KEY);
-        setActiveOrder(null);
-        return;
-      }
-
-      const normalizedStatus = (data.status || "").toLowerCase();
-
-      if (normalizedStatus === "completed" || normalizedStatus === "cancelled" || normalizedStatus === "canceled") {
-        await AsyncStorage.removeItem(ACTIVE_ORDER_STORAGE_KEY);
-        setActiveOrder(null);
-        return;
-      }
-
-      setActiveOrder(data);
-    } catch (e) {
-      setError("Не удалось загрузить активный заказ.");
-    }
+    return false;
   }, []);
 
-  const loadScreen = useCallback(async () => {
-    setLoading(true);
-    await loadActiveOrder();
-    setLoading(false);
-  }, [loadActiveOrder]);
+  const loadHomeData = useCallback(
+    async (mode: "initial" | "refresh" = "initial") => {
+      try {
+        if (mode === "initial") {
+          setIsLoading(true);
+          await applyStoredOrder();
+        } else {
+          setIsRefreshing(true);
+        }
 
-  const onRefresh = useCallback(async () => {
-    setRefreshing(true);
-    await loadActiveOrder();
-    setRefreshing(false);
-  }, [loadActiveOrder]);
+        setErrorText(null);
 
-  useEffect(() => {
-    loadScreen();
-  }, [loadScreen]);
+        const { data, error } = await supabase
+          .from("orders")
+          .select(
+            "id, created_at, status, address, package_id, package_label, package_price, apartment, entrance, comment, leave_at_door, phone, should_call, payment_method, tip, total, courier_id, call_required"
+          )
+          .in("status", ACTIVE_STATUSES)
+          .order("created_at", { ascending: false })
+          .limit(1);
+
+        if (error) {
+          throw error;
+        }
+
+        const nextOrder =
+          Array.isArray(data) && data.length > 0 ? (data[0] as OrderRow) : null;
+
+        setActiveOrder(nextOrder);
+
+        if (nextOrder) {
+          await syncActiveOrder(nextOrder);
+        } else {
+          await clearActiveOrder();
+        }
+      } catch (error: any) {
+        const hasStored = await applyStoredOrder();
+
+        const message =
+          typeof error?.message === "string"
+            ? error.message
+            : "Не удалось загрузить данные главного экрана.";
+
+        setErrorText(
+          hasStored
+            ? `Показан локально сохранённый активный заказ. ${message}`
+            : message
+        );
+      } finally {
+        setIsLoading(false);
+        setIsRefreshing(false);
+      }
+    },
+    [applyStoredOrder]
+  );
 
   useFocusEffect(
     useCallback(() => {
-      loadActiveOrder();
-    }, [loadActiveOrder])
+      loadHomeData("initial");
+    }, [loadHomeData])
   );
 
-  const handleNewOrder = () => {
+  const handleRefresh = () => {
+    loadHomeData("refresh");
+  };
+
+  const handleCreateOrder = () => {
     router.push("/order/package");
   };
 
-  const handleOpenActiveOrder = () => {
-    if (!activeOrder?.id) {
-      Alert.alert("Нет активного заказа", "Сейчас у вас нет активного заказа.");
-      return;
-    }
-
+  const handleOpenActive = () => {
     router.push("/order/active");
   };
 
@@ -140,228 +150,498 @@ export default function HomeScreen() {
     router.push("/order/history");
   };
 
-  if (loading) {
-    return (
-      <SafeAreaView style={styles.safeArea}>
-        <View style={styles.loaderWrap}>
-          <ActivityIndicator size="large" color="#E9281D" />
-          <Text style={styles.loaderText}>Загружаем данные...</Text>
-        </View>
-      </SafeAreaView>
-    );
-  }
+  const activeOrderStatusLabel = useMemo(
+    () => getStatusLabel(activeOrder?.status ?? null),
+    [activeOrder?.status]
+  );
+
+  const activeOrderStatusTone = useMemo(
+    () => getStatusTone(activeOrder?.status ?? null),
+    [activeOrder?.status]
+  );
 
   return (
     <SafeAreaView style={styles.safeArea}>
-      <ScrollView
-        contentContainerStyle={styles.content}
-        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
-      >
-        <ScreenSection
-          title="МусорОК"
-          subtitle="Сервис выноса бытового мусора по кнопке"
-        >
-          <AppCard style={styles.heroCard}>
-            <Text style={styles.heroTitle}>Вынесем мусор за вас</Text>
-            <Text style={styles.heroText}>
-              Оформите заказ за пару минут — курьер заберёт мусор по указанному адресу.
+      <View style={styles.container}>
+        {isLoading ? (
+          <View style={styles.centerState}>
+            <ActivityIndicator size="large" color={colors.primary} />
+            <Text style={styles.centerTitle}>Загружаем МусорОК</Text>
+            <Text style={styles.centerText}>
+              Проверяем локальные данные и обновляем активный заказ из Supabase.
             </Text>
-
-            <AppButton title="Создать заказ" onPress={handleNewOrder} style={styles.heroButton} />
-          </AppCard>
-        </ScreenSection>
-
-        {error ? (
-          <ErrorCard
-            message={error}
-            onRetry={loadScreen}
-            style={styles.sectionSpacing}
-          />
-        ) : null}
-
-        <ScreenSection
-          title="Активный заказ"
-          subtitle="Здесь отображается ваш текущий заказ, если он есть"
-        >
-          {activeOrder ? (
-            <AppCard>
-              <View style={styles.rowBetween}>
-                <Text style={styles.cardTitle}>Заказ #{activeOrder.id.slice(0, 8)}</Text>
-                <StatusPill status={activeOrder.status} />
-              </View>
-
-              <View style={styles.infoBlock}>
-                <Text style={styles.label}>Адрес</Text>
-                <Text style={styles.value}>{activeOrder.address || "Не указан"}</Text>
-              </View>
-
-              <View style={styles.infoGrid}>
-                <View style={styles.infoGridItem}>
-                  <Text style={styles.label}>Тариф</Text>
-                  <Text style={styles.value}>{activeOrder.package_label || "—"}</Text>
-                </View>
-
-                <View style={styles.infoGridItem}>
-                  <Text style={styles.label}>Сумма</Text>
-                  <Text style={styles.value}>
-                    {typeof activeOrder.total === "number"
-                      ? `${activeOrder.total} ₽`
-                      : typeof activeOrder.package_price === "number"
-                      ? `${activeOrder.package_price} ₽`
-                      : "—"}
-                  </Text>
-                </View>
-              </View>
-
-              {activeOrderCreatedAt ? (
-                <View style={styles.infoBlock}>
-                  <Text style={styles.label}>Создан</Text>
-                  <Text style={styles.value}>{activeOrderCreatedAt}</Text>
-                </View>
-              ) : null}
-
-              <AppButton
-                title="Открыть активный заказ"
-                variant="secondary"
-                onPress={handleOpenActiveOrder}
-                style={styles.cardButton}
-              />
-            </AppCard>
-          ) : (
-            <AppCard>
-              <Text style={styles.emptyTitle}>Пока нет активного заказа</Text>
-              <Text style={styles.emptyText}>
-                Создайте новый заказ, и здесь появится карточка с его статусом.
+          </View>
+        ) : (
+          <ScrollView
+            style={styles.scroll}
+            contentContainerStyle={styles.content}
+            showsVerticalScrollIndicator={false}
+            refreshControl={
+              <RefreshControl refreshing={isRefreshing} onRefresh={handleRefresh} />
+            }
+          >
+            <View style={styles.hero}>
+              <Text style={styles.eyebrow}>МусорОК</Text>
+              <Text style={styles.title}>Вынос мусора по кнопке</Text>
+              <Text style={styles.subtitle}>
+                Быстро создавай заказ, следи за активной заявкой и возвращайся к
+                прошлым заказам в пару нажатий.
               </Text>
+            </View>
 
-              <AppButton
-                title="Создать заказ"
-                onPress={handleNewOrder}
-                style={styles.cardButton}
+            <ScreenSection
+              title="Быстрые действия"
+              subtitle="Главные сценарии клиента в одном месте"
+            >
+              <AppCard>
+                <AppButton title="Создать заказ" onPress={handleCreateOrder} />
+                <View style={styles.actionSpacer} />
+                <AppButton title="Активный заказ" onPress={handleOpenActive} />
+                <View style={styles.actionSpacer} />
+                <AppButton title="История заказов" onPress={handleOpenHistory} />
+              </AppCard>
+            </ScreenSection>
+
+            {errorText ? (
+              <ErrorCard
+                title="Проблема с загрузкой"
+                description={errorText}
+                actionLabel="Повторить"
+                onAction={handleRefresh}
               />
-            </AppCard>
-          )}
-        </ScreenSection>
+            ) : null}
 
-        <ScreenSection
-          title="История"
-          subtitle="Открывайте прошлые заказы и повторяйте их в пару нажатий"
-        >
-          <AppCard>
-            <Text style={styles.historyTitle}>История заказов</Text>
-            <Text style={styles.historyText}>
-              Посмотрите завершённые и отменённые заказы, а также быстро повторите нужный.
-            </Text>
+            {activeOrder ? (
+              <ScreenSection title="Активный заказ" subtitle="То, что сейчас в работе">
+                <AppCard>
+                  <View style={styles.orderHeader}>
+                    <View style={styles.orderHeaderText}>
+                      <Text style={styles.orderId}>Заказ #{activeOrder.id}</Text>
+                      <Text style={styles.orderMeta}>
+                        {activeOrder.package_label || "Без названия"} ·{" "}
+                        {formatCreatedAt(activeOrder.created_at)}
+                      </Text>
+                    </View>
 
-            <AppButton
-              title="Открыть историю"
-              variant="secondary"
-              onPress={handleOpenHistory}
-              style={styles.cardButton}
-            />
-          </AppCard>
-        </ScreenSection>
-      </ScrollView>
+                    <StatusPill
+                      label={activeOrderStatusLabel}
+                      tone={activeOrderStatusTone}
+                    />
+                  </View>
+
+                  <View style={styles.infoBox}>
+                    <Text style={styles.infoBoxTitle}>Адрес</Text>
+                    <Text style={styles.infoBoxText}>
+                      {activeOrder.address || "Адрес не указан"}
+                    </Text>
+                  </View>
+
+                  <View style={styles.summaryList}>
+                    <InfoRow
+                      label="Стоимость пакета"
+                      value={`${Number(activeOrder.package_price ?? 0)} ₽`}
+                    />
+                    <Divider />
+                    <InfoRow
+                      label="Чаевые"
+                      value={`${Number(activeOrder.tip ?? 0)} ₽`}
+                    />
+                    <Divider />
+                    <InfoRow
+                      label="Итого"
+                      value={`${Number(activeOrder.total ?? 0)} ₽`}
+                      strong
+                    />
+                  </View>
+
+                  <View style={styles.cardFooter}>
+                    <AppButton
+                      title="Открыть активный заказ"
+                      onPress={handleOpenActive}
+                    />
+                  </View>
+                </AppCard>
+              </ScreenSection>
+            ) : (
+              <ScreenSection
+                title="Сейчас активного заказа нет"
+                subtitle="Можно создать новый заказ прямо сейчас"
+              >
+                <AppCard>
+                  <View style={styles.emptyIconWrap}>
+                    <Text style={styles.emptyIcon}>🗑️</Text>
+                  </View>
+
+                  <Text style={styles.emptyTitle}>Готовы забрать мусор</Text>
+                  <Text style={styles.emptyText}>
+                    Создай заказ, укажи адрес и детали — дальше заявка появится на
+                    экране активного заказа.
+                  </Text>
+
+                  <View style={styles.cardFooter}>
+                    <AppButton
+                      title="Создать новый заказ"
+                      onPress={handleCreateOrder}
+                    />
+                  </View>
+                </AppCard>
+              </ScreenSection>
+            )}
+
+            <ScreenSection
+              title="Как это работает"
+              subtitle="Коротко про основной пользовательский путь"
+            >
+              <AppCard>
+                <StepRow
+                  index="1"
+                  title="Выбираешь пакет"
+                  text="Подбираешь подходящий объём мусора под текущую ситуацию."
+                />
+                <StepDivider />
+                <StepRow
+                  index="2"
+                  title="Заполняешь детали"
+                  text="Указываешь адрес, телефон, комментарий и нужные настройки."
+                />
+                <StepDivider />
+                <StepRow
+                  index="3"
+                  title="Подтверждаешь заказ"
+                  text="После подтверждения заказ создаётся в Supabase и становится активным."
+                />
+              </AppCard>
+            </ScreenSection>
+          </ScrollView>
+        )}
+      </View>
     </SafeAreaView>
   );
+}
+
+type InfoRowProps = {
+  label: string;
+  value: string;
+  strong?: boolean;
+};
+
+function InfoRow({ label, value, strong = false }: InfoRowProps) {
+  return (
+    <View style={styles.infoRow}>
+      <Text style={[styles.infoLabel, strong ? styles.infoLabelStrong : undefined]}>
+        {label}
+      </Text>
+      <Text style={[styles.infoValue, strong ? styles.infoValueStrong : undefined]}>
+        {value}
+      </Text>
+    </View>
+  );
+}
+
+function Divider() {
+  return <View style={styles.divider} />;
+}
+
+type StepRowProps = {
+  index: string;
+  title: string;
+  text: string;
+};
+
+function StepRow({ index, title, text }: StepRowProps) {
+  return (
+    <View style={styles.stepRow}>
+      <View style={styles.stepBadge}>
+        <Text style={styles.stepBadgeText}>{index}</Text>
+      </View>
+
+      <View style={styles.stepContent}>
+        <Text style={styles.stepTitle}>{title}</Text>
+        <Text style={styles.stepText}>{text}</Text>
+      </View>
+    </View>
+  );
+}
+
+function StepDivider() {
+  return <View style={styles.stepDivider} />;
+}
+
+function mapStoredOrderToOrderRow(order: StoredActiveOrder): OrderRow | null {
+  if (order.id === null || order.id === undefined) {
+    return null;
+  }
+
+  if (!isActiveOrderStatus(order.status ?? null)) {
+    return null;
+  }
+
+  return {
+    id: order.id,
+    created_at: order.created_at ?? null,
+    status: order.status ?? null,
+    address: order.address ?? null,
+    package_id: order.package_id ?? null,
+    package_label: order.package_label ?? null,
+    package_price: order.package_price ?? null,
+    apartment: order.apartment ?? null,
+    entrance: order.entrance ?? null,
+    comment: order.comment ?? null,
+    leave_at_door: order.leave_at_door ?? null,
+    phone: order.phone ?? null,
+    should_call: order.should_call ?? null,
+    payment_method: order.payment_method ?? null,
+    tip: order.tip ?? null,
+    total: order.total ?? null,
+    courier_id: order.courier_id ?? null,
+    call_required: order.call_required ?? null,
+  };
+}
+
+function getStatusLabel(status: string | null) {
+  switch (status) {
+    case "pending":
+      return "В поиске курьера";
+    case "assigned":
+      return "Курьер назначен";
+    case "accepted":
+      return "Заказ принят";
+    case "in_progress":
+      return "Выполняется";
+    case "on_the_way":
+      return "Курьер в пути";
+    default:
+      return "Активен";
+  }
+}
+
+function getStatusTone(status: string | null): "warning" | "success" | "default" {
+  switch (status) {
+    case "pending":
+      return "warning";
+    case "assigned":
+    case "accepted":
+    case "in_progress":
+    case "on_the_way":
+      return "success";
+    default:
+      return "default";
+  }
+}
+
+function formatCreatedAt(value: string | null) {
+  if (!value) {
+    return "время неизвестно";
+  }
+
+  const date = new Date(value);
+
+  if (Number.isNaN(date.getTime())) {
+    return "время неизвестно";
+  }
+
+  return new Intl.DateTimeFormat("ru-RU", {
+    day: "numeric",
+    month: "short",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(date);
 }
 
 const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
-    backgroundColor: "#F5F7FB",
+    backgroundColor: colors.background,
+  },
+  container: {
+    flex: 1,
+    backgroundColor: colors.background,
+  },
+  scroll: {
+    flex: 1,
   },
   content: {
-    padding: 16,
-    paddingBottom: 28,
+    paddingHorizontal: spacing.lg,
+    paddingTop: spacing.lg,
+    paddingBottom: spacing.xxl,
+    gap: spacing.lg,
   },
-  loaderWrap: {
+  centerState: {
     flex: 1,
     alignItems: "center",
     justifyContent: "center",
-    paddingHorizontal: 24,
+    paddingHorizontal: spacing.xl,
+    gap: spacing.sm,
   },
-  loaderText: {
-    marginTop: 12,
-    fontSize: 15,
-    color: "#6B7280",
-  },
-  sectionSpacing: {
-    marginBottom: 20,
-  },
-  heroCard: {
-    paddingVertical: 20,
-  },
-  heroTitle: {
-    fontSize: 24,
+  centerTitle: {
+    fontSize: typography.h3,
     fontWeight: "800",
-    color: "#111827",
+    color: colors.text,
+    textAlign: "center",
   },
-  heroText: {
-    marginTop: 10,
-    fontSize: 15,
+  centerText: {
+    fontSize: typography.body,
+    lineHeight: 21,
+    color: colors.textMuted,
+    textAlign: "center",
+  },
+  hero: {
+    paddingTop: spacing.sm,
+    gap: spacing.sm,
+  },
+  eyebrow: {
+    fontSize: typography.caption,
+    fontWeight: "700",
+    color: colors.primary,
+    textTransform: "uppercase",
+    letterSpacing: 0.6,
+  },
+  title: {
+    fontSize: typography.h1,
+    fontWeight: "800",
+    color: colors.text,
+  },
+  subtitle: {
+    fontSize: typography.body,
     lineHeight: 22,
-    color: "#4B5563",
+    color: colors.textMuted,
   },
-  heroButton: {
-    marginTop: 18,
+  actionSpacer: {
+    height: spacing.sm,
   },
-  rowBetween: {
+  orderHeader: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    justifyContent: "space-between",
+    gap: spacing.md,
+    marginBottom: spacing.md,
+  },
+  orderHeaderText: {
+    flex: 1,
+    gap: 4,
+  },
+  orderId: {
+    fontSize: typography.h3,
+    fontWeight: "800",
+    color: colors.text,
+  },
+  orderMeta: {
+    fontSize: typography.body,
+    lineHeight: 21,
+    color: colors.textMuted,
+  },
+  infoBox: {
+    backgroundColor: colors.surfaceSecondary,
+    borderRadius: radii.lg,
+    padding: spacing.md,
+    marginBottom: spacing.md,
+  },
+  infoBoxTitle: {
+    fontSize: typography.body,
+    fontWeight: "700",
+    color: colors.text,
+    marginBottom: 4,
+  },
+  infoBoxText: {
+    fontSize: typography.body,
+    lineHeight: 21,
+    color: colors.textMuted,
+  },
+  summaryList: {
+    marginBottom: spacing.md,
+  },
+  infoRow: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    gap: 12,
+    gap: spacing.md,
   },
-  cardTitle: {
-    flex: 1,
-    fontSize: 18,
+  infoLabel: {
+    fontSize: typography.body,
+    color: colors.textMuted,
+  },
+  infoLabelStrong: {
+    fontWeight: "700",
+    color: colors.text,
+  },
+  infoValue: {
+    fontSize: typography.body,
+    fontWeight: "700",
+    color: colors.text,
+  },
+  infoValueStrong: {
+    fontSize: typography.h3,
     fontWeight: "800",
-    color: "#111827",
   },
-  infoBlock: {
-    marginTop: 16,
+  divider: {
+    height: 1,
+    backgroundColor: colors.border,
+    marginVertical: spacing.md,
   },
-  infoGrid: {
-    flexDirection: "row",
-    gap: 12,
-    marginTop: 16,
+  cardFooter: {
+    marginTop: spacing.sm,
   },
-  infoGridItem: {
-    flex: 1,
+  emptyIconWrap: {
+    width: 72,
+    height: 72,
+    borderRadius: 999,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: colors.primarySoft,
+    alignSelf: "center",
+    marginBottom: spacing.sm,
   },
-  label: {
-    fontSize: 13,
-    color: "#6B7280",
-    marginBottom: 4,
-  },
-  value: {
-    fontSize: 15,
-    fontWeight: "600",
-    color: "#111827",
-  },
-  cardButton: {
-    marginTop: 18,
+  emptyIcon: {
+    fontSize: 32,
   },
   emptyTitle: {
-    fontSize: 18,
+    fontSize: typography.h3,
     fontWeight: "800",
-    color: "#111827",
+    color: colors.text,
+    textAlign: "center",
+    marginBottom: spacing.xs,
   },
   emptyText: {
-    marginTop: 8,
-    fontSize: 15,
-    lineHeight: 22,
-    color: "#4B5563",
+    fontSize: typography.body,
+    lineHeight: 21,
+    color: colors.textMuted,
+    textAlign: "center",
   },
-  historyTitle: {
-    fontSize: 18,
+  stepRow: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: spacing.md,
+  },
+  stepBadge: {
+    width: 32,
+    height: 32,
+    borderRadius: 999,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: colors.primarySoft,
+  },
+  stepBadgeText: {
+    fontSize: typography.body,
     fontWeight: "800",
-    color: "#111827",
+    color: colors.primary,
   },
-  historyText: {
-    marginTop: 8,
-    fontSize: 15,
-    lineHeight: 22,
-    color: "#4B5563",
+  stepContent: {
+    flex: 1,
+    gap: 4,
+  },
+  stepTitle: {
+    fontSize: typography.body,
+    fontWeight: "700",
+    color: colors.text,
+  },
+  stepText: {
+    fontSize: typography.body,
+    lineHeight: 21,
+    color: colors.textMuted,
+  },
+  stepDivider: {
+    height: 1,
+    backgroundColor: colors.border,
+    marginVertical: spacing.md,
   },
 });

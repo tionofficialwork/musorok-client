@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
+  Pressable,
   SafeAreaView,
   ScrollView,
   StyleSheet,
@@ -12,7 +13,7 @@ import { Stack, useLocalSearchParams, useRouter } from "expo-router";
 import AppButton from "../../components/ui/AppButton";
 import AppCard from "../../components/ui/AppCard";
 import ScreenSection from "../../components/ui/ScreenSection";
-import { supabase } from "../../lib/supabase";
+import createOrder from "../../lib/createOrder";
 import { colors, radii, spacing, typography } from "../../lib/theme";
 
 type ConfirmParams = {
@@ -77,7 +78,7 @@ export default function OrderConfirmScreen() {
     setIsSubmitting(true);
 
     try {
-      const orderPayload = {
+      const createdOrder = await createOrder({
         status: "pending",
         address,
         package_id: packageId,
@@ -93,57 +94,12 @@ export default function OrderConfirmScreen() {
         tip,
         total,
         call_required: shouldCall,
-      };
-
-      let createdOrder: any = null;
-
-      try {
-        const createOrderModule = require("../../lib/createOrder");
-        const createOrderFn =
-          createOrderModule?.default ?? createOrderModule?.createOrder ?? null;
-
-        if (typeof createOrderFn === "function") {
-          createdOrder = await createOrderFn(orderPayload);
-        }
-      } catch {
-        createdOrder = null;
-      }
-
-      if (!createdOrder) {
-        const { data, error } = await supabase
-          .from("orders")
-          .insert(orderPayload)
-          .select()
-          .single();
-
-        if (error) {
-          throw error;
-        }
-
-        createdOrder = data;
-      }
-
-      try {
-        const activeOrderModule = require("../../lib/activeOrder");
-        const persistFn =
-          activeOrderModule?.setActiveOrder ??
-          activeOrderModule?.saveActiveOrder ??
-          activeOrderModule?.setStoredActiveOrder ??
-          activeOrderModule?.persistActiveOrder ??
-          null;
-
-        if (typeof persistFn === "function") {
-          await persistFn(createdOrder);
-        }
-      } catch {
-        // Ничего не делаем: не валим успешное создание заказа,
-        // если helper называется иначе или внутри уже есть своя логика.
-      }
+      });
 
       router.replace({
         pathname: "/order/success",
         params: {
-          orderId: String(createdOrder?.id ?? ""),
+          orderId: String(createdOrder.id ?? ""),
           packageName,
           price: String(packagePrice),
           tip: String(tip),
@@ -200,7 +156,7 @@ export default function OrderConfirmScreen() {
                   <Text style={styles.summaryValueRight}>{address}</Text>
                 </View>
 
-                {(apartment || entrance) ? (
+                {apartment || entrance ? (
                   <>
                     <View style={styles.divider} />
 
@@ -260,19 +216,19 @@ export default function OrderConfirmScreen() {
 
             <ScreenSection
               title="Способ оплаты"
-              subtitle="Платежи ещё в roadmap, но поле уже сохраняем в заказ"
+              subtitle="Поле уже сохраняется в заказ, даже если онлайн-оплата ещё в roadmap"
             >
               <View style={styles.selectGroup}>
-                <PressableOption
+                <SelectableCard
                   title="Наличными"
                   subtitle="Оплата при выполнении заказа"
                   selected={paymentMethod === "cash"}
                   onPress={() => setPaymentMethod("cash")}
                 />
 
-                <PressableOption
+                <SelectableCard
                   title="Картой"
-                  subtitle="Пока сохраняем как выбранный способ"
+                  subtitle="Пока сохраняем как выбранный способ оплаты"
                   selected={paymentMethod === "card"}
                   onPress={() => setPaymentMethod("card")}
                 />
@@ -281,21 +237,17 @@ export default function OrderConfirmScreen() {
 
             <ScreenSection
               title="Чаевые курьеру"
-              subtitle="Необязательно, но приятно"
+              subtitle="Необязательно"
             >
-              <View style={styles.tipRow}>
-                {TIP_OPTIONS.map((value) => {
-                  const isActive = tip === value;
-
-                  return (
-                    <TextChip
-                      key={value}
-                      label={value === 0 ? "Без чаевых" : `+${value} ₽`}
-                      active={isActive}
-                      onPress={() => setTip(value)}
-                    />
-                  );
-                })}
+              <View style={styles.tipWrap}>
+                {TIP_OPTIONS.map((value) => (
+                  <TipChip
+                    key={value}
+                    label={value === 0 ? "Без чаевых" : `+${value} ₽`}
+                    active={tip === value}
+                    onPress={() => setTip(value)}
+                  />
+                ))}
               </View>
             </ScreenSection>
 
@@ -343,47 +295,62 @@ export default function OrderConfirmScreen() {
   );
 }
 
-type PressableOptionProps = {
+type SelectableCardProps = {
   title: string;
   subtitle: string;
   selected: boolean;
   onPress: () => void;
 };
 
-function PressableOption({
+function SelectableCard({
   title,
   subtitle,
   selected,
   onPress,
-}: PressableOptionProps) {
+}: SelectableCardProps) {
   return (
-    <View
-      style={[
-        styles.optionCard,
-        selected ? styles.optionCardActive : undefined,
+    <Pressable
+      onPress={onPress}
+      style={({ pressed }) => [
+        styles.selectableCard,
+        selected ? styles.selectableCardActive : undefined,
+        pressed ? styles.pressed : undefined,
       ]}
     >
-      <AppButton title={title} onPress={onPress} variant={selected ? "primary" : "secondary"} />
-      <Text style={styles.optionSubtitle}>{subtitle}</Text>
-    </View>
+      <View style={styles.selectableHeader}>
+        <View style={styles.radioOuter}>
+          {selected ? <View style={styles.radioInner} /> : null}
+        </View>
+
+        <View style={styles.selectableTextBlock}>
+          <Text style={styles.selectableTitle}>{title}</Text>
+          <Text style={styles.selectableSubtitle}>{subtitle}</Text>
+        </View>
+      </View>
+    </Pressable>
   );
 }
 
-type TextChipProps = {
+type TipChipProps = {
   label: string;
   active: boolean;
   onPress: () => void;
 };
 
-function TextChip({ label, active, onPress }: TextChipProps) {
+function TipChip({ label, active, onPress }: TipChipProps) {
   return (
-    <View style={[styles.chip, active ? styles.chipActive : undefined]}>
-      <AppButton
-        title={label}
-        onPress={onPress}
-        variant={active ? "primary" : "secondary"}
-      />
-    </View>
+    <Pressable
+      onPress={onPress}
+      style={({ pressed }) => [
+        styles.tipChip,
+        active ? styles.tipChipActive : undefined,
+        pressed ? styles.pressed : undefined,
+      ]}
+    >
+      <Text style={[styles.tipChipText, active ? styles.tipChipTextActive : undefined]}>
+        {label}
+      </Text>
+    </Pressable>
   );
 }
 
@@ -479,31 +446,81 @@ const styles = StyleSheet.create({
   selectGroup: {
     gap: spacing.md,
   },
-  optionCard: {
+  selectableCard: {
     backgroundColor: colors.surface,
     borderWidth: 1,
     borderColor: colors.border,
     borderRadius: radii.xl,
     padding: spacing.md,
-    gap: spacing.sm,
   },
-  optionCardActive: {
+  selectableCardActive: {
     borderColor: colors.primary,
     backgroundColor: colors.primarySoft,
   },
-  optionSubtitle: {
-    fontSize: typography.caption,
-    lineHeight: 18,
+  selectableHeader: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: spacing.md,
+  },
+  radioOuter: {
+    width: 22,
+    height: 22,
+    borderRadius: 999,
+    borderWidth: 2,
+    borderColor: colors.primary,
+    alignItems: "center",
+    justifyContent: "center",
+    marginTop: 2,
+    backgroundColor: colors.surface,
+  },
+  radioInner: {
+    width: 10,
+    height: 10,
+    borderRadius: 999,
+    backgroundColor: colors.primary,
+  },
+  selectableTextBlock: {
+    flex: 1,
+    gap: 4,
+  },
+  selectableTitle: {
+    fontSize: typography.body,
+    fontWeight: "700",
+    color: colors.text,
+  },
+  selectableSubtitle: {
+    fontSize: typography.body,
+    lineHeight: 21,
     color: colors.textMuted,
   },
-  tipRow: {
+  tipWrap: {
+    flexDirection: "row",
+    flexWrap: "wrap",
     gap: spacing.sm,
   },
-  chip: {
-    borderRadius: radii.lg,
+  tipChip: {
+    minHeight: 44,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
+    alignItems: "center",
+    justifyContent: "center",
   },
-  chipActive: {
-    borderRadius: radii.lg,
+  tipChipActive: {
+    borderColor: colors.primary,
+    backgroundColor: colors.primarySoft,
+  },
+  tipChipText: {
+    fontSize: typography.body,
+    fontWeight: "600",
+    color: colors.text,
+  },
+  tipChipTextActive: {
+    color: colors.primary,
+    fontWeight: "700",
   },
   totalBox: {
     marginTop: spacing.md,
@@ -537,5 +554,8 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(255,255,255,0.35)",
     alignItems: "center",
     justifyContent: "center",
+  },
+  pressed: {
+    opacity: 0.88,
   },
 });
