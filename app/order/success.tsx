@@ -1,13 +1,17 @@
-import { StyleSheet, Text, View } from "react-native";
+import { SafeAreaView, ScrollView, StyleSheet, Text, View } from "react-native";
 import { Stack, useLocalSearchParams, useRouter } from "expo-router";
 import AppButton from "../../components/ui/AppButton";
 import AppCard from "../../components/ui/AppCard";
-import AppScreen from "../../components/ui/AppScreen";
 import ScreenSection from "../../components/ui/ScreenSection";
 import { colors, radii, spacing, typography } from "../../lib/theme";
 
 type SuccessParams = {
   orderId?: string;
+  packageName?: string;
+  price?: string;
+  tip?: string;
+  total?: string;
+  address?: string;
 };
 
 export default function OrderSuccessScreen() {
@@ -15,138 +19,200 @@ export default function OrderSuccessScreen() {
   const params = useLocalSearchParams<SuccessParams>();
 
   const orderId = typeof params.orderId === "string" ? params.orderId : "";
+  const packageName =
+    typeof params.packageName === "string" ? params.packageName : "Выбранный пакет";
+  const price = typeof params.price === "string" ? params.price : "0";
+  const tip = typeof params.tip === "string" ? params.tip : "0";
+  const total = typeof params.total === "string" ? params.total : "0";
+  const address = typeof params.address === "string" ? params.address : "Адрес не указан";
 
   const handleOpenActiveOrder = () => {
-    if (!orderId) {
-      router.replace("/");
-      return;
-    }
-
-    router.replace({
-      pathname: "/order/active",
-      params: {
-        orderId,
-      },
-    });
+    router.replace("/order/active");
   };
 
   const handleGoHome = () => {
     router.replace("/");
   };
 
-  const handleOpenHistory = () => {
-    router.replace("/order/history");
-  };
-
   return (
     <>
-      <Stack.Screen
-        options={{
-          title: "Заказ создан",
-          headerBackVisible: false,
-          gestureEnabled: false,
-        }}
-      />
+      <Stack.Screen options={{ title: "Заказ создан", headerBackVisible: false }} />
 
-      <AppScreen>
+      <SafeAreaView style={styles.safeArea}>
         <View style={styles.container}>
-          <ScreenSection style={styles.section}>
-            <View style={styles.heroBlock}>
-              <View style={styles.iconCircle}>
-                <Text style={styles.iconText}>✓</Text>
+          <ScrollView
+            style={styles.scroll}
+            contentContainerStyle={styles.content}
+            showsVerticalScrollIndicator={false}
+          >
+            <View style={styles.heroCard}>
+              <View style={styles.iconWrap}>
+                <Text style={styles.icon}>✓</Text>
               </View>
 
-              <Text style={styles.title}>Заказ успешно создан</Text>
+              <Text style={styles.eyebrow}>Заказ успешно создан</Text>
+              <Text style={styles.title}>Курьер скоро увидит заявку</Text>
               <Text style={styles.subtitle}>
-                Мы сохранили заказ в системе. Теперь его можно отслеживать на
-                экране активного заказа.
+                Мы сохранили заказ и переведём тебя на экран активного заказа, где
+                можно следить за статусом.
               </Text>
             </View>
 
-            <AppCard style={styles.infoCard}>
-              <Text style={styles.infoTitle}>Что дальше</Text>
+            <ScreenSection
+              title="Сводка по заказу"
+              subtitle="Проверь основные данные созданной заявки"
+            >
+              <AppCard>
+                {orderId ? (
+                  <>
+                    <View style={styles.summaryRow}>
+                      <Text style={styles.summaryLabel}>ID заказа</Text>
+                      <Text style={styles.summaryValue}>#{orderId}</Text>
+                    </View>
 
-              <View style={styles.steps}>
+                    <View style={styles.divider} />
+                  </>
+                ) : null}
+
+                <View style={styles.summaryRow}>
+                  <Text style={styles.summaryLabel}>Пакет</Text>
+                  <Text style={styles.summaryValueRight}>{packageName}</Text>
+                </View>
+
+                <View style={styles.divider} />
+
+                <View style={styles.summaryRow}>
+                  <Text style={styles.summaryLabel}>Адрес</Text>
+                  <Text style={styles.summaryValueRight}>{address}</Text>
+                </View>
+
+                <View style={styles.divider} />
+
+                <View style={styles.summaryRow}>
+                  <Text style={styles.summaryLabel}>Стоимость пакета</Text>
+                  <Text style={styles.summaryValue}>{price} ₽</Text>
+                </View>
+
+                <View style={styles.divider} />
+
+                <View style={styles.summaryRow}>
+                  <Text style={styles.summaryLabel}>Чаевые</Text>
+                  <Text style={styles.summaryValue}>{tip} ₽</Text>
+                </View>
+
+                <View style={styles.totalBox}>
+                  <Text style={styles.totalLabel}>Итого</Text>
+                  <Text style={styles.totalValue}>{total} ₽</Text>
+                </View>
+              </AppCard>
+            </ScreenSection>
+
+            <ScreenSection
+              title="Что дальше"
+              subtitle="Следующие действия после создания заказа"
+            >
+              <AppCard>
                 <View style={styles.stepRow}>
-                  <View style={styles.stepDot} />
-                  <Text style={styles.stepText}>
-                    Заказ уже доступен в системе и появится у курьера.
-                  </Text>
+                  <View style={styles.stepBadge}>
+                    <Text style={styles.stepBadgeText}>1</Text>
+                  </View>
+                  <View style={styles.stepContent}>
+                    <Text style={styles.stepTitle}>Заказ появится в активных</Text>
+                    <Text style={styles.stepText}>
+                      Экран активного заказа покажет текущий статус и основную информацию.
+                    </Text>
+                  </View>
                 </View>
+
+                <View style={styles.stepDivider} />
 
                 <View style={styles.stepRow}>
-                  <View style={styles.stepDot} />
-                  <Text style={styles.stepText}>
-                    Статус заказа можно смотреть на экране активного заказа.
-                  </Text>
+                  <View style={styles.stepBadge}>
+                    <Text style={styles.stepBadgeText}>2</Text>
+                  </View>
+                  <View style={styles.stepContent}>
+                    <Text style={styles.stepTitle}>Курьер примет заявку</Text>
+                    <Text style={styles.stepText}>
+                      Когда заказ будет взят в работу, статус обновится в приложении.
+                    </Text>
+                  </View>
                 </View>
+
+                <View style={styles.stepDivider} />
 
                 <View style={styles.stepRow}>
-                  <View style={styles.stepDot} />
-                  <Text style={styles.stepText}>
-                    После завершения заказ попадёт в историю.
-                  </Text>
+                  <View style={styles.stepBadge}>
+                    <Text style={styles.stepBadgeText}>3</Text>
+                  </View>
+                  <View style={styles.stepContent}>
+                    <Text style={styles.stepTitle}>Заказ уйдёт в историю</Text>
+                    <Text style={styles.stepText}>
+                      После завершения или отмены он больше не останется активным.
+                    </Text>
+                  </View>
                 </View>
-              </View>
+              </AppCard>
+            </ScreenSection>
+          </ScrollView>
 
-              {orderId ? (
-                <View style={styles.orderIdBox}>
-                  <Text style={styles.orderIdLabel}>ID заказа</Text>
-                  <Text style={styles.orderIdValue}>{orderId}</Text>
-                </View>
-              ) : null}
-            </AppCard>
-
-            <View style={styles.buttons}>
-              <AppButton
-                title="Открыть активный заказ"
-                onPress={handleOpenActiveOrder}
-              />
-              <AppButton
-                title="На главную"
-                variant="outline"
-                onPress={handleGoHome}
-              />
-              <AppButton
-                title="История заказов"
-                variant="outline"
-                onPress={handleOpenHistory}
-              />
-            </View>
-          </ScreenSection>
+          <View style={styles.footer}>
+            <AppButton title="Перейти к активному заказу" onPress={handleOpenActiveOrder} />
+            <View style={styles.footerSpacer} />
+            <AppButton title="На главный экран" onPress={handleGoHome} />
+          </View>
         </View>
-      </AppScreen>
+      </SafeAreaView>
     </>
   );
 }
 
 const styles = StyleSheet.create({
+  safeArea: {
+    flex: 1,
+    backgroundColor: colors.background,
+  },
   container: {
     flex: 1,
-    justifyContent: "center",
+    backgroundColor: colors.background,
   },
-  section: {
+  scroll: {
     flex: 1,
-    justifyContent: "center",
   },
-  heroBlock: {
+  content: {
+    paddingHorizontal: spacing.lg,
+    paddingTop: spacing.lg,
+    paddingBottom: 148,
+    gap: spacing.lg,
+  },
+  heroCard: {
+    backgroundColor: colors.surface,
+    borderRadius: radii.xl,
+    padding: spacing.lg,
     alignItems: "center",
-    gap: spacing.md,
-    marginBottom: spacing.sm,
+    gap: spacing.sm,
+    borderWidth: 1,
+    borderColor: colors.border,
   },
-  iconCircle: {
-    width: 88,
-    height: 88,
-    borderRadius: radii.pill,
+  iconWrap: {
+    width: 72,
+    height: 72,
+    borderRadius: 999,
+    alignItems: "center",
+    justifyContent: "center",
     backgroundColor: colors.primarySoft,
-    alignItems: "center",
-    justifyContent: "center",
+    marginBottom: spacing.xs,
   },
-  iconText: {
-    fontSize: 42,
+  icon: {
+    fontSize: 34,
     fontWeight: "800",
     color: colors.primary,
-    marginTop: -2,
+  },
+  eyebrow: {
+    fontSize: typography.caption,
+    fontWeight: "700",
+    color: colors.primary,
+    textTransform: "uppercase",
+    letterSpacing: 0.6,
   },
   title: {
     fontSize: typography.h1,
@@ -157,57 +223,106 @@ const styles = StyleSheet.create({
   subtitle: {
     fontSize: typography.body,
     lineHeight: 22,
-    color: colors.textSecondary,
+    color: colors.textMuted,
     textAlign: "center",
   },
-  infoCard: {
-    gap: spacing.lg,
+  summaryRow: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    justifyContent: "space-between",
+    gap: spacing.md,
   },
-  infoTitle: {
-    fontSize: typography.h3,
-    fontWeight: "800",
+  summaryLabel: {
+    flex: 1,
+    fontSize: typography.body,
+    color: colors.textMuted,
+  },
+  summaryValue: {
+    fontSize: typography.body,
+    fontWeight: "700",
     color: colors.text,
   },
-  steps: {
-    gap: spacing.md,
+  summaryValueRight: {
+    flex: 1,
+    textAlign: "right",
+    fontSize: typography.body,
+    fontWeight: "700",
+    color: colors.text,
+  },
+  divider: {
+    height: 1,
+    backgroundColor: colors.border,
+    marginVertical: spacing.md,
+  },
+  totalBox: {
+    marginTop: spacing.md,
+    paddingTop: spacing.md,
+    borderTopWidth: 1,
+    borderTopColor: colors.border,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+  totalLabel: {
+    fontSize: typography.body,
+    fontWeight: "700",
+    color: colors.text,
+  },
+  totalValue: {
+    fontSize: typography.h2,
+    fontWeight: "800",
+    color: colors.text,
   },
   stepRow: {
     flexDirection: "row",
     alignItems: "flex-start",
-    gap: spacing.sm,
+    gap: spacing.md,
   },
-  stepDot: {
-    width: 8,
-    height: 8,
-    borderRadius: radii.pill,
-    backgroundColor: colors.primary,
-    marginTop: 7,
+  stepBadge: {
+    width: 32,
+    height: 32,
+    borderRadius: 999,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: colors.primarySoft,
   },
-  stepText: {
-    flex: 1,
-    fontSize: typography.body,
-    lineHeight: 22,
-    color: colors.textSecondary,
-  },
-  orderIdBox: {
-    borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: radii.lg,
-    padding: spacing.lg,
-    backgroundColor: colors.surface,
-    gap: spacing.xs,
-  },
-  orderIdLabel: {
-    fontSize: typography.bodySmall,
-    fontWeight: "700",
-    color: colors.textSecondary,
-  },
-  orderIdValue: {
+  stepBadgeText: {
     fontSize: typography.body,
     fontWeight: "800",
+    color: colors.primary,
+  },
+  stepContent: {
+    flex: 1,
+    gap: 4,
+  },
+  stepTitle: {
+    fontSize: typography.body,
+    fontWeight: "700",
     color: colors.text,
   },
-  buttons: {
-    gap: spacing.md,
+  stepText: {
+    fontSize: typography.body,
+    lineHeight: 21,
+    color: colors.textMuted,
+  },
+  stepDivider: {
+    height: 1,
+    backgroundColor: colors.border,
+    marginVertical: spacing.md,
+  },
+  footer: {
+    position: "absolute",
+    left: 0,
+    right: 0,
+    bottom: 0,
+    paddingHorizontal: spacing.lg,
+    paddingTop: spacing.md,
+    paddingBottom: spacing.lg,
+    borderTopWidth: 1,
+    borderTopColor: colors.border,
+    backgroundColor: colors.background,
+  },
+  footerSpacer: {
+    height: spacing.sm,
   },
 });
