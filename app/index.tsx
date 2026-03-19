@@ -150,6 +150,10 @@ export default function HomeScreen() {
     router.push("/order/history");
   };
 
+  const handleOpenProfile = () => {
+    router.push("/profile");
+  };
+
   const activeOrderStatusLabel = useMemo(
     () => getStatusLabel(activeOrder?.status ?? null),
     [activeOrder?.status]
@@ -199,6 +203,8 @@ export default function HomeScreen() {
                 <AppButton title="Активный заказ" onPress={handleOpenActive} />
                 <View style={styles.actionSpacer} />
                 <AppButton title="История заказов" onPress={handleOpenHistory} />
+                <View style={styles.actionSpacer} />
+                <AppButton title="Профиль" onPress={handleOpenProfile} />
               </AppCard>
             </ScreenSection>
 

@@ -1,197 +1,294 @@
-import { SafeAreaView, ScrollView, StyleSheet, Text, View } from "react-native";
+import { useMemo, useState } from "react";
+import {
+  Pressable,
+  SafeAreaView,
+  ScrollView,
+  StatusBar,
+  StyleSheet,
+  Text,
+  View,
+} from "react-native";
 import { Stack, useRouter } from "expo-router";
-import AppButton from "../../components/ui/AppButton";
-import AppCard from "../../components/ui/AppCard";
-import ScreenSection from "../../components/ui/ScreenSection";
-import { colors, radii, shadows, spacing, typography } from "../../lib/theme";
 
 type PackageOption = {
   id: string;
-  label: string;
+  name: string;
   price: number;
-  description: string;
+  subtitle: string;
   eta: string;
+  badge?: string;
   features: string[];
-  recommended?: boolean;
 };
 
 const PACKAGE_OPTIONS: PackageOption[] = [
   {
-    id: "small",
-    label: "Малый пакет",
-    price: 149,
-    description: "Подойдёт для ежедневного бытового мусора из квартиры.",
-    eta: "Вынос за 15–25 минут",
+    id: "s",
+    name: "Маленький пакет",
+    price: 199,
+    subtitle: "Подойдет для 1–2 небольших пакетов бытового мусора",
+    eta: "Обычно 10–20 мин",
+    badge: "Быстро",
     features: [
-      "1 стандартный пакет",
-      "Подходит для одного-двух человек",
-      "Быстрый вынос без лишних действий",
+      "Для ежедневного бытового мусора",
+      "Удобно для квартиры",
+      "Хороший вариант для тестового заказа",
     ],
   },
   {
-    id: "medium",
-    label: "Стандарт",
-    price: 249,
-    description: "Оптимальный вариант для семьи и регулярного заказа.",
-    eta: "Вынос за 15–30 минут",
+    id: "m",
+    name: "Средний пакет",
+    price: 299,
+    subtitle: "Оптимально для семьи или накопившегося мусора за несколько дней",
+    eta: "Обычно 10–25 мин",
+    badge: "Популярно",
     features: [
-      "2–3 стандартных пакета",
-      "Самый популярный вариант",
-      "Удобно для регулярного использования",
+      "Лучший баланс цены и объема",
+      "Подходит для регулярных заказов",
+      "Чаще всего выбирают пользователи",
     ],
-    recommended: true,
   },
   {
-    id: "large",
-    label: "Большой пакет",
-    price: 349,
-    description: "Когда мусора накопилось больше обычного.",
-    eta: "Вынос за 20–35 минут",
+    id: "l",
+    name: "Большой пакет",
+    price: 449,
+    subtitle: "Когда мусора много или нужно вынести сразу несколько пакетов",
+    eta: "Обычно 15–30 мин",
+    badge: "Выгодно",
     features: [
-      "4–5 пакетов или объёмный мусор",
-      "Подходит после уборки",
-      "Комфортный вариант без перегруза",
+      "Для большого объема",
+      "Удобно после уборки",
+      "Подойдет перед приездом гостей или после мероприятий",
     ],
   },
 ];
 
 export default function OrderPackageScreen() {
   const router = useRouter();
+  const [selectedPackageId, setSelectedPackageId] = useState<string>(
+    PACKAGE_OPTIONS[1]?.id ?? PACKAGE_OPTIONS[0].id
+  );
 
-  const handleSelectPackage = (item: PackageOption) => {
+  const selectedPackage = useMemo(() => {
+    return (
+      PACKAGE_OPTIONS.find((item) => item.id === selectedPackageId) ??
+      PACKAGE_OPTIONS[0]
+    );
+  }, [selectedPackageId]);
+
+  const handleContinue = () => {
     router.push({
       pathname: "/order/details",
       params: {
-        packageId: item.id,
-        packageName: item.label,
-        price: String(item.price),
+        packageId: selectedPackage.id,
+        packageName: selectedPackage.name,
+        price: String(selectedPackage.price),
       },
     });
   };
 
   return (
-    <>
-      <Stack.Screen options={{ title: "Выбор пакета" }} />
+    <SafeAreaView style={styles.safeArea}>
+      <Stack.Screen
+        options={{
+          title: "Выбор пакета",
+          headerShadowVisible: false,
+        }}
+      />
+      <StatusBar barStyle="dark-content" />
 
-      <SafeAreaView style={styles.safeArea}>
+      <View style={styles.container}>
         <ScrollView
-          style={styles.container}
+          style={styles.scrollView}
           contentContainerStyle={styles.content}
           showsVerticalScrollIndicator={false}
         >
-          <View style={styles.hero}>
-            <Text style={styles.eyebrow}>Оформление заказа</Text>
-            <Text style={styles.title}>Выберите объём мусора</Text>
-            <Text style={styles.subtitle}>
-              Сначала выберите подходящий пакет. На следующем шаге укажем детали
-              заказа и способ оплаты.
+          <View style={styles.heroCard}>
+            <Text style={styles.eyebrow}>Заказ</Text>
+            <Text style={styles.title}>Выберите подходящий пакет</Text>
+            <Text style={styles.description}>
+              Выберите объем заказа. На следующем экране вы укажете адрес,
+              комментарий, телефон и способ оплаты.
             </Text>
           </View>
 
-          <ScreenSection
-            title="Доступные варианты"
-            subtitle="Все тарифы уже включают вынос бытового мусора курьером."
-          >
-            <View style={styles.cards}>
-              {PACKAGE_OPTIONS.map((item) => (
-                <AppCard key={item.id}>
-                  <View style={styles.cardHeader}>
-                    <View style={styles.cardTitleBlock}>
-                      <View style={styles.labelRow}>
-                        <Text style={styles.cardTitle}>{item.label}</Text>
+          <View style={styles.section}>
+            {PACKAGE_OPTIONS.map((item) => {
+              const isSelected = item.id === selectedPackageId;
 
-                        {item.recommended ? (
-                          <View style={styles.recommendedBadge}>
-                            <Text style={styles.recommendedBadgeText}>Хит</Text>
+              return (
+                <Pressable
+                  key={item.id}
+                  onPress={() => setSelectedPackageId(item.id)}
+                  style={({ pressed }) => [
+                    styles.packageCard,
+                    isSelected && styles.packageCardSelected,
+                    pressed && styles.packageCardPressed,
+                  ]}
+                >
+                  <View style={styles.packageTopRow}>
+                    <View style={styles.packageTitleBlock}>
+                      <View style={styles.packageTitleRow}>
+                        <Text
+                          style={[
+                            styles.packageName,
+                            isSelected && styles.packageNameSelected,
+                          ]}
+                        >
+                          {item.name}
+                        </Text>
+
+                        {item.badge ? (
+                          <View
+                            style={[
+                              styles.badge,
+                              isSelected && styles.badgeSelected,
+                            ]}
+                          >
+                            <Text
+                              style={[
+                                styles.badgeText,
+                                isSelected && styles.badgeTextSelected,
+                              ]}
+                            >
+                              {item.badge}
+                            </Text>
                           </View>
                         ) : null}
                       </View>
 
-                      <Text style={styles.cardDescription}>{item.description}</Text>
+                      <Text
+                        style={[
+                          styles.packageSubtitle,
+                          isSelected && styles.packageSubtitleSelected,
+                        ]}
+                      >
+                        {item.subtitle}
+                      </Text>
                     </View>
 
-                    <View style={styles.priceBlock}>
-                      <Text style={styles.priceValue}>{item.price} ₽</Text>
-                      <Text style={styles.priceCaption}>фиксированно</Text>
+                    <View
+                      style={[
+                        styles.radioOuter,
+                        isSelected && styles.radioOuterSelected,
+                      ]}
+                    >
+                      {isSelected ? <View style={styles.radioInner} /> : null}
                     </View>
                   </View>
 
-                  <View style={styles.metaBox}>
-                    <Text style={styles.metaTitle}>{item.eta}</Text>
-                    <Text style={styles.metaSubtitle}>
-                      Точное время зависит от загруженности курьеров поблизости.
+                  <View style={styles.packageMetaRow}>
+                    <View
+                      style={[
+                        styles.metaPill,
+                        isSelected && styles.metaPillSelected,
+                      ]}
+                    >
+                      <Text
+                        style={[
+                          styles.metaPillText,
+                          isSelected && styles.metaPillTextSelected,
+                        ]}
+                      >
+                        {item.eta}
+                      </Text>
+                    </View>
+
+                    <Text
+                      style={[
+                        styles.price,
+                        isSelected && styles.priceSelected,
+                      ]}
+                    >
+                      {item.price} ₽
                     </Text>
                   </View>
 
                   <View style={styles.featuresList}>
                     {item.features.map((feature) => (
                       <View key={feature} style={styles.featureRow}>
-                        <View style={styles.featureDot} />
-                        <Text style={styles.featureText}>{feature}</Text>
+                        <View
+                          style={[
+                            styles.featureDot,
+                            isSelected && styles.featureDotSelected,
+                          ]}
+                        />
+                        <Text
+                          style={[
+                            styles.featureText,
+                            isSelected && styles.featureTextSelected,
+                          ]}
+                        >
+                          {feature}
+                        </Text>
                       </View>
                     ))}
                   </View>
+                </Pressable>
+              );
+            })}
+          </View>
 
-                  <AppButton
-                    title="Выбрать"
-                    onPress={() => handleSelectPackage(item)}
-                  />
-                </AppCard>
-              ))}
+          <View style={styles.infoCard}>
+            <Text style={styles.infoTitle}>Что важно знать</Text>
+
+            <View style={styles.infoItem}>
+              <View style={styles.infoDot} />
+              <Text style={styles.infoText}>
+                Курьер заберет только бытовой мусор.
+              </Text>
             </View>
-          </ScreenSection>
 
-          <ScreenSection
-            title="Как это работает"
-            subtitle="Коротко про сценарий заказа"
-          >
-            <AppCard>
-              <View style={styles.stepRow}>
-                <View style={styles.stepBadge}>
-                  <Text style={styles.stepBadgeText}>1</Text>
-                </View>
-                <View style={styles.stepContent}>
-                  <Text style={styles.stepTitle}>Выбираете пакет</Text>
-                  <Text style={styles.stepText}>
-                    Подбираете объём под ваш текущий заказ.
-                  </Text>
-                </View>
-              </View>
+            <View style={styles.infoItem}>
+              <View style={styles.infoDot} />
+              <Text style={styles.infoText}>
+                Точный адрес и детали вы заполните на следующем шаге.
+              </Text>
+            </View>
 
-              <View style={styles.stepDivider} />
-
-              <View style={styles.stepRow}>
-                <View style={styles.stepBadge}>
-                  <Text style={styles.stepBadgeText}>2</Text>
-                </View>
-                <View style={styles.stepContent}>
-                  <Text style={styles.stepTitle}>Заполняете детали</Text>
-                  <Text style={styles.stepText}>
-                    Адрес, квартира, комментарий, звонок и другие параметры.
-                  </Text>
-                </View>
-              </View>
-
-              <View style={styles.stepDivider} />
-
-              <View style={styles.stepRow}>
-                <View style={styles.stepBadge}>
-                  <Text style={styles.stepBadgeText}>3</Text>
-                </View>
-                <View style={styles.stepContent}>
-                  <Text style={styles.stepTitle}>Подтверждаете заказ</Text>
-                  <Text style={styles.stepText}>
-                    После подтверждения заказ уходит в Supabase и становится активным.
-                  </Text>
-                </View>
-              </View>
-            </AppCard>
-          </ScreenSection>
+            <View style={styles.infoItem}>
+              <View style={styles.infoDot} />
+              <Text style={styles.infoText}>
+                Цена пакета уже передается дальше в flow заказа.
+              </Text>
+            </View>
+          </View>
         </ScrollView>
-      </SafeAreaView>
-    </>
+
+        <View style={styles.bottomBar}>
+          <View style={styles.bottomSummary}>
+            <Text style={styles.bottomLabel}>Вы выбрали</Text>
+            <Text style={styles.bottomValue}>
+              {selectedPackage.name} · {selectedPackage.price} ₽
+            </Text>
+          </View>
+
+          <Pressable
+            onPress={handleContinue}
+            style={({ pressed }) => [
+              styles.continueButton,
+              pressed && styles.continueButtonPressed,
+            ]}
+          >
+            <Text style={styles.continueButtonText}>Продолжить</Text>
+          </Pressable>
+        </View>
+      </View>
+    </SafeAreaView>
   );
 }
+
+const colors = {
+  background: "#F6F7FB",
+  surface: "#FFFFFF",
+  surfaceMuted: "#F0F3F8",
+  text: "#16181D",
+  textSecondary: "#667085",
+  border: "#E7ECF3",
+  primary: "#E9281D",
+  primarySoft: "#FFF1F0",
+  successSoft: "#EEF9F0",
+  successText: "#18794E",
+};
 
 const styles = StyleSheet.create({
   safeArea: {
@@ -202,162 +299,261 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: colors.background,
   },
-  content: {
-    paddingHorizontal: spacing.lg,
-    paddingTop: spacing.lg,
-    paddingBottom: spacing.xxl,
-    gap: spacing.lg,
+  scrollView: {
+    flex: 1,
   },
-  hero: {
-    paddingTop: spacing.sm,
-    gap: spacing.sm,
+  content: {
+    padding: 16,
+    paddingBottom: 140,
+  },
+  heroCard: {
+    backgroundColor: colors.surface,
+    borderRadius: 24,
+    padding: 20,
+    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: colors.border,
   },
   eyebrow: {
-    fontSize: typography.caption,
+    fontSize: 12,
     fontWeight: "700",
     color: colors.primary,
+    marginBottom: 8,
     textTransform: "uppercase",
     letterSpacing: 0.6,
   },
   title: {
-    fontSize: typography.h1,
+    fontSize: 28,
+    lineHeight: 34,
     fontWeight: "800",
     color: colors.text,
+    marginBottom: 10,
   },
-  subtitle: {
-    fontSize: typography.body,
+  description: {
+    fontSize: 15,
     lineHeight: 22,
-    color: colors.textMuted,
+    color: colors.textSecondary,
   },
-  cards: {
-    gap: spacing.md,
+  section: {
+    gap: 12,
+    marginBottom: 16,
   },
-  cardHeader: {
+  packageCard: {
+    backgroundColor: colors.surface,
+    borderRadius: 24,
+    padding: 18,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  packageCardSelected: {
+    borderColor: colors.primary,
+    backgroundColor: colors.primarySoft,
+  },
+  packageCardPressed: {
+    opacity: 0.94,
+  },
+  packageTopRow: {
     flexDirection: "row",
     alignItems: "flex-start",
     justifyContent: "space-between",
-    gap: spacing.md,
-    marginBottom: spacing.md,
+    gap: 12,
+    marginBottom: 14,
   },
-  cardTitleBlock: {
+  packageTitleBlock: {
     flex: 1,
-    gap: spacing.xs,
   },
-  labelRow: {
+  packageTitleRow: {
     flexDirection: "row",
     alignItems: "center",
     flexWrap: "wrap",
-    gap: spacing.xs,
+    gap: 8,
+    marginBottom: 8,
   },
-  cardTitle: {
-    fontSize: typography.h3,
+  packageName: {
+    fontSize: 19,
     fontWeight: "800",
     color: colors.text,
   },
-  recommendedBadge: {
-    backgroundColor: colors.primarySoft,
+  packageNameSelected: {
+    color: colors.text,
+  },
+  badge: {
+    backgroundColor: colors.surfaceMuted,
     borderRadius: 999,
-    paddingHorizontal: spacing.sm,
+    paddingHorizontal: 10,
     paddingVertical: 6,
   },
-  recommendedBadgeText: {
-    fontSize: typography.caption,
+  badgeSelected: {
+    backgroundColor: "#FFD9D6",
+  },
+  badgeText: {
+    fontSize: 12,
     fontWeight: "700",
+    color: colors.textSecondary,
+  },
+  badgeTextSelected: {
     color: colors.primary,
   },
-  cardDescription: {
-    fontSize: typography.body,
-    lineHeight: 21,
-    color: colors.textMuted,
+  packageSubtitle: {
+    fontSize: 14,
+    lineHeight: 20,
+    color: colors.textSecondary,
   },
-  priceBlock: {
-    alignItems: "flex-end",
+  packageSubtitleSelected: {
+    color: "#7A3B37",
   },
-  priceValue: {
-    fontSize: typography.h2,
+  radioOuter: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    borderWidth: 2,
+    borderColor: "#C9D2DF",
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: colors.surface,
+    marginTop: 2,
+  },
+  radioOuterSelected: {
+    borderColor: colors.primary,
+    backgroundColor: "#FFE1DE",
+  },
+  radioInner: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    backgroundColor: colors.primary,
+  },
+  packageMetaRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: 14,
+    gap: 12,
+  },
+  metaPill: {
+    backgroundColor: colors.successSoft,
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+  },
+  metaPillSelected: {
+    backgroundColor: "#FFE7E4",
+  },
+  metaPillText: {
+    fontSize: 12,
+    fontWeight: "700",
+    color: colors.successText,
+  },
+  metaPillTextSelected: {
+    color: colors.primary,
+  },
+  price: {
+    fontSize: 22,
     fontWeight: "800",
     color: colors.text,
   },
-  priceCaption: {
-    fontSize: typography.caption,
-    color: colors.textMuted,
-  },
-  metaBox: {
-    backgroundColor: colors.surfaceSecondary,
-    borderRadius: radii.lg,
-    padding: spacing.md,
-    marginBottom: spacing.md,
-  },
-  metaTitle: {
-    fontSize: typography.body,
-    fontWeight: "700",
-    color: colors.text,
-    marginBottom: 4,
-  },
-  metaSubtitle: {
-    fontSize: typography.caption,
-    lineHeight: 18,
-    color: colors.textMuted,
+  priceSelected: {
+    color: colors.primary,
   },
   featuresList: {
-    gap: spacing.sm,
-    marginBottom: spacing.md,
+    gap: 10,
   },
   featureRow: {
     flexDirection: "row",
-    alignItems: "flex-start",
-    gap: spacing.sm,
+    alignItems: "center",
+    gap: 10,
   },
   featureDot: {
     width: 8,
     height: 8,
-    borderRadius: 999,
+    borderRadius: 4,
+    backgroundColor: "#C7D0DD",
+  },
+  featureDotSelected: {
     backgroundColor: colors.primary,
-    marginTop: 6,
-    flexShrink: 0,
   },
   featureText: {
     flex: 1,
-    fontSize: typography.body,
-    lineHeight: 21,
+    fontSize: 14,
+    lineHeight: 20,
+    color: colors.textSecondary,
+  },
+  featureTextSelected: {
     color: colors.text,
   },
-  stepRow: {
+  infoCard: {
+    backgroundColor: colors.surface,
+    borderRadius: 24,
+    padding: 18,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  infoTitle: {
+    fontSize: 17,
+    fontWeight: "800",
+    color: colors.text,
+    marginBottom: 14,
+  },
+  infoItem: {
     flexDirection: "row",
     alignItems: "flex-start",
-    gap: spacing.md,
+    gap: 10,
+    marginBottom: 10,
   },
-  stepBadge: {
-    width: 32,
-    height: 32,
-    borderRadius: 999,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: colors.primarySoft,
-    ...shadows.sm,
+  infoDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: colors.primary,
+    marginTop: 6,
   },
-  stepBadgeText: {
-    fontSize: typography.body,
-    fontWeight: "800",
-    color: colors.primary,
-  },
-  stepContent: {
+  infoText: {
     flex: 1,
-    gap: 4,
+    fontSize: 14,
+    lineHeight: 20,
+    color: colors.textSecondary,
   },
-  stepTitle: {
-    fontSize: typography.body,
+  bottomBar: {
+    position: "absolute",
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: colors.surface,
+    borderTopWidth: 1,
+    borderTopColor: colors.border,
+    paddingHorizontal: 16,
+    paddingTop: 14,
+    paddingBottom: 18,
+  },
+  bottomSummary: {
+    marginBottom: 12,
+  },
+  bottomLabel: {
+    fontSize: 12,
     fontWeight: "700",
+    color: colors.textSecondary,
+    marginBottom: 4,
+    textTransform: "uppercase",
+    letterSpacing: 0.5,
+  },
+  bottomValue: {
+    fontSize: 16,
+    fontWeight: "800",
     color: colors.text,
   },
-  stepText: {
-    fontSize: typography.body,
-    lineHeight: 21,
-    color: colors.textMuted,
+  continueButton: {
+    height: 56,
+    borderRadius: 18,
+    backgroundColor: colors.primary,
+    alignItems: "center",
+    justifyContent: "center",
   },
-  stepDivider: {
-    height: 1,
-    backgroundColor: colors.border,
-    marginVertical: spacing.md,
+  continueButtonPressed: {
+    opacity: 0.9,
+  },
+  continueButtonText: {
+    fontSize: 16,
+    fontWeight: "800",
+    color: "#FFFFFF",
   },
 });
