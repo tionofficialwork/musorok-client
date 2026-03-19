@@ -1,6 +1,8 @@
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
+  ActivityIndicator,
   Alert,
-  Pressable,
+  RefreshControl,
   SafeAreaView,
   ScrollView,
   StyleSheet,
@@ -8,341 +10,480 @@ import {
   Text,
   View,
 } from "react-native";
-import { Stack, useRouter } from "expo-router";
+import { Stack } from "expo-router";
 
-export default function ProfilePaymentsScreen() {
-  const router = useRouter();
+import AppButton from "../../components/ui/AppButton";
+import AppCard from "../../components/ui/AppCard";
+import ErrorCard from "../../components/ui/ErrorCard";
+import ScreenSection from "../../components/ui/ScreenSection";
+import {
+  DEFAULT_PAYMENT_PREFERENCES,
+  getPaymentPreferences,
+  savePaymentPreferences,
+  type PaymentMethod,
+  type PaymentPreferences,
+} from "../../lib/paymentPreferences";
 
-  const handleSoon = (title: string) => {
-    Alert.alert("Следующий этап", `${title} подключим на следующем шаге roadmap.`);
-  };
+const TIP_PRESETS = [0, 50, 100, 150, 200];
+
+export default function PaymentsScreen() {
+  const [preferences, setPreferences] = useState<PaymentPreferences>(
+    DEFAULT_PAYMENT_PREFERENCES,
+  );
+  const [isLoading, setIsLoading] = useState(true);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
+  const [errorText, setErrorText] = useState<string | null>(null);
+
+  const loadPreferences = useCallback(async () => {
+    setErrorText(null);
+
+    try {
+      const data = await getPaymentPreferences();
+      setPreferences(data);
+    } catch (error) {
+      console.error("Failed to load payment preferences", error);
+      setErrorText("Не удалось загрузить настройки оплаты.");
+    }
+  }, []);
+
+  useEffect(() => {
+    let isMounted = true;
+
+    const bootstrap = async () => {
+      try {
+        const data = await getPaymentPreferences();
+
+        if (!isMounted) {
+          return;
+        }
+
+        setPreferences(data);
+      } catch (error) {
+        console.error("Failed to bootstrap payment preferences", error);
+
+        if (isMounted) {
+          setErrorText("Не удалось загрузить настройки оплаты.");
+        }
+      } finally {
+        if (isMounted) {
+          setIsLoading(false);
+        }
+      }
+    };
+
+    bootstrap();
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
+  const onRefresh = useCallback(async () => {
+    setIsRefreshing(true);
+
+    try {
+      await loadPreferences();
+    } finally {
+      setIsRefreshing(false);
+    }
+  }, [loadPreferences]);
+
+  const persist = useCallback(async (patch: Partial<PaymentPreferences>) => {
+    setIsSaving(true);
+    setErrorText(null);
+
+    try {
+      const saved = await savePaymentPreferences(patch);
+      setPreferences(saved);
+    } catch (error) {
+      console.error("Failed to save payment preferences", error);
+      setErrorText("Не удалось сохранить настройки оплаты.");
+    } finally {
+      setIsSaving(false);
+    }
+  }, []);
+
+  const setDefaultMethod = useCallback(
+    async (method: PaymentMethod) => {
+      if (isSaving) {
+        return;
+      }
+
+      if (method === "card" && !preferences.allowCard) {
+        return;
+      }
+
+      if (method === "cash" && !preferences.allowCash) {
+        return;
+      }
+
+      await persist({ defaultMethod: method });
+    },
+    [isSaving, persist, preferences.allowCard, preferences.allowCash],
+  );
+
+  const toggleAllowCard = useCallback(
+    async (value: boolean) => {
+      if (isSaving) {
+        return;
+      }
+
+      if (!value && !preferences.allowCash) {
+        Alert.alert(
+          "Нужно оставить хотя бы один способ оплаты",
+          "Нельзя отключить сразу и карту, и наличные.",
+        );
+        return;
+      }
+
+      const patch: Partial<PaymentPreferences> = {
+        allowCard: value,
+      };
+
+      if (!value && preferences.defaultMethod === "card") {
+        patch.defaultMethod = "cash";
+      }
+
+      await persist(patch);
+    },
+    [isSaving, persist, preferences.allowCash, preferences.defaultMethod],
+  );
+
+  const toggleAllowCash = useCallback(
+    async (value: boolean) => {
+      if (isSaving) {
+        return;
+      }
+
+      if (!value && !preferences.allowCard) {
+        Alert.alert(
+          "Нужно оставить хотя бы один способ оплаты",
+          "Нельзя отключить сразу и карту, и наличные.",
+        );
+        return;
+      }
+
+      const patch: Partial<PaymentPreferences> = {
+        allowCash: value,
+      };
+
+      if (!value && preferences.defaultMethod === "cash") {
+        patch.defaultMethod = "card";
+      }
+
+      await persist(patch);
+    },
+    [isSaving, persist, preferences.allowCard, preferences.defaultMethod],
+  );
+
+  const toggleAskBeforeChangingMethod = useCallback(
+    async (value: boolean) => {
+      if (isSaving) {
+        return;
+      }
+
+      await persist({ askBeforeChangingMethod: value });
+    },
+    [isSaving, persist],
+  );
+
+  const setDefaultTip = useCallback(
+    async (value: number) => {
+      if (isSaving) {
+        return;
+      }
+
+      await persist({ defaultTip: value });
+    },
+    [isSaving, persist],
+  );
+
+  const summaryText = useMemo(() => {
+    const defaultMethodLabel =
+      preferences.defaultMethod === "card" ? "карта" : "наличные";
+
+    const enabledMethods = [
+      preferences.allowCard ? "карта" : null,
+      preferences.allowCash ? "наличные" : null,
+    ]
+      .filter(Boolean)
+      .join(", ");
+
+    const tipLabel =
+      preferences.defaultTip > 0
+        ? `${preferences.defaultTip} ₽ чаевых`
+        : "без чаевых";
+
+    return `По умолчанию: ${defaultMethodLabel}. Доступно: ${enabledMethods}. ${tipLabel}.`;
+  }, [preferences]);
+
+  if (isLoading) {
+    return (
+      <SafeAreaView style={styles.safeArea}>
+        <Stack.Screen options={{ title: "Оплата" }} />
+        <View style={styles.centerState}>
+          <ActivityIndicator size="large" />
+          <Text style={styles.centerText}>Загружаем настройки оплаты…</Text>
+        </View>
+      </SafeAreaView>
+    );
+  }
 
   return (
     <SafeAreaView style={styles.safeArea}>
-      <Stack.Screen
-        options={{
-          title: "Оплата",
-          headerShadowVisible: false,
-        }}
-      />
+      <Stack.Screen options={{ title: "Оплата" }} />
 
-      <View style={styles.container}>
-        <ScrollView
-          contentContainerStyle={styles.content}
-          showsVerticalScrollIndicator={false}
+      <ScrollView
+        contentContainerStyle={styles.contentContainer}
+        refreshControl={
+          <RefreshControl refreshing={isRefreshing} onRefresh={onRefresh} />
+        }
+      >
+        <ScreenSection
+          title="Способы оплаты"
+          description="Эти настройки теперь сохраняются в Supabase и станут основой для будущей автоподстановки в заказ."
         >
-          <View style={styles.heroCard}>
-            <Text style={styles.eyebrow}>Профиль</Text>
-            <Text style={styles.title}>Способы оплаты</Text>
-            <Text style={styles.description}>
-              Здесь позже появятся банковские карты, оплата одним тапом и выбор
-              способа оплаты по умолчанию.
+          <AppCard>
+            <Text style={styles.summaryLabel}>Сводка</Text>
+            <Text style={styles.summaryValue}>{summaryText}</Text>
+
+            {isSaving ? (
+              <View style={styles.savingRow}>
+                <ActivityIndicator />
+                <Text style={styles.savingText}>Сохраняем…</Text>
+              </View>
+            ) : null}
+          </AppCard>
+        </ScreenSection>
+
+        {errorText ? (
+          <ErrorCard
+            title="Ошибка настроек оплаты"
+            description={errorText}
+          />
+        ) : null}
+
+        <ScreenSection
+          title="Метод по умолчанию"
+          description="Позже это можно будет аккуратно подставлять в order flow без переписывания details.tsx."
+        >
+          <View style={styles.group}>
+            <MethodButton
+              title="Карта"
+              isSelected={preferences.defaultMethod === "card"}
+              disabled={!preferences.allowCard || isSaving}
+              onPress={() => setDefaultMethod("card")}
+            />
+            <MethodButton
+              title="Наличные"
+              isSelected={preferences.defaultMethod === "cash"}
+              disabled={!preferences.allowCash || isSaving}
+              onPress={() => setDefaultMethod("cash")}
+            />
+          </View>
+        </ScreenSection>
+
+        <ScreenSection
+          title="Разрешённые способы"
+          description="Оставляем только те способы оплаты, которые реально нужны пользователю."
+        >
+          <AppCard>
+            <ToggleRow
+              title="Разрешить оплату картой"
+              description="Карта остаётся доступным способом оплаты."
+              value={preferences.allowCard}
+              onValueChange={toggleAllowCard}
+              disabled={isSaving}
+            />
+
+            <View style={styles.divider} />
+
+            <ToggleRow
+              title="Разрешить оплату наличными"
+              description="Наличные остаются резервным способом оплаты."
+              value={preferences.allowCash}
+              onValueChange={toggleAllowCash}
+              disabled={isSaving}
+            />
+
+            <View style={styles.divider} />
+
+            <ToggleRow
+              title="Подтверждать смену метода"
+              description="Foundation для будущей более аккуратной логики в оформлении заказа."
+              value={preferences.askBeforeChangingMethod}
+              onValueChange={toggleAskBeforeChangingMethod}
+              disabled={isSaving}
+            />
+          </AppCard>
+        </ScreenSection>
+
+        <ScreenSection
+          title="Чаевые по умолчанию"
+          description="Пока это preference layer. Позже можно будет использовать как prefill."
+        >
+          <View style={styles.group}>
+            {TIP_PRESETS.map((value) => (
+              <MethodButton
+                key={value}
+                title={value === 0 ? "Без чаевых" : `${value} ₽`}
+                isSelected={preferences.defaultTip === value}
+                disabled={isSaving}
+                onPress={() => setDefaultTip(value)}
+              />
+            ))}
+          </View>
+        </ScreenSection>
+
+        <ScreenSection
+          title="Статус foundation"
+          description="На этом шаге мы усиливаем payments, но не трогаем текущий рабочий заказ."
+        >
+          <AppCard>
+            <Text style={styles.noteText}>
+              Следующий безопасный шаг после этого — либо notifications foundation,
+              либо аккуратный prefill payment/address data в order flow без ломки
+              текущего поведения.
             </Text>
-          </View>
-
-          <View style={styles.sectionCard}>
-            <Text style={styles.sectionTitle}>Основной способ оплаты</Text>
-
-            <View style={styles.paymentRow}>
-              <View style={styles.paymentIconWrap}>
-                <Text style={styles.paymentIcon}>💵</Text>
-              </View>
-
-              <View style={styles.paymentTextWrap}>
-                <Text style={styles.paymentTitle}>Наличными курьеру</Text>
-                <Text style={styles.paymentSubtitle}>
-                  Самый простой MVP-вариант до подключения онлайн-платежей
-                </Text>
-              </View>
-
-              <View style={styles.selectedBadge}>
-                <Text style={styles.selectedBadgeText}>Активно</Text>
-              </View>
-            </View>
-
-            <View style={styles.paymentRowMuted}>
-              <View style={styles.paymentIconWrapMuted}>
-                <Text style={styles.paymentIcon}>💳</Text>
-              </View>
-
-              <View style={styles.paymentTextWrap}>
-                <Text style={styles.paymentTitle}>Банковская карта</Text>
-                <Text style={styles.paymentSubtitle}>
-                  Подключим после подготовки payment flow
-                </Text>
-              </View>
-            </View>
-
-            <View style={styles.paymentRowMuted}>
-              <View style={styles.paymentIconWrapMuted}>
-                <Text style={styles.paymentIcon}></Text>
-              </View>
-
-              <View style={styles.paymentTextWrap}>
-                <Text style={styles.paymentTitle}>Apple Pay / Google Pay</Text>
-                <Text style={styles.paymentSubtitle}>
-                  Будет доступно после интеграции онлайн-оплаты
-                </Text>
-              </View>
-            </View>
-          </View>
-
-          <View style={styles.sectionCard}>
-            <View style={styles.switchRow}>
-              <View style={styles.switchTextWrap}>
-                <Text style={styles.switchTitle}>Оплата без подтверждения</Text>
-                <Text style={styles.switchSubtitle}>
-                  В будущем позволит быстрее завершать повторные заказы
-                </Text>
-              </View>
-
-              <Switch value={false} disabled />
-            </View>
-          </View>
-
-          <View style={styles.infoCard}>
-            <Text style={styles.infoTitle}>Что дальше</Text>
-            <Text style={styles.infoText}>
-              Следующим шагом можно сделать сохранение payment preferences в
-              Supabase, а затем подготовить integration layer под реальные
-              платежи.
-            </Text>
-          </View>
-        </ScrollView>
-
-        <View style={styles.bottomBar}>
-          <Pressable
-            onPress={() => handleSoon("Добавление карты")}
-            style={({ pressed }) => [
-              styles.primaryButton,
-              pressed && styles.primaryButtonPressed,
-            ]}
-          >
-            <Text style={styles.primaryButtonText}>Добавить карту</Text>
-          </Pressable>
-
-          <Pressable
-            onPress={() => router.back()}
-            style={({ pressed }) => [
-              styles.secondaryButton,
-              pressed && styles.secondaryButtonPressed,
-            ]}
-          >
-            <Text style={styles.secondaryButtonText}>Назад</Text>
-          </Pressable>
-        </View>
-      </View>
+          </AppCard>
+        </ScreenSection>
+      </ScrollView>
     </SafeAreaView>
   );
 }
 
-const colors = {
-  background: "#F6F7FB",
-  surface: "#FFFFFF",
-  border: "#E7ECF3",
-  text: "#16181D",
-  textSecondary: "#667085",
-  primary: "#E9281D",
-  primarySoft: "#FFF1F0",
-  muted: "#F8FAFC",
+type MethodButtonProps = {
+  title: string;
+  isSelected: boolean;
+  disabled?: boolean;
+  onPress: () => void;
 };
+
+function MethodButton({
+  title,
+  isSelected,
+  disabled = false,
+  onPress,
+}: MethodButtonProps) {
+  return (
+    <AppButton
+      title={title}
+      onPress={onPress}
+      variant={isSelected ? "primary" : "secondary"}
+      disabled={disabled}
+      fullWidth
+    />
+  );
+}
+
+type ToggleRowProps = {
+  title: string;
+  description: string;
+  value: boolean;
+  onValueChange: (value: boolean) => void;
+  disabled?: boolean;
+};
+
+function ToggleRow({
+  title,
+  description,
+  value,
+  onValueChange,
+  disabled = false,
+}: ToggleRowProps) {
+  return (
+    <View style={styles.toggleRow}>
+      <View style={styles.toggleCopy}>
+        <Text style={styles.toggleTitle}>{title}</Text>
+        <Text style={styles.toggleDescription}>{description}</Text>
+      </View>
+
+      <Switch
+        value={value}
+        onValueChange={onValueChange}
+        disabled={disabled}
+      />
+    </View>
+  );
+}
 
 const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
-    backgroundColor: colors.background,
+    backgroundColor: "#F7F8FA",
   },
-  container: {
-    flex: 1,
-    backgroundColor: colors.background,
-  },
-  content: {
+  contentContainer: {
     padding: 16,
-    paddingBottom: 160,
+    gap: 16,
+    paddingBottom: 32,
   },
-  heroCard: {
-    backgroundColor: colors.surface,
-    borderRadius: 24,
-    padding: 20,
-    borderWidth: 1,
-    borderColor: colors.border,
-    marginBottom: 16,
-  },
-  eyebrow: {
-    fontSize: 12,
-    fontWeight: "700",
-    color: colors.primary,
-    marginBottom: 8,
-    textTransform: "uppercase",
-    letterSpacing: 0.6,
-  },
-  title: {
-    fontSize: 28,
-    lineHeight: 34,
-    fontWeight: "800",
-    color: colors.text,
-    marginBottom: 10,
-  },
-  description: {
-    fontSize: 15,
-    lineHeight: 22,
-    color: colors.textSecondary,
-  },
-  sectionCard: {
-    backgroundColor: colors.surface,
-    borderRadius: 22,
-    padding: 18,
-    borderWidth: 1,
-    borderColor: colors.border,
-    marginBottom: 16,
-  },
-  sectionTitle: {
-    fontSize: 17,
-    fontWeight: "800",
-    color: colors.text,
-    marginBottom: 14,
-  },
-  paymentRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 12,
-    padding: 14,
-    borderRadius: 18,
-    backgroundColor: colors.primarySoft,
-    marginBottom: 12,
-  },
-  paymentRowMuted: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 12,
-    padding: 14,
-    borderRadius: 18,
-    backgroundColor: colors.muted,
-    marginBottom: 12,
-  },
-  paymentIconWrap: {
-    width: 48,
-    height: 48,
-    borderRadius: 16,
-    backgroundColor: "#FFD9D6",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  paymentIconWrapMuted: {
-    width: 48,
-    height: 48,
-    borderRadius: 16,
-    backgroundColor: "#EEF2F6",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  paymentIcon: {
-    fontSize: 22,
-  },
-  paymentTextWrap: {
+  centerState: {
     flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    padding: 24,
+    gap: 12,
   },
-  paymentTitle: {
+  centerText: {
     fontSize: 15,
-    fontWeight: "800",
-    color: colors.text,
-    marginBottom: 4,
+    lineHeight: 20,
+    color: "#6B7280",
+    textAlign: "center",
   },
-  paymentSubtitle: {
+  summaryLabel: {
     fontSize: 13,
-    lineHeight: 18,
-    color: colors.textSecondary,
+    color: "#6B7280",
+    marginBottom: 8,
   },
-  selectedBadge: {
-    backgroundColor: colors.surface,
-    borderRadius: 999,
-    paddingHorizontal: 10,
-    paddingVertical: 6,
+  summaryValue: {
+    fontSize: 16,
+    lineHeight: 22,
+    fontWeight: "600",
+    color: "#111827",
   },
-  selectedBadgeText: {
-    fontSize: 12,
-    fontWeight: "800",
-    color: colors.primary,
+  savingRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    marginTop: 14,
   },
-  switchRow: {
+  savingText: {
+    fontSize: 14,
+    color: "#6B7280",
+  },
+  group: {
+    gap: 12,
+  },
+  divider: {
+    height: 1,
+    backgroundColor: "#E5E7EB",
+    marginVertical: 16,
+  },
+  toggleRow: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    gap: 16,
+    gap: 12,
   },
-  switchTextWrap: {
+  toggleCopy: {
     flex: 1,
+    paddingRight: 8,
   },
-  switchTitle: {
+  toggleTitle: {
     fontSize: 15,
-    fontWeight: "800",
-    color: colors.text,
+    fontWeight: "600",
+    color: "#111827",
     marginBottom: 4,
   },
-  switchSubtitle: {
-    fontSize: 13,
-    lineHeight: 18,
-    color: colors.textSecondary,
-  },
-  infoCard: {
-    backgroundColor: colors.surface,
-    borderRadius: 22,
-    padding: 18,
-    borderWidth: 1,
-    borderColor: colors.border,
-  },
-  infoTitle: {
-    fontSize: 17,
-    fontWeight: "800",
-    color: colors.text,
-    marginBottom: 8,
-  },
-  infoText: {
+  toggleDescription: {
     fontSize: 14,
-    lineHeight: 21,
-    color: colors.textSecondary,
+    lineHeight: 20,
+    color: "#6B7280",
   },
-  bottomBar: {
-    position: "absolute",
-    left: 0,
-    right: 0,
-    bottom: 0,
-    backgroundColor: colors.surface,
-    borderTopWidth: 1,
-    borderTopColor: colors.border,
-    paddingHorizontal: 16,
-    paddingTop: 14,
-    paddingBottom: 18,
-    gap: 10,
-  },
-  primaryButton: {
-    height: 54,
-    borderRadius: 18,
-    backgroundColor: colors.primary,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  primaryButtonPressed: {
-    opacity: 0.9,
-  },
-  primaryButtonText: {
-    fontSize: 16,
-    fontWeight: "800",
-    color: "#FFFFFF",
-  },
-  secondaryButton: {
-    height: 52,
-    borderRadius: 18,
-    backgroundColor: colors.primarySoft,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  secondaryButtonPressed: {
-    opacity: 0.92,
-  },
-  secondaryButtonText: {
-    fontSize: 15,
-    fontWeight: "800",
-    color: colors.primary,
+  noteText: {
+    fontSize: 14,
+    lineHeight: 20,
+    color: "#374151",
   },
 });
