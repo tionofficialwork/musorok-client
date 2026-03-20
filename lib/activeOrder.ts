@@ -3,6 +3,7 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 const ACTIVE_ORDER_STORAGE_KEY = "musorok_active_order";
 
 export const ACTIVE_ORDER_STATUSES = [
+  "new",
   "pending",
   "assigned",
   "accepted",
@@ -10,10 +11,7 @@ export const ACTIVE_ORDER_STATUSES = [
   "on_the_way",
 ] as const;
 
-export const INACTIVE_ORDER_STATUSES = [
-  "completed",
-  "cancelled",
-] as const;
+export const INACTIVE_ORDER_STATUSES = ["completed", "cancelled"] as const;
 
 export type ActiveOrderStatus = (typeof ACTIVE_ORDER_STATUSES)[number];
 export type InactiveOrderStatus = (typeof INACTIVE_ORDER_STATUSES)[number];

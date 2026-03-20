@@ -6,13 +6,20 @@ type OrderRow = Record<string, unknown> & {
   status?: string | null;
   package_id?: string | null;
   package_name?: string | null;
+  package_label?: string | null;
   price?: number | string | null;
+  package_price?: number | string | null;
   address?: string | null;
   apartment?: string | null;
   entrance?: string | null;
   floor?: string | null;
   comment?: string | null;
   created_at?: string | null;
+  phone?: string | null;
+  contact_phone?: string | null;
+  payment_method?: string | null;
+  tip?: number | string | null;
+  tip_amount?: number | string | null;
 };
 
 export type ReorderPreview = {
@@ -40,23 +47,33 @@ const ACTIVE_ORDER_STATUSES = new Set([
   "in_progress",
 ]);
 
-const COPYABLE_FIELDS = [
-  "owner_key",
-  "package_id",
-  "package_name",
-  "price",
-  "address",
-  "apartment",
-  "entrance",
-  "floor",
-  "comment",
-  "contact_name",
-  "contact_phone",
-  "payment_method",
-  "tip_amount",
-  "lat",
-  "lng",
-] as const;
+function getFirstString(
+  ...values: Array<unknown>
+): string | null {
+  for (const value of values) {
+    if (typeof value === "string" && value.trim().length > 0) {
+      return value;
+    }
+  }
+
+  return null;
+}
+
+function getFirstNumberOrString(
+  ...values: Array<unknown>
+): number | string | null {
+  for (const value of values) {
+    if (typeof value === "number" && Number.isFinite(value)) {
+      return value;
+    }
+
+    if (typeof value === "string" && value.trim().length > 0) {
+      return value;
+    }
+  }
+
+  return null;
+}
 
 function formatPrice(value: unknown) {
   if (typeof value === "number" && Number.isFinite(value)) {
@@ -111,21 +128,98 @@ function formatDate(value: unknown) {
   }
 }
 
-function getSafeString(value: unknown, fallback: string) {
-  return typeof value === "string" && value.trim().length > 0 ? value : fallback;
-}
+function buildInsertPayload(source: OrderRow) {
+  const ownerKey = getFirstString(source.owner_key);
 
-function pickCopyableFields(source: OrderRow) {
-  const payload: Record<string, unknown> = {};
+  if (!ownerKey) {
+    throw new Error("У заказа отсутствует owner_key. Повторить заказ нельзя.");
+  }
 
-  for (const field of COPYABLE_FIELDS) {
-    if (field in source) {
-      const value = source[field];
+  const packageId = getFirstString(source.package_id);
+  const packageLabel = getFirstString(source.package_label, source.package_name);
+  const packagePrice = getFirstNumberOrString(source.package_price, source.price);
+  const phone = getFirstString(source.phone, source.contact_phone);
+  const tip = getFirstNumberOrString(source.tip, source.tip_amount);
 
-      if (value !== undefined) {
-        payload[field] = value;
-      }
-    }
+  const payload: Record<string, unknown> = {
+    owner_key: ownerKey,
+    status: "new",
+  };
+
+  if (packageId) {
+    payload.package_id = packageId;
+  }
+
+  if (packageLabel) {
+    payload.package_label = packageLabel;
+    payload.package_name = packageLabel;
+  }
+
+  if (packagePrice !== null) {
+    payload.package_price = packagePrice;
+    payload.price = packagePrice;
+  }
+
+  if (typeof source.address === "string") {
+    payload.address = source.address;
+  }
+
+  if (typeof source.apartment === "string") {
+    payload.apartment = source.apartment;
+  }
+
+  if (typeof source.entrance === "string") {
+    payload.entrance = source.entrance;
+  }
+
+  if (typeof source.floor === "string") {
+    payload.floor = source.floor;
+  }
+
+  if (typeof source.comment === "string") {
+    payload.comment = source.comment;
+  }
+
+  if (typeof source.leave_at_door === "boolean") {
+    payload.leave_at_door = source.leave_at_door;
+  }
+
+  if (phone) {
+    payload.phone = phone;
+    payload.contact_phone = phone;
+  }
+
+  if (typeof source.should_call === "boolean") {
+    payload.should_call = source.should_call;
+  }
+
+  if (typeof source.call_required === "boolean") {
+    payload.call_required = source.call_required;
+  }
+
+  if (typeof source.payment_method === "string") {
+    payload.payment_method = source.payment_method;
+  }
+
+  if (tip !== null) {
+    payload.tip = tip;
+    payload.tip_amount = tip;
+  }
+
+  if (typeof source.total === "number") {
+    payload.total = source.total;
+  }
+
+  if (typeof source.courier_id === "string") {
+    payload.courier_id = source.courier_id;
+  }
+
+  if (typeof source.lat === "number") {
+    payload.lat = source.lat;
+  }
+
+  if (typeof source.lng === "number") {
+    payload.lng = source.lng;
   }
 
   return payload;
@@ -183,11 +277,16 @@ async function assertNoActiveOrder(ownerKey: string, sourceOrderId: string) {
 export async function getReorderPreview(orderId: string): Promise<ReorderPreview> {
   const order = await getOrderById(orderId);
 
+  const packageName =
+    getFirstString(order.package_label, order.package_name) ?? "Пакет не указан";
+
+  const priceValue = getFirstNumberOrString(order.package_price, order.price);
+
   return {
     id: order.id,
     status: typeof order.status === "string" ? order.status : null,
-    packageName: getSafeString(order.package_name, "Пакет не указан"),
-    priceLabel: formatPrice(order.price),
+    packageName,
+    priceLabel: formatPrice(priceValue),
     addressLabel: buildAddressLabel(order),
     commentLabel:
       typeof order.comment === "string" && order.comment.trim().length > 0
@@ -211,10 +310,7 @@ export async function reorderPreviousOrder(orderId: string): Promise<ReorderResu
 
   await assertNoActiveOrder(ownerKey, sourceOrder.id);
 
-  const payload = pickCopyableFields(sourceOrder);
-
-  payload.owner_key = ownerKey;
-  payload.status = "new";
+  const payload = buildInsertPayload(sourceOrder);
 
   const { data, error } = await supabase
     .from("orders")

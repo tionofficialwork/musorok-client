@@ -18,6 +18,8 @@ import {
   reorderPreviousOrder,
   type ReorderPreview,
 } from "../../lib/reorder";
+import { supabase } from "../../lib/supabase";
+import { syncActiveOrder, type StoredActiveOrder } from "../../lib/activeOrder";
 
 export default function ReorderScreen() {
   const router = useRouter();
@@ -29,7 +31,6 @@ export default function ReorderScreen() {
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const [createdOrderId, setCreatedOrderId] = useState<string | null>(null);
 
   const loadPreview = useCallback(async () => {
     if (!orderId) {
@@ -57,6 +58,22 @@ export default function ReorderScreen() {
     loadPreview();
   }, [loadPreview]);
 
+  const fetchCreatedOrderForStorage = useCallback(async (createdOrderId: string) => {
+    const { data, error } = await supabase
+      .from("orders")
+      .select(
+        "id, created_at, status, address, package_id, package_label, package_price, apartment, entrance, comment, leave_at_door, phone, should_call, payment_method, tip, total, courier_id, call_required"
+      )
+      .eq("id", createdOrderId)
+      .single();
+
+    if (error || !data) {
+      throw new Error("Не удалось подготовить новый заказ для активного экрана.");
+    }
+
+    return data as StoredActiveOrder;
+  }, []);
+
   const handleReorder = useCallback(async () => {
     if (!orderId) {
       return;
@@ -67,9 +84,16 @@ export default function ReorderScreen() {
 
     try {
       const result = await reorderPreviousOrder(orderId);
-      setCreatedOrderId(result.newOrderId);
+      const createdOrder = await fetchCreatedOrderForStorage(result.newOrderId);
 
-      Alert.alert("Заказ повторён", "Новый заказ создан на основе предыдущего.");
+      await syncActiveOrder(createdOrder);
+
+      Alert.alert("Заказ повторён", "Новый заказ создан и уже открыт как активный.", [
+        {
+          text: "Открыть",
+          onPress: () => router.replace("/order/active"),
+        },
+      ]);
     } catch (error) {
       const message =
         error instanceof Error ? error.message : "Не удалось повторить заказ.";
@@ -77,7 +101,7 @@ export default function ReorderScreen() {
     } finally {
       setSubmitting(false);
     }
-  }, [orderId]);
+  }, [fetchCreatedOrderForStorage, orderId, router]);
 
   return (
     <SafeAreaView style={styles.safeArea}>
@@ -144,13 +168,6 @@ export default function ReorderScreen() {
                   Если уже есть активный заказ, повтор будет заблокирован для безопасности.
                 </Text>
               </AppCard>
-
-              {createdOrderId ? (
-                <AppCard>
-                  <Text style={styles.successTitle}>Новый заказ создан</Text>
-                  <Text style={styles.successText}>ID нового заказа: {createdOrderId}</Text>
-                </AppCard>
-              ) : null}
 
               <View style={styles.actions}>
                 <AppButton
@@ -232,16 +249,6 @@ const styles = StyleSheet.create({
     lineHeight: 22,
     color: "#4B5563",
     marginBottom: 8,
-  },
-  successTitle: {
-    fontSize: 16,
-    fontWeight: "700",
-    color: "#111827",
-    marginBottom: 6,
-  },
-  successText: {
-    fontSize: 15,
-    color: "#4B5563",
   },
   actions: {
     marginTop: 16,

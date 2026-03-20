@@ -96,6 +96,15 @@ export default function OrderHistoryScreen() {
     router.push("/order/package");
   };
 
+  const handleReorderPress = (orderId: string | number) => {
+    router.push({
+      pathname: "/order/reorder",
+      params: {
+        orderId: String(orderId),
+      },
+    });
+  };
+
   const groupedOrders = useMemo(() => {
     const map = new Map<string, OrderHistoryRow[]>();
 
@@ -194,7 +203,8 @@ export default function OrderHistoryScreen() {
                               <View style={styles.cardHeaderText}>
                                 <Text style={styles.orderId}>Заказ #{order.id}</Text>
                                 <Text style={styles.orderMeta}>
-                                  {formatTime(order.created_at)} · {order.package_label || "Без названия"}
+                                  {formatTime(order.created_at)} ·{" "}
+                                  {order.package_label || "Без названия"}
                                 </Text>
                               </View>
 
@@ -226,7 +236,7 @@ export default function OrderHistoryScreen() {
                               />
                             </View>
 
-                            {(order.apartment || order.entrance) ? (
+                            {order.apartment || order.entrance ? (
                               <View style={styles.noteBox}>
                                 <Text style={styles.noteTitle}>Детали адреса</Text>
                                 <Text style={styles.noteText}>
@@ -258,16 +268,7 @@ export default function OrderHistoryScreen() {
                               <View style={styles.reorderAction}>
                                 <AppButton
                                   title="Повторить"
-                                  onPress={() =>
-                                    router.push({
-                                      pathname: "/order/details",
-                                      params: {
-                                        packageId: order.package_id || "",
-                                        packageName: order.package_label || "",
-                                        price: String(Number(order.package_price ?? 0)),
-                                      },
-                                    })
-                                  }
+                                  onPress={() => handleReorderPress(order.id)}
                                 />
                               </View>
                             </View>
