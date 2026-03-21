@@ -1,11 +1,13 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
+  ActivityIndicator,
   Alert,
   KeyboardAvoidingView,
   Platform,
   SafeAreaView,
   ScrollView,
   StyleSheet,
+  Switch,
   Text,
   TextInput,
   View,
@@ -15,6 +17,8 @@ import { Stack, useLocalSearchParams, useRouter } from "expo-router";
 import AppButton from "../../components/ui/AppButton";
 import AppCard from "../../components/ui/AppCard";
 import ScreenSection from "../../components/ui/ScreenSection";
+import { getPaymentPreferences } from "../../lib/paymentPreferences";
+import { getProfileOwnerKey } from "../../lib/profileIdentity";
 import { supabase } from "../../lib/supabase";
 import { colors, radii, spacing, typography } from "../../lib/theme";
 
@@ -23,6 +27,37 @@ type DetailsParams = {
   packageName?: string;
   price?: string;
 };
+
+type PaymentMethod = "cash" | "card";
+
+type PrefillState = {
+  address: string;
+  phone: string;
+  shouldCall: boolean;
+  paymentMethod: PaymentMethod;
+  tip: number;
+  profileName: string;
+};
+
+type AddressRow = {
+  street?: string | null;
+  address?: string | null;
+  label?: string | null;
+  is_primary?: boolean | null;
+  primary?: boolean | null;
+  is_default?: boolean | null;
+  created_at?: string | null;
+  [key: string]: unknown;
+};
+
+type ProfileRow = {
+  first_name?: string | null;
+  last_name?: string | null;
+  phone?: string | null;
+  call_allowed?: boolean | null;
+};
+
+const TIP_PRESETS = [0, 50, 100, 150, 200];
 
 function resolvePackageLabel(packageId: string, packageName: string) {
   if (packageName.trim()) {
@@ -72,6 +107,99 @@ function resolvePackagePrice(rawPrice: string, packageId: string) {
   }
 }
 
+function getAddressValue(row: AddressRow | null | undefined) {
+  if (!row) {
+    return "";
+  }
+
+  if (typeof row.street === "string" && row.street.trim().length > 0) {
+    return row.street.trim();
+  }
+
+  if (typeof row.address === "string" && row.address.trim().length > 0) {
+    return row.address.trim();
+  }
+
+  return "";
+}
+
+function selectBestAddress(rows: AddressRow[]) {
+  if (!rows.length) {
+    return null;
+  }
+
+  const primaryRow =
+    rows.find((row) => row.is_primary === true) ??
+    rows.find((row) => row.primary === true) ??
+    rows.find((row) => row.is_default === true);
+
+  if (primaryRow) {
+    return primaryRow;
+  }
+
+  return rows[0];
+}
+
+function buildProfileName(row: ProfileRow | null) {
+  if (!row) {
+    return "";
+  }
+
+  const firstName =
+    typeof row.first_name === "string" ? row.first_name.trim() : "";
+  const lastName =
+    typeof row.last_name === "string" ? row.last_name.trim() : "";
+
+  return [firstName, lastName].filter(Boolean).join(" ");
+}
+
+function getMaskedPhone(value: string) {
+  const digits = value.replace(/\D/g, "");
+
+  if (digits.length < 4) {
+    return value;
+  }
+
+  const lastFour = digits.slice(-4);
+  return `••• •• ${lastFour}`;
+}
+
+function normalizeOrderPhoneInput(value: string) {
+  const digits = value.replace(/\D/g, "");
+
+  if (digits.startsWith("8") && digits.length === 11) {
+    return `+7${digits.slice(1)}`;
+  }
+
+  if (digits.startsWith("7") && digits.length === 11) {
+    return `+${digits}`;
+  }
+
+  if (digits.length === 10) {
+    return `+7${digits}`;
+  }
+
+  if (value.trim().startsWith("+") && digits.length >= 11) {
+    return `+${digits}`;
+  }
+
+  return value.trim();
+}
+
+function formatPhonePreview(value: string) {
+  const normalized = normalizeOrderPhoneInput(value);
+  const digits = normalized.replace(/\D/g, "");
+
+  if (digits.length !== 11 || digits[0] !== "7") {
+    return normalized;
+  }
+
+  return `+7 (${digits.slice(1, 4)}) ${digits.slice(4, 7)}-${digits.slice(
+    7,
+    9
+  )}-${digits.slice(9, 11)}`;
+}
+
 export default function OrderDetailsScreen() {
   const router = useRouter();
   const params = useLocalSearchParams<DetailsParams>();
@@ -94,7 +222,147 @@ export default function OrderDetailsScreen() {
 
   const [comment, setComment] = useState("");
   const [address, setAddress] = useState("");
+  const [phone, setPhone] = useState("");
+  const [shouldCall, setShouldCall] = useState(false);
+  const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>("cash");
+  const [tip, setTip] = useState(0);
+
+  const [prefill, setPrefill] = useState<PrefillState>({
+    address: "",
+    phone: "",
+    shouldCall: false,
+    paymentMethod: "cash",
+    tip: 0,
+    profileName: "",
+  });
+
+  const [isPrefillLoading, setIsPrefillLoading] = useState(true);
+  const [prefillError, setPrefillError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    let isMounted = true;
+
+    const loadPrefill = async () => {
+      try {
+        setIsPrefillLoading(true);
+        setPrefillError(null);
+
+        const ownerKey = await getProfileOwnerKey();
+
+        const [
+          { data: profileData, error: profileError },
+          { data: addressData, error: addressError },
+          paymentPreferences,
+        ] = await Promise.all([
+          supabase
+            .from("user_profiles")
+            .select("first_name, last_name, phone, call_allowed")
+            .eq("owner_key", ownerKey)
+            .maybeSingle<ProfileRow>(),
+          supabase
+            .from("user_addresses")
+            .select("*")
+            .eq("owner_key", ownerKey)
+            .limit(10),
+          getPaymentPreferences(),
+        ]);
+
+        if (profileError) {
+          throw profileError;
+        }
+
+        if (addressError) {
+          throw addressError;
+        }
+
+        const profileRow = (profileData as ProfileRow | null) ?? null;
+        const addressRows = Array.isArray(addressData)
+          ? (addressData as AddressRow[])
+          : [];
+        const selectedAddress = selectBestAddress(addressRows);
+        const selectedAddressValue = getAddressValue(selectedAddress);
+
+        const nextPrefill: PrefillState = {
+          address: selectedAddressValue,
+          phone:
+            typeof profileRow?.phone === "string" ? profileRow.phone.trim() : "",
+          shouldCall: profileRow?.call_allowed === true,
+          paymentMethod:
+            paymentPreferences.defaultMethod === "card" ? "card" : "cash",
+          tip:
+            typeof paymentPreferences.defaultTip === "number" &&
+            Number.isFinite(paymentPreferences.defaultTip) &&
+            paymentPreferences.defaultTip >= 0
+              ? paymentPreferences.defaultTip
+              : 0,
+          profileName: buildProfileName(profileRow),
+        };
+
+        if (!isMounted) {
+          return;
+        }
+
+        setPrefill(nextPrefill);
+
+        if (selectedAddressValue) {
+          setAddress((current) =>
+            current.trim().length > 0 ? current : selectedAddressValue
+          );
+        }
+
+        if (nextPrefill.phone) {
+          setPhone((current) =>
+            current.trim().length > 0 ? current : nextPrefill.phone
+          );
+        }
+
+        setShouldCall(nextPrefill.shouldCall);
+        setPaymentMethod(nextPrefill.paymentMethod);
+        setTip(nextPrefill.tip);
+      } catch (error) {
+        console.error("Failed to load order prefill", error);
+
+        if (!isMounted) {
+          return;
+        }
+
+        setPrefillError(
+          "Не удалось подтянуть сохранённые данные. Заказ всё равно можно оформить вручную."
+        );
+      } finally {
+        if (isMounted) {
+          setIsPrefillLoading(false);
+        }
+      }
+    };
+
+    loadPrefill();
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
+  const hasAnyPrefill = useMemo(() => {
+    return Boolean(
+      prefill.address ||
+        prefill.phone ||
+        prefill.profileName ||
+        prefill.tip > 0 ||
+        prefill.paymentMethod
+    );
+  }, [prefill]);
+
+  const displayPaymentMethod = useMemo(() => {
+    return paymentMethod === "card" ? "Карта" : "Наличные";
+  }, [paymentMethod]);
+
+  const totalPreview = useMemo(() => {
+    return resolvedPackagePrice + tip;
+  }, [resolvedPackagePrice, tip]);
+
+  const normalizedPhone = useMemo(() => normalizeOrderPhoneInput(phone), [phone]);
 
   const handleCreateOrder = async () => {
     if (loading) {
@@ -107,7 +375,10 @@ export default function OrderDetailsScreen() {
     }
 
     if (!packageId.trim()) {
-      Alert.alert("Ошибка", "Не выбран пакет. Вернись назад и выбери тариф заново.");
+      Alert.alert(
+        "Ошибка",
+        "Не выбран пакет. Вернись назад и выбери тариф заново."
+      );
       return;
     }
 
@@ -124,13 +395,13 @@ export default function OrderDetailsScreen() {
         entrance: "",
         comment: comment.trim(),
         leave_at_door: false,
-        phone: "",
-        should_call: false,
-        payment_method: "cash",
-        tip: 0,
-        total: resolvedPackagePrice,
+        phone: normalizedPhone,
+        should_call: shouldCall,
+        payment_method: paymentMethod,
+        tip,
+        total: totalPreview,
         courier_id: null,
-        call_required: false,
+        call_required: shouldCall,
       };
 
       const { data, error } = await supabase
@@ -181,7 +452,8 @@ export default function OrderDetailsScreen() {
               <Text style={styles.eyebrow}>Шаг 2 из 2</Text>
               <Text style={styles.title}>Укажи детали заказа</Text>
               <Text style={styles.subtitle}>
-                Заполни адрес и комментарий. После этого заказ сразу создастся и появится в админке.
+                Заполни адрес и комментарий. После этого заказ сразу создастся и
+                появится в админке.
               </Text>
             </View>
 
@@ -199,16 +471,85 @@ export default function OrderDetailsScreen() {
                   </View>
 
                   <View style={styles.priceBadge}>
-                    <Text style={styles.priceBadgeText}>{resolvedPackagePrice} ₽</Text>
+                    <Text style={styles.priceBadgeText}>
+                      {resolvedPackagePrice} ₽
+                    </Text>
                   </View>
                 </View>
               </AppCard>
             </ScreenSection>
 
             <ScreenSection
-              title="Адрес"
-              subtitle="Куда должен приехать курьер"
+              title="Автоподстановка"
+              subtitle="Используем сохранённые данные, чтобы ускорить оформление"
             >
+              <AppCard>
+                {isPrefillLoading ? (
+                  <View style={styles.prefillLoadingRow}>
+                    <ActivityIndicator size="small" color={colors.primary} />
+                    <Text style={styles.prefillLoadingText}>
+                      Подтягиваем профиль, адрес и оплату...
+                    </Text>
+                  </View>
+                ) : hasAnyPrefill ? (
+                  <View style={styles.prefillList}>
+                    {prefill.profileName ? (
+                      <View style={styles.prefillRow}>
+                        <Text style={styles.prefillLabel}>Профиль</Text>
+                        <Text style={styles.prefillValue}>
+                          {prefill.profileName}
+                        </Text>
+                      </View>
+                    ) : null}
+
+                    {prefill.phone ? (
+                      <View style={styles.prefillRow}>
+                        <Text style={styles.prefillLabel}>Телефон</Text>
+                        <Text style={styles.prefillValue}>
+                          {getMaskedPhone(prefill.phone)}
+                        </Text>
+                      </View>
+                    ) : null}
+
+                    {prefill.address ? (
+                      <View style={styles.prefillRow}>
+                        <Text style={styles.prefillLabel}>Адрес</Text>
+                        <Text style={styles.prefillValue}>{prefill.address}</Text>
+                      </View>
+                    ) : null}
+
+                    <View style={styles.prefillRow}>
+                      <Text style={styles.prefillLabel}>Оплата</Text>
+                      <Text style={styles.prefillValue}>
+                        {prefill.paymentMethod === "card" ? "Карта" : "Наличные"}
+                      </Text>
+                    </View>
+
+                    <View style={styles.prefillRow}>
+                      <Text style={styles.prefillLabel}>Чаевые</Text>
+                      <Text style={styles.prefillValue}>{prefill.tip} ₽</Text>
+                    </View>
+
+                    <View style={styles.prefillRow}>
+                      <Text style={styles.prefillLabel}>Звонок курьера</Text>
+                      <Text style={styles.prefillValue}>
+                        {prefill.shouldCall ? "Разрешён" : "Не обязателен"}
+                      </Text>
+                    </View>
+                  </View>
+                ) : (
+                  <Text style={styles.prefillEmptyText}>
+                    Сохранённых данных пока нет. Заказ можно оформить вручную.
+                  </Text>
+                )}
+
+                {prefillError ? (
+                  <Text style={styles.prefillErrorText}>{prefillError}</Text>
+                ) : null}
+              </AppCard>
+            </ScreenSection>
+
+            <ScreenSection title="Адрес" subtitle="Куда должен приехать курьер">
               <AppCard>
                 <View style={styles.formGroup}>
                   <Text style={styles.label}>Адрес</Text>
@@ -220,6 +561,91 @@ export default function OrderDetailsScreen() {
                     onChangeText={setAddress}
                     autoCapitalize="sentences"
                   />
+                </View>
+              </AppCard>
+            </ScreenSection>
+
+            <ScreenSection
+              title="Контакты"
+              subtitle="Можно быстро уточнить номер и необходимость звонка для этого заказа"
+            >
+              <AppCard>
+                <View style={styles.formGroup}>
+                  <Text style={styles.label}>Телефон для связи</Text>
+                  <TextInput
+                    style={styles.input}
+                    placeholder="+7 999 123-45-67"
+                    placeholderTextColor={colors.textMuted}
+                    value={phone}
+                    onChangeText={setPhone}
+                    keyboardType="phone-pad"
+                  />
+                  <Text style={styles.helperText}>
+                    В заказ уйдёт: {normalizedPhone ? formatPhonePreview(normalizedPhone) : "номер не указан"}
+                  </Text>
+                </View>
+
+                <View style={styles.contactDivider} />
+
+                <View style={styles.switchRow}>
+                  <View style={styles.switchCopy}>
+                    <Text style={styles.switchTitle}>Нужен звонок курьера</Text>
+                    <Text style={styles.switchSubtitle}>
+                      Включи, если курьеру лучше позвонить перед выносом мусора.
+                    </Text>
+                  </View>
+
+                  <Switch
+                    value={shouldCall}
+                    onValueChange={setShouldCall}
+                    disabled={loading}
+                  />
+                </View>
+              </AppCard>
+            </ScreenSection>
+
+            <ScreenSection
+              title="Оплата"
+              subtitle="Можно быстро скорректировать метод и чаевые перед заказом"
+            >
+              <AppCard>
+                <Text style={styles.label}>Метод оплаты</Text>
+                <View style={styles.optionGroup}>
+                  <ChoiceButton
+                    title="Карта"
+                    isSelected={paymentMethod === "card"}
+                    onPress={() => setPaymentMethod("card")}
+                    disabled={loading}
+                  />
+                  <ChoiceButton
+                    title="Наличные"
+                    isSelected={paymentMethod === "cash"}
+                    onPress={() => setPaymentMethod("cash")}
+                    disabled={loading}
+                  />
+                </View>
+
+                <View style={styles.paymentDivider} />
+
+                <Text style={styles.label}>Чаевые</Text>
+                <View style={styles.optionGroup}>
+                  {TIP_PRESETS.map((value) => (
+                    <ChoiceButton
+                      key={value}
+                      title={value === 0 ? "Без чаевых" : `${value} ₽`}
+                      isSelected={tip === value}
+                      onPress={() => setTip(value)}
+                      disabled={loading}
+                    />
+                  ))}
+                </View>
+
+                <View style={styles.paymentSummaryBox}>
+                  <InfoRow label="Метод оплаты" value={displayPaymentMethod} />
+                  <View style={styles.summaryDivider} />
+                  <InfoRow label="Чаевые" value={`${tip} ₽`} />
+                  <View style={styles.summaryDivider} />
+                  <InfoRow label="Итого" value={`${totalPreview} ₽`} strong />
                 </View>
               </AppCard>
             </ScreenSection>
@@ -270,7 +696,8 @@ export default function OrderDetailsScreen() {
                   <View style={styles.stepContent}>
                     <Text style={styles.stepTitle}>Он появится в админке</Text>
                     <Text style={styles.stepText}>
-                      После создания заказ должен сразу отображаться в панели управления.
+                      После создания заказ должен сразу отображаться в панели
+                      управления.
                     </Text>
                   </View>
                 </View>
@@ -288,6 +715,49 @@ export default function OrderDetailsScreen() {
         </KeyboardAvoidingView>
       </SafeAreaView>
     </>
+  );
+}
+
+type ChoiceButtonProps = {
+  title: string;
+  isSelected: boolean;
+  onPress: () => void;
+  disabled?: boolean;
+};
+
+function ChoiceButton({
+  title,
+  isSelected,
+  onPress,
+  disabled = false,
+}: ChoiceButtonProps) {
+  return (
+    <AppButton
+      title={title}
+      onPress={onPress}
+      variant={isSelected ? "primary" : "secondary"}
+      disabled={disabled}
+      fullWidth
+    />
+  );
+}
+
+type InfoRowProps = {
+  label: string;
+  value: string;
+  strong?: boolean;
+};
+
+function InfoRow({ label, value, strong = false }: InfoRowProps) {
+  return (
+    <View style={styles.infoRow}>
+      <Text style={[styles.infoLabel, strong ? styles.infoLabelStrong : undefined]}>
+        {label}
+      </Text>
+      <Text style={[styles.infoValue, strong ? styles.infoValueStrong : undefined]}>
+        {value}
+      </Text>
+    </View>
   );
 }
 
@@ -361,6 +831,44 @@ const styles = StyleSheet.create({
     fontWeight: "800",
     color: colors.primary,
   },
+  prefillLoadingRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.sm,
+  },
+  prefillLoadingText: {
+    fontSize: typography.body,
+    color: colors.textMuted,
+  },
+  prefillList: {
+    gap: spacing.sm,
+  },
+  prefillRow: {
+    gap: 4,
+  },
+  prefillLabel: {
+    fontSize: typography.caption,
+    fontWeight: "700",
+    color: colors.textMuted,
+    textTransform: "uppercase",
+    letterSpacing: 0.4,
+  },
+  prefillValue: {
+    fontSize: typography.body,
+    lineHeight: 21,
+    color: colors.text,
+  },
+  prefillEmptyText: {
+    fontSize: typography.body,
+    lineHeight: 21,
+    color: colors.textMuted,
+  },
+  prefillErrorText: {
+    marginTop: spacing.sm,
+    fontSize: typography.body,
+    lineHeight: 21,
+    color: "#ef4444",
+  },
   formGroup: {
     marginBottom: spacing.xs,
   },
@@ -372,6 +880,11 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     color: colors.text,
     marginBottom: spacing.sm,
+  },
+  helperText: {
+    marginTop: spacing.sm,
+    fontSize: typography.caption,
+    color: colors.textMuted,
   },
   input: {
     minHeight: 52,
@@ -386,6 +899,74 @@ const styles = StyleSheet.create({
   },
   textarea: {
     minHeight: 120,
+  },
+  contactDivider: {
+    height: 1,
+    backgroundColor: colors.border,
+    marginVertical: spacing.md,
+  },
+  switchRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: spacing.md,
+  },
+  switchCopy: {
+    flex: 1,
+    paddingRight: spacing.sm,
+  },
+  switchTitle: {
+    fontSize: typography.body,
+    fontWeight: "700",
+    color: colors.text,
+    marginBottom: 4,
+  },
+  switchSubtitle: {
+    fontSize: typography.body,
+    lineHeight: 21,
+    color: colors.textMuted,
+  },
+  optionGroup: {
+    gap: spacing.sm,
+  },
+  paymentDivider: {
+    height: 1,
+    backgroundColor: colors.border,
+    marginVertical: spacing.md,
+  },
+  paymentSummaryBox: {
+    marginTop: spacing.md,
+    borderRadius: radii.lg,
+    backgroundColor: colors.surfaceSecondary,
+    padding: spacing.md,
+  },
+  infoRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: spacing.md,
+  },
+  infoLabel: {
+    fontSize: typography.body,
+    color: colors.textMuted,
+  },
+  infoLabelStrong: {
+    fontWeight: "700",
+    color: colors.text,
+  },
+  infoValue: {
+    fontSize: typography.body,
+    fontWeight: "700",
+    color: colors.text,
+  },
+  infoValueStrong: {
+    fontSize: typography.h3,
+    fontWeight: "800",
+  },
+  summaryDivider: {
+    height: 1,
+    backgroundColor: colors.border,
+    marginVertical: spacing.md,
   },
   stepRow: {
     flexDirection: "row",

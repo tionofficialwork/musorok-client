@@ -38,13 +38,8 @@ export default function PaymentsScreen() {
   const loadPreferences = useCallback(async () => {
     setErrorText(null);
 
-    try {
-      const data = await getPaymentPreferences();
-      setPreferences(data);
-    } catch (error) {
-      console.error("Failed to load payment preferences", error);
-      setErrorText("Не удалось загрузить настройки оплаты.");
-    }
+    const data = await getPaymentPreferences();
+    setPreferences(data);
   }, []);
 
   useEffect(() => {
@@ -52,6 +47,7 @@ export default function PaymentsScreen() {
 
     const bootstrap = async () => {
       try {
+        setIsLoading(true);
         const data = await getPaymentPreferences();
 
         if (!isMounted) {
@@ -59,6 +55,7 @@ export default function PaymentsScreen() {
         }
 
         setPreferences(data);
+        setErrorText(null);
       } catch (error) {
         console.error("Failed to bootstrap payment preferences", error);
 
@@ -84,6 +81,9 @@ export default function PaymentsScreen() {
 
     try {
       await loadPreferences();
+    } catch (error) {
+      console.error("Failed to refresh payment preferences", error);
+      setErrorText("Не удалось загрузить настройки оплаты.");
     } finally {
       setIsRefreshing(false);
     }

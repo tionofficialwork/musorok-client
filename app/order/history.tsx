@@ -13,6 +13,11 @@ import AppButton from "../../components/ui/AppButton";
 import AppCard from "../../components/ui/AppCard";
 import ScreenSection from "../../components/ui/ScreenSection";
 import StatusPill from "../../components/ui/StatusPill";
+import {
+  INACTIVE_ORDER_STATUSES,
+  getOrderStatusLabel,
+  getOrderStatusTone,
+} from "../../lib/orderStatus";
 import { supabase } from "../../lib/supabase";
 import { colors, radii, spacing, typography } from "../../lib/theme";
 
@@ -37,8 +42,6 @@ type OrderHistoryRow = {
   call_required: boolean | null;
 };
 
-const HISTORY_STATUSES = ["completed", "cancelled"];
-
 export default function OrderHistoryScreen() {
   const router = useRouter();
 
@@ -62,7 +65,7 @@ export default function OrderHistoryScreen() {
         .select(
           "id, created_at, status, address, package_id, package_label, package_price, apartment, entrance, comment, leave_at_door, phone, should_call, payment_method, tip, total, courier_id, call_required"
         )
-        .in("status", HISTORY_STATUSES)
+        .in("status", [...INACTIVE_ORDER_STATUSES])
         .order("created_at", { ascending: false });
 
       if (error) {
@@ -209,8 +212,8 @@ export default function OrderHistoryScreen() {
                               </View>
 
                               <StatusPill
-                                label={getStatusLabel(order.status)}
-                                tone={getStatusTone(order.status)}
+                                label={getOrderStatusLabel(order.status)}
+                                tone={getOrderStatusTone(order.status)}
                               />
                             </View>
 
@@ -305,28 +308,6 @@ function InfoRow({ label, value, rightAligned = false }: InfoRowProps) {
 
 function Divider() {
   return <View style={styles.divider} />;
-}
-
-function getStatusLabel(status: string | null) {
-  switch (status) {
-    case "completed":
-      return "Завершён";
-    case "cancelled":
-      return "Отменён";
-    default:
-      return "Неизвестно";
-  }
-}
-
-function getStatusTone(status: string | null): "warning" | "success" | "default" {
-  switch (status) {
-    case "completed":
-      return "success";
-    case "cancelled":
-      return "warning";
-    default:
-      return "default";
-  }
 }
 
 function formatDateGroup(value: string | null) {

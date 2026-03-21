@@ -21,6 +21,11 @@ import {
   syncActiveOrder,
   type StoredActiveOrder,
 } from "../lib/activeOrder";
+import {
+  ACTIVE_ORDER_STATUSES,
+  getOrderStatusLabel,
+  getOrderStatusTone,
+} from "../lib/orderStatus";
 import { supabase } from "../lib/supabase";
 import { colors, radii, spacing, typography } from "../lib/theme";
 
@@ -44,14 +49,6 @@ type OrderRow = {
   courier_id: string | null;
   call_required: boolean | null;
 };
-
-const ACTIVE_STATUSES = [
-  "pending",
-  "assigned",
-  "accepted",
-  "in_progress",
-  "on_the_way",
-];
 
 export default function HomeScreen() {
   const router = useRouter();
@@ -89,7 +86,7 @@ export default function HomeScreen() {
           .select(
             "id, created_at, status, address, package_id, package_label, package_price, apartment, entrance, comment, leave_at_door, phone, should_call, payment_method, tip, total, courier_id, call_required"
           )
-          .in("status", ACTIVE_STATUSES)
+          .in("status", [...ACTIVE_ORDER_STATUSES])
           .order("created_at", { ascending: false })
           .limit(1);
 
@@ -155,12 +152,12 @@ export default function HomeScreen() {
   };
 
   const activeOrderStatusLabel = useMemo(
-    () => getStatusLabel(activeOrder?.status ?? null),
+    () => getOrderStatusLabel(activeOrder?.status ?? null),
     [activeOrder?.status]
   );
 
   const activeOrderStatusTone = useMemo(
-    () => getStatusTone(activeOrder?.status ?? null),
+    () => getOrderStatusTone(activeOrder?.status ?? null),
     [activeOrder?.status]
   );
 
@@ -402,37 +399,6 @@ function mapStoredOrderToOrderRow(order: StoredActiveOrder): OrderRow | null {
     courier_id: order.courier_id ?? null,
     call_required: order.call_required ?? null,
   };
-}
-
-function getStatusLabel(status: string | null) {
-  switch (status) {
-    case "pending":
-      return "В поиске курьера";
-    case "assigned":
-      return "Курьер назначен";
-    case "accepted":
-      return "Заказ принят";
-    case "in_progress":
-      return "Выполняется";
-    case "on_the_way":
-      return "Курьер в пути";
-    default:
-      return "Активен";
-  }
-}
-
-function getStatusTone(status: string | null): "warning" | "success" | "default" {
-  switch (status) {
-    case "pending":
-      return "warning";
-    case "assigned":
-    case "accepted":
-    case "in_progress":
-    case "on_the_way":
-      return "success";
-    default:
-      return "default";
-  }
 }
 
 function formatCreatedAt(value: string | null) {

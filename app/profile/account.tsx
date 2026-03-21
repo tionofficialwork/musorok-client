@@ -16,6 +16,7 @@ import {
 import { Stack, useRouter } from "expo-router";
 import { supabase } from "../../lib/supabase";
 import { getProfileOwnerKey } from "../../lib/profileIdentity";
+import { clearAuthSession } from "../../lib/auth";
 
 export default function ProfileAccountScreen() {
   const router = useRouter();
@@ -27,11 +28,14 @@ export default function ProfileAccountScreen() {
 
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
+  const [isSigningOut, setIsSigningOut] = useState(false);
   const [errorText, setErrorText] = useState<string | null>(null);
 
   const isFormValid = useMemo(() => {
     return firstName.trim().length >= 2 && phone.trim().length >= 6;
   }, [firstName, phone]);
+
+  const isBusy = isSaving || isSigningOut;
 
   const loadProfile = useCallback(async () => {
     try {
@@ -73,7 +77,7 @@ export default function ProfileAccountScreen() {
   }, [loadProfile]);
 
   const handleSave = async () => {
-    if (!isFormValid || isSaving) {
+    if (!isFormValid || isBusy) {
       return;
     }
 
@@ -113,6 +117,45 @@ export default function ProfileAccountScreen() {
       setIsSaving(false);
     }
   };
+
+  const handleSignOut = useCallback(() => {
+    if (isBusy) {
+      return;
+    }
+
+    Alert.alert(
+      "Выйти из аккаунта?",
+      "Текущая сессия будет завершена, и приложение вернёт тебя на экран входа.",
+      [
+        {
+          text: "Отмена",
+          style: "cancel",
+        },
+        {
+          text: "Выйти",
+          style: "destructive",
+          onPress: async () => {
+            try {
+              setIsSigningOut(true);
+              setErrorText(null);
+
+              await clearAuthSession();
+              router.replace("/auth/phone");
+            } catch (error: any) {
+              const message =
+                typeof error?.message === "string"
+                  ? error.message
+                  : "Не удалось выйти из аккаунта.";
+
+              Alert.alert("Ошибка", message);
+            } finally {
+              setIsSigningOut(false);
+            }
+          },
+        },
+      ]
+    );
+  }, [isBusy, router]);
 
   return (
     <SafeAreaView style={styles.safeArea}>
@@ -169,6 +212,7 @@ export default function ProfileAccountScreen() {
                     placeholder="Например: Артём"
                     placeholderTextColor="#98A2B3"
                     style={styles.input}
+                    editable={!isBusy}
                   />
                 </View>
 
@@ -180,6 +224,7 @@ export default function ProfileAccountScreen() {
                     placeholder="Например: Иванов"
                     placeholderTextColor="#98A2B3"
                     style={styles.input}
+                    editable={!isBusy}
                   />
                 </View>
 
@@ -192,6 +237,7 @@ export default function ProfileAccountScreen() {
                     placeholderTextColor="#98A2B3"
                     style={styles.input}
                     keyboardType="phone-pad"
+                    editable={!isBusy}
                   />
                 </View>
               </View>
@@ -210,21 +256,44 @@ export default function ProfileAccountScreen() {
                     onValueChange={setCallAllowed}
                     trackColor={{ false: "#D0D5DD", true: "#F8B4AE" }}
                     thumbColor={callAllowed ? "#E9281D" : "#FFFFFF"}
+                    disabled={isBusy}
                   />
                 </View>
+              </View>
+
+              <View style={styles.sectionCard}>
+                <Text style={styles.sectionTitle}>Сессия</Text>
+                <Text style={styles.sessionText}>
+                  Можно безопасно завершить текущую сессию и снова пройти вход.
+                  Это полезно для проверки auth flow во время разработки.
+                </Text>
+
+                <Pressable
+                  onPress={handleSignOut}
+                  disabled={isBusy}
+                  style={({ pressed }) => [
+                    styles.dangerButton,
+                    isBusy && styles.dangerButtonDisabled,
+                    pressed && !isBusy && styles.dangerButtonPressed,
+                  ]}
+                >
+                  <Text style={styles.dangerButtonText}>
+                    {isSigningOut ? "Выходим..." : "Выйти из аккаунта"}
+                  </Text>
+                </Pressable>
               </View>
             </ScrollView>
 
             <View style={styles.bottomBar}>
               <Pressable
                 onPress={handleSave}
-                disabled={!isFormValid || isSaving}
+                disabled={!isFormValid || isBusy}
                 style={({ pressed }) => [
                   styles.primaryButton,
-                  (!isFormValid || isSaving) && styles.primaryButtonDisabled,
+                  (!isFormValid || isBusy) && styles.primaryButtonDisabled,
                   pressed &&
                     isFormValid &&
-                    !isSaving &&
+                    !isBusy &&
                     styles.primaryButtonPressed,
                 ]}
               >
@@ -235,11 +304,11 @@ export default function ProfileAccountScreen() {
 
               <Pressable
                 onPress={() => router.back()}
-                disabled={isSaving}
+                disabled={isBusy}
                 style={({ pressed }) => [
                   styles.secondaryButton,
-                  isSaving && styles.secondaryButtonDisabled,
-                  pressed && !isSaving && styles.secondaryButtonPressed,
+                  isBusy && styles.secondaryButtonDisabled,
+                  pressed && !isBusy && styles.secondaryButtonPressed,
                 ]}
               >
                 <Text style={styles.secondaryButtonText}>Назад</Text>
@@ -262,6 +331,7 @@ const colors = {
   primarySoft: "#FFF1F0",
   dangerSoft: "#FFF4F4",
   dangerText: "#B42318",
+  danger: "#D92D20",
 };
 
 const styles = StyleSheet.create({
@@ -275,7 +345,7 @@ const styles = StyleSheet.create({
   },
   content: {
     padding: 16,
-    paddingBottom: 160,
+    paddingBottom: 220,
   },
   centerState: {
     flex: 1,
@@ -396,6 +466,33 @@ const styles = StyleSheet.create({
     fontSize: 13,
     lineHeight: 18,
     color: colors.textSecondary,
+  },
+  sessionText: {
+    fontSize: 14,
+    lineHeight: 21,
+    color: colors.textSecondary,
+    marginBottom: 14,
+  },
+  dangerButton: {
+    minHeight: 52,
+    borderRadius: 18,
+    backgroundColor: colors.dangerSoft,
+    borderWidth: 1,
+    borderColor: "#FDC9C5",
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 16,
+  },
+  dangerButtonDisabled: {
+    opacity: 0.55,
+  },
+  dangerButtonPressed: {
+    opacity: 0.92,
+  },
+  dangerButtonText: {
+    fontSize: 15,
+    fontWeight: "800",
+    color: colors.danger,
   },
   bottomBar: {
     position: "absolute",

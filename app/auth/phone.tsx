@@ -17,6 +17,8 @@ import { colors, radii, spacing, typography } from "../../lib/theme";
 import {
   formatPhoneForDisplay,
   getAuthSession,
+  getDevOtpCode,
+  isDevPhoneAuthBypassEnabled,
   isValidRussianPhone,
   normalizePhoneInput,
   requestOtpCode,
@@ -32,6 +34,7 @@ export default function AuthPhoneScreen() {
 
   const normalizedPhone = useMemo(() => normalizePhoneInput(phone), [phone]);
   const canContinue = isValidRussianPhone(normalizedPhone);
+  const isDevBypassEnabled = isDevPhoneAuthBypassEnabled();
 
   useEffect(() => {
     let isMounted = true;
@@ -114,10 +117,14 @@ export default function AuthPhoneScreen() {
           keyboardShouldPersistTaps="handled"
         >
           <View style={styles.hero}>
-            <Text style={styles.badge}>Auth foundation</Text>
+            <Text style={styles.badge}>
+              {isDevBypassEnabled ? "Dev auth mode" : "Auth foundation"}
+            </Text>
             <Text style={styles.title}>Вход по номеру телефона</Text>
             <Text style={styles.subtitle}>
-              Это безопасная база для будущего реального OTP через Supabase.
+              {isDevBypassEnabled
+                ? "Для разработки SMS не отправляется. После продолжения откроется экран ввода тестового кода."
+                : "Это безопасная база для будущего реального OTP через Supabase."}
             </Text>
           </View>
 
@@ -140,8 +147,19 @@ export default function AuthPhoneScreen() {
               />
 
               <Text style={styles.helperText}>
-                Нормализованный формат: {formatPhoneForDisplay(normalizedPhone || "+7")}
+                Нормализованный формат:{" "}
+                {formatPhoneForDisplay(normalizedPhone || "+7")}
               </Text>
+
+              {isDevBypassEnabled ? (
+                <View style={styles.devHintBox}>
+                  <Text style={styles.devHintTitle}>DEV MODE</Text>
+                  <Text style={styles.devHintText}>
+                    SMS пока не отправляется. На следующем экране используй код{" "}
+                    {getDevOtpCode()}.
+                  </Text>
+                </View>
+              ) : null}
 
               {errorText ? <Text style={styles.errorText}>{errorText}</Text> : null}
             </AppCard>
@@ -154,8 +172,17 @@ export default function AuthPhoneScreen() {
             <AppCard>
               <View style={styles.featureList}>
                 <Text style={styles.featureItem}>• экран ввода OTP уже готов</Text>
-                <Text style={styles.featureItem}>• логика пока mock-safe</Text>
-                <Text style={styles.featureItem}>• дальше подключим реальный Supabase auth</Text>
+                <Text style={styles.featureItem}>
+                  • логика пока mock-safe
+                </Text>
+                <Text style={styles.featureItem}>
+                  • дальше подключим реальный Supabase auth
+                </Text>
+                {isDevBypassEnabled ? (
+                  <Text style={styles.featureItem}>
+                    • для разработки код подтверждения: {getDevOtpCode()}
+                  </Text>
+                ) : null}
               </View>
             </AppCard>
           </ScreenSection>
@@ -254,6 +281,25 @@ const styles = StyleSheet.create({
     marginTop: spacing.sm,
     fontSize: typography.caption,
     color: colors.textMuted,
+  },
+  devHintBox: {
+    marginTop: spacing.md,
+    borderRadius: radii.lg,
+    padding: spacing.md,
+    backgroundColor: colors.primarySoft,
+    gap: spacing.xs,
+  },
+  devHintTitle: {
+    fontSize: typography.caption,
+    fontWeight: "800",
+    color: colors.primary,
+    textTransform: "uppercase",
+    letterSpacing: 0.4,
+  },
+  devHintText: {
+    fontSize: typography.body,
+    lineHeight: 21,
+    color: colors.text,
   },
   errorText: {
     marginTop: spacing.sm,

@@ -14,7 +14,12 @@ import AppButton from "../../components/ui/AppButton";
 import AppCard from "../../components/ui/AppCard";
 import ScreenSection from "../../components/ui/ScreenSection";
 import { colors, radii, spacing, typography } from "../../lib/theme";
-import { formatPhoneForDisplay, verifyOtpCode } from "../../lib/auth";
+import {
+  formatPhoneForDisplay,
+  getDevOtpCode,
+  isDevPhoneAuthBypassEnabled,
+  verifyOtpCode,
+} from "../../lib/auth";
 
 export default function AuthVerifyScreen() {
   const router = useRouter();
@@ -27,6 +32,7 @@ export default function AuthVerifyScreen() {
   const [errorText, setErrorText] = useState<string | null>(null);
 
   const isCodeValid = useMemo(() => /^\d{4,6}$/.test(code.trim()), [code]);
+  const isDevBypassEnabled = isDevPhoneAuthBypassEnabled();
 
   const handleVerify = useCallback(async () => {
     if (isSubmitting) {
@@ -63,7 +69,9 @@ export default function AuthVerifyScreen() {
           keyboardShouldPersistTaps="handled"
         >
           <View style={styles.hero}>
-            <Text style={styles.badge}>OTP shell</Text>
+            <Text style={styles.badge}>
+              {isDevBypassEnabled ? "Dev otp mode" : "OTP shell"}
+            </Text>
             <Text style={styles.title}>Введите код</Text>
             <Text style={styles.subtitle}>
               Код отправлен на номер {formatPhoneForDisplay(phone)}.
@@ -72,7 +80,7 @@ export default function AuthVerifyScreen() {
 
           <ScreenSection
             title="Код подтверждения"
-            description="Для foundation достаточно ввести любой код из 4–6 цифр"
+            description="Для foundation достаточно ввести код из 4–6 цифр"
           >
             <AppCard>
               <Text style={styles.label}>Код</Text>
@@ -90,7 +98,9 @@ export default function AuthVerifyScreen() {
               />
 
               <Text style={styles.helperText}>
-                Сейчас это mock-safe сценарий. На следующем шаге подключим реальную проверку.
+                {isDevBypassEnabled
+                  ? `DEV MODE: используй код ${getDevOtpCode()}.`
+                  : "Сейчас это mock-safe сценарий. На следующем шаге подключим реальную проверку."}
               </Text>
 
               {errorText ? <Text style={styles.errorText}>{errorText}</Text> : null}

@@ -1,5 +1,6 @@
 import { supabase } from "./supabase";
-import * as ProfileOwner from "./profileOwner";
+import { getOwnerKey } from "./profileOwner";
+import { getProfileOwnerKey } from "./profileIdentity";
 
 export type PaymentMethod = "cash" | "card";
 
@@ -31,32 +32,21 @@ export const DEFAULT_PAYMENT_PREFERENCES: PaymentPreferences = {
   updatedAt: null,
 };
 
-async function resolveOwnerKey(): Promise<string> {
-  const candidates = [
-    "getProfileOwnerKey",
-    "ensureProfileOwnerKey",
-    "getOrCreateProfileOwnerKey",
-    "getOwnerKey",
-    "getOrCreateOwnerKey",
-  ];
+type PaymentIdentity = {
+  profileOwnerKey: string;
+  legacyOwnerKey: string;
+};
 
-  const moduleMap = ProfileOwner as Record<string, unknown>;
+async function resolvePaymentIdentity(): Promise<PaymentIdentity> {
+  const [profileOwnerKey, legacyOwnerKey] = await Promise.all([
+    getProfileOwnerKey(),
+    getOwnerKey(),
+  ]);
 
-  for (const candidate of candidates) {
-    const maybeFn = moduleMap[candidate];
-
-    if (typeof maybeFn === "function") {
-      const result = await (maybeFn as () => Promise<string>)();
-
-      if (typeof result === "string" && result.length > 0) {
-        return result;
-      }
-    }
-  }
-
-  throw new Error(
-    "Owner key resolver not found in lib/profileOwner.ts. Expected one of: getProfileOwnerKey / ensureProfileOwnerKey / getOrCreateProfileOwnerKey / getOwnerKey / getOrCreateOwnerKey",
-  );
+  return {
+    profileOwnerKey,
+    legacyOwnerKey,
+  };
 }
 
 function sanitizePreferences(
@@ -125,9 +115,9 @@ function mapRowToPreferences(row: PaymentPreferencesRow): PaymentPreferences {
   });
 }
 
-export async function getPaymentPreferences(): Promise<PaymentPreferences> {
-  const ownerKey = await resolveOwnerKey();
-
+async function getRowByOwnerKey(
+  ownerKey: string,
+): Promise<PaymentPreferencesRow | null> {
   const { data, error } = await supabase
     .from("user_payment_preferences")
     .select(
@@ -140,18 +130,73 @@ export async function getPaymentPreferences(): Promise<PaymentPreferences> {
     throw error;
   }
 
-  if (!data) {
+  return data ?? null;
+}
+
+async function migrateLegacyRowToProfileOwnerKey(
+  legacyRow: PaymentPreferencesRow,
+  profileOwnerKey: string,
+): Promise<PaymentPreferencesRow> {
+  const { data, error } = await supabase
+    .from("user_payment_preferences")
+    .update({
+      owner_key: profileOwnerKey,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("owner_key", legacyRow.owner_key)
+    .select(
+      "owner_key, default_method, allow_cash, allow_card, default_tip, ask_before_changing_method, updated_at",
+    )
+    .single<PaymentPreferencesRow>();
+
+  if (error) {
+    throw error;
+  }
+
+  return data;
+}
+
+async function resolvePaymentRow(): Promise<PaymentPreferencesRow | null> {
+  const { profileOwnerKey, legacyOwnerKey } = await resolvePaymentIdentity();
+
+  const primaryRow = await getRowByOwnerKey(profileOwnerKey);
+
+  if (primaryRow) {
+    return primaryRow;
+  }
+
+  if (!legacyOwnerKey || legacyOwnerKey === profileOwnerKey) {
+    return null;
+  }
+
+  const legacyRow = await getRowByOwnerKey(legacyOwnerKey);
+
+  if (!legacyRow) {
+    return null;
+  }
+
+  return migrateLegacyRowToProfileOwnerKey(legacyRow, profileOwnerKey);
+}
+
+export async function getPaymentPreferences(): Promise<PaymentPreferences> {
+  const row = await resolvePaymentRow();
+
+  if (!row) {
     return DEFAULT_PAYMENT_PREFERENCES;
   }
 
-  return mapRowToPreferences(data);
+  return mapRowToPreferences(row);
 }
 
 export async function savePaymentPreferences(
   patch: Partial<PaymentPreferences>,
 ): Promise<PaymentPreferences> {
-  const ownerKey = await resolveOwnerKey();
-  const current = await getPaymentPreferences();
+  const { profileOwnerKey } = await resolvePaymentIdentity();
+  const existingRow = await resolvePaymentRow();
+
+  const current = existingRow
+    ? mapRowToPreferences(existingRow)
+    : DEFAULT_PAYMENT_PREFERENCES;
 
   const next = sanitizePreferences({
     ...current,
@@ -160,7 +205,7 @@ export async function savePaymentPreferences(
   });
 
   const payload: PaymentPreferencesRow = {
-    owner_key: ownerKey,
+    owner_key: profileOwnerKey,
     default_method: next.defaultMethod,
     allow_cash: next.allowCash,
     allow_card: next.allowCard,
@@ -168,6 +213,19 @@ export async function savePaymentPreferences(
     ask_before_changing_method: next.askBeforeChangingMethod,
     updated_at: next.updatedAt,
   };
+
+  if (existingRow) {
+    const { error } = await supabase
+      .from("user_payment_preferences")
+      .update(payload)
+      .eq("owner_key", existingRow.owner_key);
+
+    if (error) {
+      throw error;
+    }
+
+    return next;
+  }
 
   const { error } = await supabase
     .from("user_payment_preferences")

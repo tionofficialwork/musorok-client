@@ -1,5 +1,6 @@
 import { supabase } from "./supabase";
-import * as ProfileOwner from "./profileOwner";
+import { getOwnerKey } from "./profileOwner";
+import { getProfileOwnerKey } from "./profileIdentity";
 
 export type NotificationPreferences = {
   orderUpdatesEnabled: boolean;
@@ -35,32 +36,21 @@ export const DEFAULT_NOTIFICATION_PREFERENCES: NotificationPreferences = {
   updatedAt: null,
 };
 
-async function resolveOwnerKey(): Promise<string> {
-  const candidates = [
-    "getProfileOwnerKey",
-    "ensureProfileOwnerKey",
-    "getOrCreateProfileOwnerKey",
-    "getOwnerKey",
-    "getOrCreateOwnerKey",
-  ];
+type NotificationIdentity = {
+  profileOwnerKey: string;
+  legacyOwnerKey: string;
+};
 
-  const moduleMap = ProfileOwner as Record<string, unknown>;
+async function resolveNotificationIdentity(): Promise<NotificationIdentity> {
+  const [profileOwnerKey, legacyOwnerKey] = await Promise.all([
+    getProfileOwnerKey(),
+    getOwnerKey(),
+  ]);
 
-  for (const candidate of candidates) {
-    const maybeFn = moduleMap[candidate];
-
-    if (typeof maybeFn === "function") {
-      const result = await (maybeFn as () => Promise<string>)();
-
-      if (typeof result === "string" && result.length > 0) {
-        return result;
-      }
-    }
-  }
-
-  throw new Error(
-    "Owner key resolver not found in lib/profileOwner.ts. Expected one of: getProfileOwnerKey / ensureProfileOwnerKey / getOrCreateProfileOwnerKey / getOwnerKey / getOrCreateOwnerKey",
-  );
+  return {
+    profileOwnerKey,
+    legacyOwnerKey,
+  };
 }
 
 function isValidTimeValue(value: unknown): value is string {
@@ -119,9 +109,9 @@ function mapRowToPreferences(
   });
 }
 
-export async function getNotificationPreferences(): Promise<NotificationPreferences> {
-  const ownerKey = await resolveOwnerKey();
-
+async function getRowByOwnerKey(
+  ownerKey: string,
+): Promise<NotificationPreferencesRow | null> {
   const { data, error } = await supabase
     .from("user_notification_preferences")
     .select(
@@ -134,18 +124,73 @@ export async function getNotificationPreferences(): Promise<NotificationPreferen
     throw error;
   }
 
-  if (!data) {
+  return data ?? null;
+}
+
+async function migrateLegacyRowToProfileOwnerKey(
+  legacyRow: NotificationPreferencesRow,
+  profileOwnerKey: string,
+): Promise<NotificationPreferencesRow> {
+  const { data, error } = await supabase
+    .from("user_notification_preferences")
+    .update({
+      owner_key: profileOwnerKey,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("owner_key", legacyRow.owner_key)
+    .select(
+      "owner_key, order_updates_enabled, promotions_enabled, reminders_enabled, system_enabled, quiet_hours_enabled, quiet_hours_start, quiet_hours_end, updated_at",
+    )
+    .single<NotificationPreferencesRow>();
+
+  if (error) {
+    throw error;
+  }
+
+  return data;
+}
+
+async function resolveNotificationRow(): Promise<NotificationPreferencesRow | null> {
+  const { profileOwnerKey, legacyOwnerKey } = await resolveNotificationIdentity();
+
+  const primaryRow = await getRowByOwnerKey(profileOwnerKey);
+
+  if (primaryRow) {
+    return primaryRow;
+  }
+
+  if (!legacyOwnerKey || legacyOwnerKey === profileOwnerKey) {
+    return null;
+  }
+
+  const legacyRow = await getRowByOwnerKey(legacyOwnerKey);
+
+  if (!legacyRow) {
+    return null;
+  }
+
+  return migrateLegacyRowToProfileOwnerKey(legacyRow, profileOwnerKey);
+}
+
+export async function getNotificationPreferences(): Promise<NotificationPreferences> {
+  const row = await resolveNotificationRow();
+
+  if (!row) {
     return DEFAULT_NOTIFICATION_PREFERENCES;
   }
 
-  return mapRowToPreferences(data);
+  return mapRowToPreferences(row);
 }
 
 export async function saveNotificationPreferences(
   patch: Partial<NotificationPreferences>,
 ): Promise<NotificationPreferences> {
-  const ownerKey = await resolveOwnerKey();
-  const current = await getNotificationPreferences();
+  const { profileOwnerKey } = await resolveNotificationIdentity();
+  const existingRow = await resolveNotificationRow();
+
+  const current = existingRow
+    ? mapRowToPreferences(existingRow)
+    : DEFAULT_NOTIFICATION_PREFERENCES;
 
   const next = sanitizeNotificationPreferences({
     ...current,
@@ -154,7 +199,7 @@ export async function saveNotificationPreferences(
   });
 
   const payload: NotificationPreferencesRow = {
-    owner_key: ownerKey,
+    owner_key: profileOwnerKey,
     order_updates_enabled: next.orderUpdatesEnabled,
     promotions_enabled: next.promotionsEnabled,
     reminders_enabled: next.remindersEnabled,
@@ -164,6 +209,19 @@ export async function saveNotificationPreferences(
     quiet_hours_end: next.quietHoursEnd,
     updated_at: next.updatedAt,
   };
+
+  if (existingRow) {
+    const { error } = await supabase
+      .from("user_notification_preferences")
+      .update(payload)
+      .eq("owner_key", existingRow.owner_key);
+
+    if (error) {
+      throw error;
+    }
+
+    return next;
+  }
 
   const { error } = await supabase
     .from("user_notification_preferences")

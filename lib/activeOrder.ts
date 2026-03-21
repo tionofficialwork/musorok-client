@@ -1,21 +1,24 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import {
+  ACTIVE_ORDER_STATUSES,
+  INACTIVE_ORDER_STATUSES,
+  isActiveOrderStatus,
+  isInactiveOrderStatus,
+  type ActiveOrderStatus,
+  type InactiveOrderStatus,
+  type KnownOrderStatus,
+} from "./orderStatus";
 
 const ACTIVE_ORDER_STORAGE_KEY = "musorok_active_order";
 
-export const ACTIVE_ORDER_STATUSES = [
-  "new",
-  "pending",
-  "assigned",
-  "accepted",
-  "in_progress",
-  "on_the_way",
-] as const;
+export {
+  ACTIVE_ORDER_STATUSES,
+  INACTIVE_ORDER_STATUSES,
+  isActiveOrderStatus,
+  isInactiveOrderStatus,
+};
 
-export const INACTIVE_ORDER_STATUSES = ["completed", "cancelled"] as const;
-
-export type ActiveOrderStatus = (typeof ACTIVE_ORDER_STATUSES)[number];
-export type InactiveOrderStatus = (typeof INACTIVE_ORDER_STATUSES)[number];
-export type KnownOrderStatus = ActiveOrderStatus | InactiveOrderStatus;
+export type { ActiveOrderStatus, InactiveOrderStatus, KnownOrderStatus };
 
 export type StoredActiveOrder = {
   id: string | number;
@@ -79,18 +82,6 @@ function normalizeOrder(input: unknown): StoredActiveOrder | null {
     call_required:
       typeof raw.call_required === "boolean" ? raw.call_required : null,
   };
-}
-
-export function isActiveOrderStatus(
-  status: string | null | undefined
-): status is ActiveOrderStatus {
-  return ACTIVE_ORDER_STATUSES.includes(status as ActiveOrderStatus);
-}
-
-export function isInactiveOrderStatus(
-  status: string | null | undefined
-): status is InactiveOrderStatus {
-  return INACTIVE_ORDER_STATUSES.includes(status as InactiveOrderStatus);
 }
 
 export function shouldPersistAsActiveOrder(

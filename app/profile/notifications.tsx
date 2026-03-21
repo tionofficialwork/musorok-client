@@ -37,13 +37,8 @@ export default function NotificationsScreen() {
   const loadPreferences = useCallback(async () => {
     setErrorText(null);
 
-    try {
-      const data = await getNotificationPreferences();
-      setPreferences(data);
-    } catch (error) {
-      console.error("Failed to load notification preferences", error);
-      setErrorText("Не удалось загрузить настройки уведомлений.");
-    }
+    const data = await getNotificationPreferences();
+    setPreferences(data);
   }, []);
 
   useEffect(() => {
@@ -51,6 +46,7 @@ export default function NotificationsScreen() {
 
     const bootstrap = async () => {
       try {
+        setIsLoading(true);
         const data = await getNotificationPreferences();
 
         if (!isMounted) {
@@ -58,6 +54,7 @@ export default function NotificationsScreen() {
         }
 
         setPreferences(data);
+        setErrorText(null);
       } catch (error) {
         console.error("Failed to bootstrap notification preferences", error);
 
@@ -83,6 +80,9 @@ export default function NotificationsScreen() {
 
     try {
       await loadPreferences();
+    } catch (error) {
+      console.error("Failed to refresh notification preferences", error);
+      setErrorText("Не удалось загрузить настройки уведомлений.");
     } finally {
       setIsRefreshing(false);
     }
