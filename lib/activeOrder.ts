@@ -39,6 +39,7 @@ export type StoredActiveOrder = {
   total?: number | null;
   courier_id?: string | null;
   call_required?: boolean | null;
+  owner_key?: string | null;
 };
 
 function normalizeOrder(input: unknown): StoredActiveOrder | null {
@@ -81,6 +82,7 @@ function normalizeOrder(input: unknown): StoredActiveOrder | null {
     courier_id: typeof raw.courier_id === "string" ? raw.courier_id : null,
     call_required:
       typeof raw.call_required === "boolean" ? raw.call_required : null,
+    owner_key: typeof raw.owner_key === "string" ? raw.owner_key : null,
   };
 }
 

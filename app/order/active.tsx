@@ -1,6 +1,7 @@
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
+  Alert,
   RefreshControl,
   SafeAreaView,
   ScrollView,
@@ -8,6 +9,7 @@ import {
   Text,
   View,
 } from "react-native";
+import { RealtimeChannel } from "@supabase/supabase-js";
 import { Stack, useFocusEffect, useRouter } from "expo-router";
 import AppButton from "../../components/ui/AppButton";
 import AppCard from "../../components/ui/AppCard";
@@ -21,6 +23,7 @@ import {
   syncActiveOrder,
   type StoredActiveOrder,
 } from "../../lib/activeOrder";
+import { getOwnerKey } from "../../lib/profileOwner";
 import {
   ACTIVE_ORDER_STATUSES,
   getActiveOrderStatusDescription,
@@ -50,10 +53,13 @@ type OrderRow = {
   total: number | null;
   courier_id: string | null;
   call_required: boolean | null;
+  owner_key: string | null;
 };
 
 export default function ActiveOrderScreen() {
   const router = useRouter();
+  const realtimeChannelRef = useRef<RealtimeChannel | null>(null);
+  const hasHandledTerminalRef = useRef(false);
 
   const [order, setOrder] = useState<OrderRow | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -83,11 +89,14 @@ export default function ActiveOrderScreen() {
 
         setErrorText(null);
 
+        const ownerKey = await getOwnerKey();
+
         const { data, error } = await supabase
           .from("orders")
           .select(
-            "id, created_at, status, address, package_id, package_label, package_price, apartment, entrance, comment, leave_at_door, phone, should_call, payment_method, tip, total, courier_id, call_required"
+            "id, created_at, status, address, package_id, package_label, package_price, apartment, entrance, comment, leave_at_door, phone, should_call, payment_method, tip, total, courier_id, call_required, owner_key"
           )
+          .eq("owner_key", ownerKey)
           .in("status", [...ACTIVE_ORDER_STATUSES])
           .order("created_at", { ascending: false })
           .limit(1);
@@ -97,7 +106,7 @@ export default function ActiveOrderScreen() {
         }
 
         const nextOrder =
-          Array.isArray(data) && data.length > 0 ? (data[0] as OrderRow) : null;
+          Array.isArray(data) && data.length > 0 ? normalizeOrderRow(data[0]) : null;
 
         setOrder(nextOrder);
 
@@ -127,11 +136,124 @@ export default function ActiveOrderScreen() {
     [applyStoredOrder]
   );
 
+  const handleTerminalOrder = useCallback(
+    async (status: string | null | undefined) => {
+      if (hasHandledTerminalRef.current) {
+        return;
+      }
+
+      hasHandledTerminalRef.current = true;
+
+      setOrder(null);
+      await clearActiveOrder();
+
+      const title =
+        status === "cancelled" ? "Заказ отменён" : "Заказ завершён";
+      const message =
+        status === "cancelled"
+          ? "Этот заказ больше не активен. Переводим тебя в историю заказов."
+          : "Заказ успешно завершён. Переводим тебя в историю заказов.";
+
+      Alert.alert(title, message, [
+        {
+          text: "Открыть историю",
+          onPress: () => router.replace("/order/history"),
+        },
+      ]);
+    },
+    [router]
+  );
+
+  const handleRealtimeOrderUpdate = useCallback(
+    async (nextOrder: OrderRow | null) => {
+      if (!nextOrder || !isActiveOrderStatus(nextOrder.status ?? null)) {
+        await handleTerminalOrder(nextOrder?.status ?? null);
+        return;
+      }
+
+      hasHandledTerminalRef.current = false;
+      setOrder(nextOrder);
+      await syncActiveOrder(nextOrder);
+    },
+    [handleTerminalOrder]
+  );
+
   useFocusEffect(
     useCallback(() => {
+      hasHandledTerminalRef.current = false;
       loadActiveOrder("initial");
+
+      return () => {
+        if (realtimeChannelRef.current) {
+          supabase.removeChannel(realtimeChannelRef.current);
+          realtimeChannelRef.current = null;
+        }
+      };
     }, [loadActiveOrder])
   );
+
+  useEffect(() => {
+    if (!order?.id) {
+      if (realtimeChannelRef.current) {
+        supabase.removeChannel(realtimeChannelRef.current);
+        realtimeChannelRef.current = null;
+      }
+
+      return;
+    }
+
+    if (realtimeChannelRef.current) {
+      supabase.removeChannel(realtimeChannelRef.current);
+      realtimeChannelRef.current = null;
+    }
+
+    const orderId = String(order.id);
+    const channelName = `active-order:${orderId}`;
+
+    const channel = supabase
+      .channel(channelName)
+      .on(
+        "postgres_changes",
+        {
+          event: "UPDATE",
+          schema: "public",
+          table: "orders",
+          filter: `id=eq.${orderId}`,
+        },
+        async (payload) => {
+          const nextOrder = normalizeOrderRow(payload.new);
+          await handleRealtimeOrderUpdate(nextOrder);
+        }
+      )
+      .on(
+        "postgres_changes",
+        {
+          event: "DELETE",
+          schema: "public",
+          table: "orders",
+          filter: `id=eq.${orderId}`,
+        },
+        async () => {
+          await handleTerminalOrder("cancelled");
+        }
+      )
+      .subscribe((status) => {
+        if (status === "CHANNEL_ERROR") {
+          setErrorText(
+            "Realtime-подключение временно недоступно. Можно обновить заказ вручную."
+          );
+        }
+      });
+
+    realtimeChannelRef.current = channel;
+
+    return () => {
+      if (realtimeChannelRef.current) {
+        supabase.removeChannel(realtimeChannelRef.current);
+        realtimeChannelRef.current = null;
+      }
+    };
+  }, [order?.id, handleRealtimeOrderUpdate, handleTerminalOrder]);
 
   const handleRefresh = () => {
     loadActiveOrder("refresh");
@@ -390,6 +512,35 @@ function mapStoredOrderToOrderRow(order: StoredActiveOrder): OrderRow | null {
     total: order.total ?? null,
     courier_id: order.courier_id ?? null,
     call_required: order.call_required ?? null,
+    owner_key: typeof order.owner_key === "string" ? order.owner_key : null,
+  };
+}
+
+function normalizeOrderRow(value: any): OrderRow | null {
+  if (!value?.id) {
+    return null;
+  }
+
+  return {
+    id: value.id,
+    created_at: value.created_at ?? null,
+    status: value.status ?? null,
+    address: value.address ?? null,
+    package_id: value.package_id ?? null,
+    package_label: value.package_label ?? null,
+    package_price: value.package_price ?? null,
+    apartment: value.apartment ?? null,
+    entrance: value.entrance ?? null,
+    comment: value.comment ?? null,
+    leave_at_door: value.leave_at_door ?? null,
+    phone: value.phone ?? null,
+    should_call: value.should_call ?? null,
+    payment_method: value.payment_method ?? null,
+    tip: value.tip ?? null,
+    total: value.total ?? null,
+    courier_id: value.courier_id ?? null,
+    call_required: value.call_required ?? null,
+    owner_key: value.owner_key ?? null,
   };
 }
 

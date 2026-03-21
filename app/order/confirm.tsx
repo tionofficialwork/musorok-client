@@ -79,7 +79,7 @@ export default function OrderConfirmScreen() {
 
     try {
       const createdOrder = await createOrder({
-        status: "pending",
+        status: "new",
         address,
         package_id: packageId,
         package_label: packageName,

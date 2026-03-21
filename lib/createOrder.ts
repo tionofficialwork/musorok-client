@@ -1,13 +1,13 @@
 import { supabase } from "./supabase";
 import { syncActiveOrder } from "./activeOrder";
+import { getOwnerKey } from "./profileOwner";
 
 export type OrderStatus =
-  | "pending"
+  | "new"
   | "assigned"
-  | "accepted"
-  | "in_progress"
   | "on_the_way"
-  | "completed"
+  | "arrived"
+  | "done"
   | "cancelled";
 
 export type PaymentMethod = "cash" | "card";
@@ -50,6 +50,7 @@ export type OrderRecord = {
   total: number | null;
   courier_id: string | null;
   call_required: boolean | null;
+  owner_key: string | null;
 };
 
 function normalizeString(value: unknown): string | null {
@@ -95,12 +96,11 @@ function normalizePaymentMethod(value: unknown): string {
 
 function normalizeStatus(value: unknown): OrderStatus {
   const allowed: OrderStatus[] = [
-    "pending",
+    "new",
     "assigned",
-    "accepted",
-    "in_progress",
     "on_the_way",
-    "completed",
+    "arrived",
+    "done",
     "cancelled",
   ];
 
@@ -108,14 +108,15 @@ function normalizeStatus(value: unknown): OrderStatus {
     return value as OrderStatus;
   }
 
-  return "pending";
+  return "new";
 }
 
-function buildOrderPayload(input: CreateOrderInput) {
+async function buildOrderPayload(input: CreateOrderInput) {
   const address = normalizeString(input.address);
   const packageId = normalizeString(input.package_id);
   const packageLabel = normalizeString(input.package_label);
   const phone = normalizeString(input.phone);
+  const ownerKey = await getOwnerKey();
 
   if (!address) {
     throw new Error("Address is required.");
@@ -131,6 +132,10 @@ function buildOrderPayload(input: CreateOrderInput) {
 
   if (!phone) {
     throw new Error("Phone is required.");
+  }
+
+  if (!ownerKey) {
+    throw new Error("Owner key is required.");
   }
 
   const packagePrice = normalizeNumber(input.package_price);
@@ -150,6 +155,7 @@ function buildOrderPayload(input: CreateOrderInput) {
   }
 
   return {
+    owner_key: ownerKey,
     status: normalizeStatus(input.status),
     address,
     package_id: packageId,
@@ -198,17 +204,18 @@ function normalizeCreatedOrder(data: any): OrderRecord {
     courier_id: typeof data?.courier_id === "string" ? data.courier_id : null,
     call_required:
       typeof data?.call_required === "boolean" ? data.call_required : null,
+    owner_key: typeof data?.owner_key === "string" ? data.owner_key : null,
   };
 }
 
 export async function createOrder(input: CreateOrderInput): Promise<OrderRecord> {
-  const payload = buildOrderPayload(input);
+  const payload = await buildOrderPayload(input);
 
   const { data, error } = await supabase
     .from("orders")
     .insert(payload)
     .select(
-      "id, created_at, status, address, package_id, package_label, package_price, apartment, entrance, comment, leave_at_door, phone, should_call, payment_method, tip, total, courier_id, call_required"
+      "id, created_at, status, address, package_id, package_label, package_price, apartment, entrance, comment, leave_at_door, phone, should_call, payment_method, tip, total, courier_id, call_required, owner_key"
     )
     .single();
 

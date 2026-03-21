@@ -13,6 +13,7 @@ import AppButton from "../../components/ui/AppButton";
 import AppCard from "../../components/ui/AppCard";
 import ScreenSection from "../../components/ui/ScreenSection";
 import StatusPill from "../../components/ui/StatusPill";
+import { getOwnerKey } from "../../lib/profileOwner";
 import {
   INACTIVE_ORDER_STATUSES,
   getOrderStatusLabel,
@@ -40,6 +41,7 @@ type OrderHistoryRow = {
   total: number | null;
   courier_id: string | null;
   call_required: boolean | null;
+  owner_key: string | null;
 };
 
 export default function OrderHistoryScreen() {
@@ -60,11 +62,14 @@ export default function OrderHistoryScreen() {
 
       setErrorText(null);
 
+      const ownerKey = await getOwnerKey();
+
       const { data, error } = await supabase
         .from("orders")
         .select(
-          "id, created_at, status, address, package_id, package_label, package_price, apartment, entrance, comment, leave_at_door, phone, should_call, payment_method, tip, total, courier_id, call_required"
+          "id, created_at, status, address, package_id, package_label, package_price, apartment, entrance, comment, leave_at_door, phone, should_call, payment_method, tip, total, courier_id, call_required, owner_key"
         )
+        .eq("owner_key", ownerKey)
         .in("status", [...INACTIVE_ORDER_STATUSES])
         .order("created_at", { ascending: false });
 
@@ -243,7 +248,7 @@ export default function OrderHistoryScreen() {
                               <View style={styles.noteBox}>
                                 <Text style={styles.noteTitle}>Детали адреса</Text>
                                 <Text style={styles.noteText}>
-                                  {[
+                                  [
                                     order.apartment ? `кв. ${order.apartment}` : "",
                                     order.entrance ? `подъезд ${order.entrance}` : "",
                                   ]

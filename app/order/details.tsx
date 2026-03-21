@@ -364,7 +364,7 @@ export default function OrderDetailsScreen() {
 
   const normalizedPhone = useMemo(() => normalizeOrderPhoneInput(phone), [phone]);
 
-  const handleCreateOrder = async () => {
+  const handleContinueToConfirm = async () => {
     if (loading) {
       return;
     }
@@ -382,52 +382,32 @@ export default function OrderDetailsScreen() {
       return;
     }
 
+    if (!normalizedPhone.trim()) {
+      Alert.alert("Ошибка", "Введите телефон");
+      return;
+    }
+
     try {
       setLoading(true);
 
-      const orderPayload = {
-        status: "new",
-        address: address.trim(),
-        package_id: packageId.trim(),
-        package_label: resolvedPackageLabel,
-        package_price: resolvedPackagePrice,
-        apartment: "",
-        entrance: "",
-        comment: comment.trim(),
-        leave_at_door: false,
-        phone: normalizedPhone,
-        should_call: shouldCall,
-        payment_method: paymentMethod,
-        tip,
-        total: totalPreview,
-        courier_id: null,
-        call_required: shouldCall,
-      };
-
-      const { data, error } = await supabase
-        .from("orders")
-        .insert([orderPayload])
-        .select()
-        .single();
-
-      if (error) {
-        throw error;
-      }
-
-      if (!data) {
-        throw new Error("Заказ не вернулся после создания");
-      }
-
-      Alert.alert("Успех", "Заказ создан");
-
-      router.replace("/");
-    } catch (error: any) {
-      Alert.alert(
-        "Ошибка",
-        typeof error?.message === "string"
-          ? error.message
-          : "Не удалось создать заказ"
-      );
+      router.push({
+        pathname: "/order/confirm",
+        params: {
+          packageId: packageId.trim(),
+          packageName: resolvedPackageLabel,
+          price: String(resolvedPackagePrice),
+          address: address.trim(),
+          apartment: "",
+          entrance: "",
+          comment: comment.trim(),
+          phone: normalizedPhone,
+          leaveAtDoor: "false",
+          shouldCall: String(shouldCall),
+          paymentMethod,
+          tip: String(tip),
+          total: String(totalPreview),
+        },
+      });
     } finally {
       setLoading(false);
     }
@@ -449,17 +429,17 @@ export default function OrderDetailsScreen() {
             showsVerticalScrollIndicator={false}
           >
             <View style={styles.hero}>
-              <Text style={styles.eyebrow}>Шаг 2 из 2</Text>
+              <Text style={styles.eyebrow}>Шаг 2 из 3</Text>
               <Text style={styles.title}>Укажи детали заказа</Text>
               <Text style={styles.subtitle}>
-                Заполни адрес и комментарий. После этого заказ сразу создастся и
-                появится в админке.
+                Заполни адрес и комментарий. На следующем шаге ты проверишь итоговые
+                данные и подтвердишь заказ.
               </Text>
             </View>
 
             <ScreenSection
               title="Выбранный тариф"
-              subtitle="Проверь пакет перед созданием заказа"
+              subtitle="Проверь пакет перед подтверждением заказа"
             >
               <AppCard>
                 <View style={styles.summaryRow}>
@@ -680,9 +660,9 @@ export default function OrderDetailsScreen() {
                     <Text style={styles.stepBadgeText}>1</Text>
                   </View>
                   <View style={styles.stepContent}>
-                    <Text style={styles.stepTitle}>Заказ создастся</Text>
+                    <Text style={styles.stepTitle}>Проверишь заказ</Text>
                     <Text style={styles.stepText}>
-                      Мы отправим заявку в таблицу `orders` со статусом `new`.
+                      На следующем шаге увидишь итоговые данные, оплату и чаевые.
                     </Text>
                   </View>
                 </View>
@@ -694,10 +674,9 @@ export default function OrderDetailsScreen() {
                     <Text style={styles.stepBadgeText}>2</Text>
                   </View>
                   <View style={styles.stepContent}>
-                    <Text style={styles.stepTitle}>Он появится в админке</Text>
+                    <Text style={styles.stepTitle}>Подтвердишь создание</Text>
                     <Text style={styles.stepText}>
-                      После создания заказ должен сразу отображаться в панели
-                      управления.
+                      После подтверждения заказ создастся через общий createOrder flow.
                     </Text>
                   </View>
                 </View>
@@ -707,8 +686,8 @@ export default function OrderDetailsScreen() {
 
           <View style={styles.footer}>
             <AppButton
-              title={loading ? "Создание..." : "Создать заказ"}
-              onPress={handleCreateOrder}
+              title={loading ? "Переходим..." : "Продолжить"}
+              onPress={handleContinueToConfirm}
               disabled={loading}
             />
           </View>

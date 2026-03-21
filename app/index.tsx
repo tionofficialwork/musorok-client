@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   RefreshControl,
@@ -8,6 +8,7 @@ import {
   Text,
   View,
 } from "react-native";
+import { RealtimeChannel } from "@supabase/supabase-js";
 import { useFocusEffect, useRouter } from "expo-router";
 import AppButton from "../components/ui/AppButton";
 import AppCard from "../components/ui/AppCard";
@@ -21,6 +22,7 @@ import {
   syncActiveOrder,
   type StoredActiveOrder,
 } from "../lib/activeOrder";
+import { getOwnerKey } from "../lib/profileOwner";
 import {
   ACTIVE_ORDER_STATUSES,
   getOrderStatusLabel,
@@ -48,30 +50,53 @@ type OrderRow = {
   total: number | null;
   courier_id: string | null;
   call_required: boolean | null;
+  owner_key: string | null;
 };
+
+const DEBUG_HOME_REALTIME = true;
 
 export default function HomeScreen() {
   const router = useRouter();
+  const realtimeChannelRef = useRef<RealtimeChannel | null>(null);
 
   const [activeOrder, setActiveOrder] = useState<OrderRow | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [errorText, setErrorText] = useState<string | null>(null);
 
+  const logDebug = useCallback((label: string, payload?: unknown) => {
+    if (!DEBUG_HOME_REALTIME) {
+      return;
+    }
+
+    if (payload !== undefined) {
+      console.log(`[home-active-order] ${label}`, payload);
+      return;
+    }
+
+    console.log(`[home-active-order] ${label}`);
+  }, []);
+
   const applyStoredOrder = useCallback(async () => {
     const storedOrder = await getActiveOrder();
 
+    logDebug("applyStoredOrder: loaded from storage", storedOrder);
+
     if (storedOrder) {
-      setActiveOrder(mapStoredOrderToOrderRow(storedOrder));
+      const mapped = mapStoredOrderToOrderRow(storedOrder);
+      setActiveOrder(mapped);
+      logDebug("applyStoredOrder: mapped stored order", mapped);
       return true;
     }
 
     return false;
-  }, []);
+  }, [logDebug]);
 
   const loadHomeData = useCallback(
     async (mode: "initial" | "refresh" = "initial") => {
       try {
+        logDebug("loadHomeData: start", { mode });
+
         if (mode === "initial") {
           setIsLoading(true);
           await applyStoredOrder();
@@ -81,28 +106,41 @@ export default function HomeScreen() {
 
         setErrorText(null);
 
+        const ownerKey = await getOwnerKey();
+
+        logDebug("loadHomeData: resolved owner key", { ownerKey });
+
         const { data, error } = await supabase
           .from("orders")
           .select(
-            "id, created_at, status, address, package_id, package_label, package_price, apartment, entrance, comment, leave_at_door, phone, should_call, payment_method, tip, total, courier_id, call_required"
+            "id, created_at, status, address, package_id, package_label, package_price, apartment, entrance, comment, leave_at_door, phone, should_call, payment_method, tip, total, courier_id, call_required, owner_key"
           )
+          .eq("owner_key", ownerKey)
           .in("status", [...ACTIVE_ORDER_STATUSES])
           .order("created_at", { ascending: false })
           .limit(1);
+
+        logDebug("loadHomeData: query result", { data, error });
 
         if (error) {
           throw error;
         }
 
         const nextOrder =
-          Array.isArray(data) && data.length > 0 ? (data[0] as OrderRow) : null;
+          Array.isArray(data) && data.length > 0 ? normalizeOrderRow(data[0]) : null;
 
         setActiveOrder(nextOrder);
 
         if (nextOrder) {
           await syncActiveOrder(nextOrder);
+          logDebug("loadHomeData: synced active order", {
+            id: nextOrder.id,
+            status: nextOrder.status,
+            owner_key: nextOrder.owner_key,
+          });
         } else {
           await clearActiveOrder();
+          logDebug("loadHomeData: cleared active order");
         }
       } catch (error: any) {
         const hasStored = await applyStoredOrder();
@@ -112,6 +150,12 @@ export default function HomeScreen() {
             ? error.message
             : "Не удалось загрузить данные главного экрана.";
 
+        logDebug("loadHomeData: failed", {
+          message,
+          rawError: error,
+          hasStored,
+        });
+
         setErrorText(
           hasStored
             ? `Показан локально сохранённый активный заказ. ${message}`
@@ -120,18 +164,142 @@ export default function HomeScreen() {
       } finally {
         setIsLoading(false);
         setIsRefreshing(false);
+        logDebug("loadHomeData: finished", { mode });
       }
     },
-    [applyStoredOrder]
+    [applyStoredOrder, logDebug]
+  );
+
+  const handleRealtimeOrderUpdate = useCallback(
+    async (nextOrder: OrderRow | null, source: string) => {
+      logDebug("handleRealtimeOrderUpdate", {
+        source,
+        nextOrder,
+      });
+
+      if (!nextOrder || !isActiveOrderStatus(nextOrder.status ?? null)) {
+        setActiveOrder(null);
+        await clearActiveOrder();
+        logDebug("handleRealtimeOrderUpdate: cleared order", {
+          source,
+          status: nextOrder?.status ?? null,
+        });
+        return;
+      }
+
+      setActiveOrder(nextOrder);
+      await syncActiveOrder(nextOrder);
+      logDebug("handleRealtimeOrderUpdate: synced order", {
+        source,
+        id: nextOrder.id,
+        status: nextOrder.status,
+        owner_key: nextOrder.owner_key,
+      });
+    },
+    [logDebug]
   );
 
   useFocusEffect(
     useCallback(() => {
+      logDebug("useFocusEffect: screen focused");
       loadHomeData("initial");
-    }, [loadHomeData])
+
+      return () => {
+        logDebug("useFocusEffect cleanup: screen unfocused");
+
+        if (realtimeChannelRef.current) {
+          supabase.removeChannel(realtimeChannelRef.current);
+          realtimeChannelRef.current = null;
+          logDebug("useFocusEffect cleanup: channel removed");
+        }
+      };
+    }, [loadHomeData, logDebug])
   );
 
+  useEffect(() => {
+    if (!activeOrder?.id) {
+      logDebug("realtime effect: skipped because activeOrder.id is empty");
+
+      if (realtimeChannelRef.current) {
+        supabase.removeChannel(realtimeChannelRef.current);
+        realtimeChannelRef.current = null;
+        logDebug("realtime effect: removed previous channel because no active order");
+      }
+
+      return;
+    }
+
+    if (realtimeChannelRef.current) {
+      supabase.removeChannel(realtimeChannelRef.current);
+      realtimeChannelRef.current = null;
+      logDebug("realtime effect: removed previous channel before new subscribe");
+    }
+
+    const orderId = String(activeOrder.id);
+    const channelName = `home-active-order:${orderId}`;
+
+    logDebug("realtime effect: subscribing", {
+      channelName,
+      orderId,
+      status: activeOrder.status,
+      owner_key: activeOrder.owner_key,
+    });
+
+    const channel = supabase
+      .channel(channelName)
+      .on(
+        "postgres_changes",
+        {
+          event: "UPDATE",
+          schema: "public",
+          table: "orders",
+          filter: `id=eq.${orderId}`,
+        },
+        async (payload) => {
+          logDebug("realtime UPDATE payload received", payload);
+
+          const nextOrder = normalizeOrderRow(payload.new);
+          await handleRealtimeOrderUpdate(nextOrder, "realtime:update");
+        }
+      )
+      .on(
+        "postgres_changes",
+        {
+          event: "DELETE",
+          schema: "public",
+          table: "orders",
+          filter: `id=eq.${orderId}`,
+        },
+        async (payload) => {
+          logDebug("realtime DELETE payload received", payload);
+          await handleRealtimeOrderUpdate(null, "realtime:delete");
+        }
+      )
+      .subscribe((status, err) => {
+        logDebug("realtime subscribe status", { status, err, orderId });
+
+        if (status === "CHANNEL_ERROR") {
+          setErrorText(
+            "Realtime-подключение временно недоступно. Можно обновить экран вручную."
+          );
+        }
+      });
+
+    realtimeChannelRef.current = channel;
+
+    return () => {
+      logDebug("realtime effect cleanup", { channelName, orderId });
+
+      if (realtimeChannelRef.current) {
+        supabase.removeChannel(realtimeChannelRef.current);
+        realtimeChannelRef.current = null;
+        logDebug("realtime effect cleanup: channel removed");
+      }
+    };
+  }, [activeOrder?.id, handleRealtimeOrderUpdate, logDebug]);
+
   const handleRefresh = () => {
+    logDebug("manual refresh triggered");
     loadHomeData("refresh");
   };
 
@@ -398,6 +566,35 @@ function mapStoredOrderToOrderRow(order: StoredActiveOrder): OrderRow | null {
     total: order.total ?? null,
     courier_id: order.courier_id ?? null,
     call_required: order.call_required ?? null,
+    owner_key: order.owner_key ?? null,
+  };
+}
+
+function normalizeOrderRow(value: any): OrderRow | null {
+  if (!value?.id) {
+    return null;
+  }
+
+  return {
+    id: value.id,
+    created_at: value.created_at ?? null,
+    status: value.status ?? null,
+    address: value.address ?? null,
+    package_id: value.package_id ?? null,
+    package_label: value.package_label ?? null,
+    package_price: value.package_price ?? null,
+    apartment: value.apartment ?? null,
+    entrance: value.entrance ?? null,
+    comment: value.comment ?? null,
+    leave_at_door: value.leave_at_door ?? null,
+    phone: value.phone ?? null,
+    should_call: value.should_call ?? null,
+    payment_method: value.payment_method ?? null,
+    tip: value.tip ?? null,
+    total: value.total ?? null,
+    courier_id: value.courier_id ?? null,
+    call_required: value.call_required ?? null,
+    owner_key: value.owner_key ?? null,
   };
 }
 
