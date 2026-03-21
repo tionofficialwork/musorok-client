@@ -11,7 +11,7 @@ import {
 } from "react-native";
 import { Stack, useFocusEffect, useRouter } from "expo-router";
 import { supabase } from "../../lib/supabase";
-import { getOwnerKey } from "../../lib/profileOwner";
+import { getProfileOwnerKey } from "../../lib/profileIdentity";
 
 type ActionItem = {
   id: string;
@@ -41,7 +41,7 @@ export default function ProfileScreen() {
     try {
       setIsLoadingSummary(true);
 
-      const ownerKey = await getOwnerKey();
+      const ownerKey = await getProfileOwnerKey();
 
       const { data } = await supabase
         .from("user_profiles")
@@ -186,10 +186,7 @@ export default function ProfileScreen() {
             <Pressable
               key={item.id}
               onPress={() => handleItemPress(item)}
-              style={({ pressed }) => [
-                styles.card,
-                pressed && styles.cardPressed,
-              ]}
+              style={({ pressed }) => [styles.card, pressed && styles.cardPressed]}
             >
               <Text style={styles.emoji}>{item.emoji}</Text>
 
@@ -210,10 +207,7 @@ export default function ProfileScreen() {
             <Pressable
               key={item.id}
               onPress={() => handleItemPress(item)}
-              style={({ pressed }) => [
-                styles.card,
-                pressed && styles.cardPressed,
-              ]}
+              style={({ pressed }) => [styles.card, pressed && styles.cardPressed]}
             >
               <Text style={styles.emoji}>{item.emoji}</Text>
 

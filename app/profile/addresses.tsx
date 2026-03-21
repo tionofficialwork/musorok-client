@@ -11,7 +11,7 @@ import {
 } from "react-native";
 import { Stack, useFocusEffect, useRouter } from "expo-router";
 import { supabase } from "../../lib/supabase";
-import { getOwnerKey } from "../../lib/profileOwner";
+import { getAddressesOwnerKey } from "../../lib/addressIdentity";
 
 type UserAddress = {
   id: string;
@@ -55,7 +55,7 @@ export default function ProfileAddressesScreen() {
 
       setErrorText("");
 
-      const ownerKey = await getOwnerKey();
+      const ownerKey = await getAddressesOwnerKey();
 
       const { data, error } = await supabase
         .from("user_addresses")
@@ -101,7 +101,7 @@ export default function ProfileAddressesScreen() {
   const handleSetPrimary = async (addressId: string) => {
     try {
       setBusyAddressId(addressId);
-      const ownerKey = await getOwnerKey();
+      const ownerKey = await getAddressesOwnerKey();
 
       const { error: resetError } = await supabase
         .from("user_addresses")
@@ -154,7 +154,7 @@ export default function ProfileAddressesScreen() {
   const handleDeleteAddress = async (addressId: string) => {
     try {
       setBusyAddressId(addressId);
-      const ownerKey = await getOwnerKey();
+      const ownerKey = await getAddressesOwnerKey();
 
       const { error } = await supabase
         .from("user_addresses")

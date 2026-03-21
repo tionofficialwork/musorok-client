@@ -15,7 +15,7 @@ import {
 } from "react-native";
 import { Stack, useRouter } from "expo-router";
 import { supabase } from "../../lib/supabase";
-import { getOwnerKey } from "../../lib/profileOwner";
+import { getProfileOwnerKey } from "../../lib/profileIdentity";
 
 export default function ProfileAccountScreen() {
   const router = useRouter();
@@ -38,7 +38,7 @@ export default function ProfileAccountScreen() {
       setIsLoading(true);
       setErrorText(null);
 
-      const ownerKey = await getOwnerKey();
+      const ownerKey = await getProfileOwnerKey();
 
       const { data, error } = await supabase
         .from("user_profiles")
@@ -81,7 +81,7 @@ export default function ProfileAccountScreen() {
       setIsSaving(true);
       setErrorText(null);
 
-      const ownerKey = await getOwnerKey();
+      const ownerKey = await getProfileOwnerKey();
 
       const payload = {
         owner_key: ownerKey,
