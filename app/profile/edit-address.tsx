@@ -15,7 +15,7 @@ import {
 } from "react-native";
 import { Stack, useLocalSearchParams, useRouter } from "expo-router";
 import { supabase } from "../../lib/supabase";
-import { getOwnerKey } from "../../lib/profileOwner";
+import { getAddressesOwnerKey } from "../../lib/addressIdentity";
 
 type AddressType = "home" | "work" | "other";
 
@@ -87,7 +87,7 @@ export default function EditAddressScreen() {
     try {
       setIsLoading(true);
 
-      const ownerKey = await getOwnerKey();
+      const ownerKey = await getAddressesOwnerKey();
 
       const { data, error } = await supabase
         .from("user_addresses")
@@ -138,7 +138,7 @@ export default function EditAddressScreen() {
     try {
       setIsSaving(true);
 
-      const ownerKey = await getOwnerKey();
+      const ownerKey = await getAddressesOwnerKey();
 
       if (isPrimary && !isExistingPrimary) {
         const { error: resetError } = await supabase
