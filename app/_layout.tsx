@@ -1,15 +1,26 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Stack, usePathname, useRouter } from "expo-router";
 import { ActivityIndicator, StyleSheet, View } from "react-native";
 import { StatusBar } from "expo-status-bar";
 import { hasCompletedOnboarding } from "../lib/onboarding";
 import { getAuthSession } from "../lib/auth";
+import { AppThemeProvider, useAppTheme } from "../providers/AppThemeProvider";
 
 export default function RootLayout() {
+  return (
+    <AppThemeProvider>
+      <RootLayoutContent />
+    </AppThemeProvider>
+  );
+}
+
+function RootLayoutContent() {
   const router = useRouter();
   const pathname = usePathname();
+  const { colors, resolvedTheme, isReady: isThemeReady } = useAppTheme();
 
   const [isChecking, setIsChecking] = useState(true);
+  const hasHandledInitialRouteRef = useRef(false);
 
   useEffect(() => {
     let isMounted = true;
@@ -25,6 +36,7 @@ export default function RootLayout() {
 
         const isOnboardingRoute = pathname.startsWith("/onboarding");
         const isAuthRoute = pathname.startsWith("/auth");
+        const isHomeRoute = pathname === "/";
 
         if (!completedOnboarding) {
           if (!isOnboardingRoute) {
@@ -42,6 +54,15 @@ export default function RootLayout() {
           }
 
           return;
+        }
+
+        if (!hasHandledInitialRouteRef.current) {
+          hasHandledInitialRouteRef.current = true;
+
+          if (!isHomeRoute) {
+            router.replace("/");
+            return;
+          }
         }
 
         if (isOnboardingRoute || isAuthRoute) {
@@ -62,12 +83,17 @@ export default function RootLayout() {
     };
   }, [pathname, router]);
 
-  if (isChecking) {
+  if (!isThemeReady || isChecking) {
     return (
       <>
-        <StatusBar style="light" />
-        <View style={styles.loadingScreen}>
-          <ActivityIndicator size="large" color="#ffffff" />
+        <StatusBar style={resolvedTheme === "dark" ? "light" : "dark"} />
+        <View
+          style={[
+            styles.loadingScreen,
+            { backgroundColor: colors.background },
+          ]}
+        >
+          <ActivityIndicator size="large" color={colors.primary} />
         </View>
       </>
     );
@@ -75,13 +101,13 @@ export default function RootLayout() {
 
   return (
     <>
-      <StatusBar style="light" />
+      <StatusBar style={resolvedTheme === "dark" ? "light" : "dark"} />
       <Stack
         screenOptions={{
           headerShown: false,
           animation: "slide_from_right",
           contentStyle: {
-            backgroundColor: "#0e0f10",
+            backgroundColor: colors.background,
           },
         }}
       />
@@ -92,7 +118,6 @@ export default function RootLayout() {
 const styles = StyleSheet.create({
   loadingScreen: {
     flex: 1,
-    backgroundColor: "#0e0f10",
     alignItems: "center",
     justifyContent: "center",
   },

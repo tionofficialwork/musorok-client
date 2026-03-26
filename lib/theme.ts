@@ -1,8 +1,13 @@
-export const colors = {
+export type ThemeMode = "system" | "light" | "dark";
+export type ResolvedTheme = "light" | "dark";
+
+export const lightColors = {
   background: "#F6F7FB",
   surface: "#FFFFFF",
+  surfaceSecondary: "#EEF2F7",
   text: "#111111",
   textSecondary: "#6B7280",
+  textMuted: "#6B7280",
   primary: "#E9281D",
   primarySoft: "#FFF1F0",
   border: "#E5E7EB",
@@ -12,7 +17,35 @@ export const colors = {
   errorTitle: "#7F1D1D",
   black: "#111111",
   white: "#FFFFFF",
-};
+  success: "#16A34A",
+  warning: "#D97706",
+  shadow: "#000000",
+  overlay: "rgba(17, 17, 17, 0.08)",
+} as const;
+
+export const darkColors = {
+  background: "#0F1115",
+  surface: "#171A21",
+  surfaceSecondary: "#1E2430",
+  text: "#F3F4F6",
+  textSecondary: "#9CA3AF",
+  textMuted: "#9CA3AF",
+  primary: "#FF4A3D",
+  primarySoft: "#2A1716",
+  border: "#2A3140",
+  errorBg: "#2C1618",
+  errorBorder: "#5C2328",
+  errorText: "#FCA5A5",
+  errorTitle: "#FECACA",
+  black: "#111111",
+  white: "#FFFFFF",
+  success: "#22C55E",
+  warning: "#F59E0B",
+  shadow: "#000000",
+  overlay: "rgba(255, 255, 255, 0.08)",
+} as const;
+
+export type AppColors = typeof lightColors;
 
 export const spacing = {
   xs: 6,
@@ -51,3 +84,17 @@ export const shadows = {
     elevation: 2,
   },
 };
+
+export function getColorsForResolvedTheme(
+  resolvedTheme: ResolvedTheme
+): AppColors {
+  return resolvedTheme === "dark" ? darkColors : lightColors;
+}
+
+/**
+ * Legacy export.
+ * Нужен, чтобы старые файлы не сломались сразу.
+ * Для новых экранов и для экранов, где нужна живая смена темы,
+ * используем useAppTheme().
+ */
+export const colors = lightColors;
