@@ -1,5 +1,7 @@
 import { StyleSheet, Text, View } from "react-native";
-import { colors, spacing, typography } from "../../lib/theme";
+import { useMemo } from "react";
+import { spacing, typography } from "../../lib/theme";
+import { useAppTheme } from "../../providers/AppThemeProvider";
 
 type ScreenHeaderProps = {
   title: string;
@@ -7,29 +9,34 @@ type ScreenHeaderProps = {
 };
 
 export default function ScreenHeader({
-  title,
-  subtitle,
-}: ScreenHeaderProps) {
+                                       title,
+                                       subtitle,
+                                     }: ScreenHeaderProps) {
+  const { colors } = useAppTheme();
+  const styles = useMemo(() => createStyles(colors), [colors]);
+
   return (
-    <View style={styles.container}>
-      <Text style={styles.title}>{title}</Text>
-      {subtitle ? <Text style={styles.subtitle}>{subtitle}</Text> : null}
-    </View>
+      <View style={styles.container}>
+        <Text style={styles.title}>{title}</Text>
+        {subtitle ? <Text style={styles.subtitle}>{subtitle}</Text> : null}
+      </View>
   );
 }
 
-const styles = StyleSheet.create({
-  container: {
-    gap: spacing.sm,
-  },
-  title: {
-    fontSize: typography.h1,
-    fontWeight: "800",
-    color: colors.text,
-  },
-  subtitle: {
-    fontSize: typography.body,
-    lineHeight: 22,
-    color: colors.textSecondary,
-  },
-});
+function createStyles(colors: ReturnType<typeof useAppTheme>["colors"]) {
+  return StyleSheet.create({
+    container: {
+      gap: spacing.sm,
+    },
+    title: {
+      fontSize: typography.h1,
+      fontWeight: "800",
+      color: colors.text,
+    },
+    subtitle: {
+      fontSize: typography.body,
+      lineHeight: 22,
+      color: colors.textSecondary,
+    },
+  });
+}

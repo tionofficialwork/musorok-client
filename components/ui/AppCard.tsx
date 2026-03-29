@@ -1,5 +1,7 @@
 import React, { ReactNode } from "react";
 import { StyleSheet, View, ViewStyle } from "react-native";
+import { radii, shadows, spacing } from "../../lib/theme";
+import { useAppTheme } from "../../providers/AppThemeProvider";
 
 type AppCardProps = {
   children: ReactNode;
@@ -8,33 +10,40 @@ type AppCardProps = {
 };
 
 export default function AppCard({
-  children,
-  style,
-  padded = true,
-}: AppCardProps) {
+                                  children,
+                                  style,
+                                  padded = true,
+                                }: AppCardProps) {
+  const { colors } = useAppTheme();
+
   return (
-    <View style={[styles.card, padded && styles.padded, style]}>
-      {children}
-    </View>
+      <View
+          style={[
+            styles.card,
+            {
+              backgroundColor: colors.surface,
+              borderColor: colors.border,
+              shadowColor: colors.shadow,
+            },
+            padded && styles.padded,
+            style,
+          ]}
+      >
+        {children}
+      </View>
   );
 }
 
 const styles = StyleSheet.create({
   card: {
-    backgroundColor: "#FFFFFF",
-    borderRadius: 20,
+    borderRadius: radii.xl,
     borderWidth: 1,
-    borderColor: "#E5E7EB",
-    shadowColor: "#000000",
-    shadowOpacity: 0.06,
-    shadowRadius: 12,
-    shadowOffset: {
-      width: 0,
-      height: 4,
-    },
-    elevation: 2,
+    shadowOpacity: shadows.card.shadowOpacity,
+    shadowRadius: shadows.card.shadowRadius,
+    shadowOffset: shadows.card.shadowOffset,
+    elevation: shadows.card.elevation,
   },
   padded: {
-    padding: 16,
+    padding: spacing.lg,
   },
 });

@@ -1,5 +1,7 @@
 import React from "react";
 import { StyleSheet, Text, View, ViewStyle } from "react-native";
+import { radii, typography } from "../../lib/theme";
+import { useAppTheme } from "../../providers/AppThemeProvider";
 
 type StatusPillProps = {
   status?: string | null;
@@ -11,94 +13,98 @@ function normalizeStatus(value?: string | null) {
   return (value || "").trim().toLowerCase();
 }
 
-function getStatusMeta(status?: string | null) {
+export default function StatusPill({
+                                     status,
+                                     label,
+                                     style,
+                                   }: StatusPillProps) {
+  const { colors, resolvedTheme } = useAppTheme();
   const normalized = normalizeStatus(status);
 
-  switch (normalized) {
-    case "new":
-    case "created":
-      return {
-        label: "Новый",
-        backgroundColor: "#FEF3C7",
-        textColor: "#92400E",
-      };
+  const isDark = resolvedTheme === "dark";
 
-    case "searching":
-    case "pending":
-      return {
-        label: "Ищем курьера",
-        backgroundColor: "#DBEAFE",
-        textColor: "#1D4ED8",
-      };
+  const getStatusMeta = () => {
+    switch (normalized) {
+      case "new":
+      case "created":
+        return {
+          label: "Новый",
+          backgroundColor: isDark ? "#3A2A12" : "#FEF3C7",
+          textColor: isDark ? "#FCD34D" : "#92400E",
+        };
 
-    case "assigned":
-    case "accepted":
-      return {
-        label: "Курьер назначен",
-        backgroundColor: "#E0E7FF",
-        textColor: "#4338CA",
-      };
+      case "searching":
+      case "pending":
+        return {
+          label: "Ищем курьера",
+          backgroundColor: isDark ? "#172554" : "#DBEAFE",
+          textColor: isDark ? "#93C5FD" : "#1D4ED8",
+        };
 
-    case "in_progress":
-    case "on_the_way":
-      return {
-        label: "В работе",
-        backgroundColor: "#DCFCE7",
-        textColor: "#166534",
-      };
+      case "assigned":
+      case "accepted":
+        return {
+          label: "Курьер назначен",
+          backgroundColor: isDark ? "#2E1065" : "#E0E7FF",
+          textColor: isDark ? "#C4B5FD" : "#4338CA",
+        };
 
-    case "completed":
-      return {
-        label: "Завершён",
-        backgroundColor: "#DCFCE7",
-        textColor: "#166534",
-      };
+      case "in_progress":
+      case "on_the_way":
+        return {
+          label: "В работе",
+          backgroundColor: isDark ? "#14281D" : "#DCFCE7",
+          textColor: isDark ? "#86EFAC" : "#166534",
+        };
 
-    case "cancelled":
-    case "canceled":
-      return {
-        label: "Отменён",
-        backgroundColor: "#FEE2E2",
-        textColor: "#991B1B",
-      };
+      case "completed":
+      case "done":
+        return {
+          label: "Завершён",
+          backgroundColor: isDark ? "#14281D" : "#DCFCE7",
+          textColor: isDark ? "#86EFAC" : "#166534",
+        };
 
-    default:
-      return {
-        label: status || "Статус неизвестен",
-        backgroundColor: "#F3F4F6",
-        textColor: "#374151",
-      };
-  }
-}
+      case "cancelled":
+      case "canceled":
+        return {
+          label: "Отменён",
+          backgroundColor: isDark ? "#3A1719" : "#FEE2E2",
+          textColor: isDark ? "#FCA5A5" : "#991B1B",
+        };
 
-export default function StatusPill({
-  status,
-  label,
-  style,
-}: StatusPillProps) {
-  const meta = getStatusMeta(status);
+      default:
+        return {
+          label: status || "Статус неизвестен",
+          backgroundColor: colors.surfaceSecondary,
+          textColor: colors.textSecondary,
+        };
+    }
+  };
+
+  const meta = getStatusMeta();
 
   return (
-    <View
-      style={[
-        styles.container,
-        {
-          backgroundColor: meta.backgroundColor,
-        },
-        style,
-      ]}
-    >
-      <Text
-        style={[
-          styles.text,
-          {
-            color: meta.textColor,
-          },
-        ]}
+      <View
+          style={[
+            styles.container,
+            {
+              backgroundColor: meta.backgroundColor,
+            },
+            style,
+          ]}
       >
-        {label || meta.label}
-      </Text>
-    </View>
+        <Text
+            style={[
+              styles.text,
+              {
+                color: meta.textColor,
+              },
+            ]}
+        >
+          {label || meta.label}
+        </Text>
+      </View>
   );
 }
 
@@ -107,10 +113,10 @@ const styles = StyleSheet.create({
     alignSelf: "flex-start",
     paddingHorizontal: 10,
     paddingVertical: 6,
-    borderRadius: 999,
+    borderRadius: radii.pill,
   },
   text: {
-    fontSize: 12,
+    fontSize: typography.caption,
     fontWeight: "800",
   },
 });

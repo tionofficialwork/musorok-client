@@ -1,51 +1,79 @@
 import React, { ReactNode } from "react";
 import { StyleSheet, Text, View, ViewStyle } from "react-native";
+import { spacing, typography } from "../../lib/theme";
+import { useAppTheme } from "../../providers/AppThemeProvider";
 
 type ScreenSectionProps = {
-  title?: string;
-  subtitle?: string;
-  children: ReactNode;
-  style?: ViewStyle | ViewStyle[];
-  contentStyle?: ViewStyle | ViewStyle[];
+    title?: string;
+    subtitle?: string;
+    description?: string;
+    children: ReactNode;
+    style?: ViewStyle | ViewStyle[];
+    contentStyle?: ViewStyle | ViewStyle[];
 };
 
 export default function ScreenSection({
-  title,
-  subtitle,
-  children,
-  style,
-  contentStyle,
-}: ScreenSectionProps) {
-  return (
-    <View style={[styles.section, style]}>
-      {(title || subtitle) && (
-        <View style={styles.header}>
-          {title ? <Text style={styles.title}>{title}</Text> : null}
-          {subtitle ? <Text style={styles.subtitle}>{subtitle}</Text> : null}
-        </View>
-      )}
+                                          title,
+                                          subtitle,
+                                          description,
+                                          children,
+                                          style,
+                                          contentStyle,
+                                      }: ScreenSectionProps) {
+    const { colors } = useAppTheme();
+    const resolvedSubtitle = subtitle ?? description;
 
-      <View style={contentStyle}>{children}</View>
-    </View>
-  );
+    return (
+        <View style={[styles.section, style]}>
+            {(title || resolvedSubtitle) && (
+                <View style={styles.header}>
+                    {title ? (
+                        <Text
+                            style={[
+                                styles.title,
+                                {
+                                    color: colors.text,
+                                },
+                            ]}
+                        >
+                            {title}
+                        </Text>
+                    ) : null}
+
+                    {resolvedSubtitle ? (
+                        <Text
+                            style={[
+                                styles.subtitle,
+                                {
+                                    color: colors.textSecondary,
+                                },
+                            ]}
+                        >
+                            {resolvedSubtitle}
+                        </Text>
+                    ) : null}
+                </View>
+            )}
+
+            <View style={contentStyle}>{children}</View>
+        </View>
+    );
 }
 
 const styles = StyleSheet.create({
-  section: {
-    marginBottom: 20,
-  },
-  header: {
-    marginBottom: 12,
-  },
-  title: {
-    fontSize: 18,
-    fontWeight: "800",
-    color: "#111827",
-  },
-  subtitle: {
-    marginTop: 4,
-    fontSize: 14,
-    lineHeight: 20,
-    color: "#6B7280",
-  },
+    section: {
+        marginBottom: spacing.xl,
+    },
+    header: {
+        marginBottom: spacing.md,
+    },
+    title: {
+        fontSize: typography.h2,
+        fontWeight: "800",
+    },
+    subtitle: {
+        marginTop: 4,
+        fontSize: typography.bodySmall,
+        lineHeight: 20,
+    },
 });

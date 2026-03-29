@@ -4,9 +4,11 @@ import {
   Pressable,
   StyleSheet,
   Text,
-  ViewStyle,
   TextStyle,
+  ViewStyle,
 } from "react-native";
+import { radii } from "../../lib/theme";
+import { useAppTheme } from "../../providers/AppThemeProvider";
 
 type AppButtonVariant = "primary" | "secondary" | "ghost" | "danger";
 
@@ -21,81 +23,111 @@ type AppButtonProps = {
   textStyle?: TextStyle | TextStyle[];
 };
 
-const COLORS = {
-  primary: "#E9281D",
-  primaryPressed: "#D11F15",
-  textOnPrimary: "#FFFFFF",
-  border: "#E5E7EB",
-  text: "#111827",
-  mutedText: "#6B7280",
-  card: "#FFFFFF",
-  background: "#F5F7FB",
-  danger: "#DC2626",
-  dangerPressed: "#B91C1C",
-};
-
 export default function AppButton({
-  title,
-  onPress,
-  disabled = false,
-  loading = false,
-  variant = "primary",
-  fullWidth = true,
-  style,
-  textStyle,
-}: AppButtonProps) {
+                                    title,
+                                    onPress,
+                                    disabled = false,
+                                    loading = false,
+                                    variant = "primary",
+                                    fullWidth = true,
+                                    style,
+                                    textStyle,
+                                  }: AppButtonProps) {
+  const { colors } = useAppTheme();
   const isDisabled = disabled || loading;
 
+  const primaryPressedColor =
+      colors.primary === "#E9281D" ? "#D11F15" : "#E03C31";
+
+  const dangerColor = "#DC2626";
+  const dangerPressedColor = "#B91C1C";
+
+  const secondaryPressedColor = colors.surfaceSecondary;
+  const ghostPressedColor = colors.surfaceSecondary;
+
+  const activityIndicatorColor =
+      variant === "primary" || variant === "danger"
+          ? colors.white
+          : colors.text;
+
+  const buttonTextColor =
+      variant === "primary"
+          ? colors.white
+          : variant === "danger"
+              ? colors.white
+              : colors.text;
+
   return (
-    <Pressable
-      onPress={onPress}
-      disabled={isDisabled}
-      style={({ pressed }) => [
-        styles.base,
-        fullWidth && styles.fullWidth,
-        variant === "primary" && styles.primary,
-        variant === "secondary" && styles.secondary,
-        variant === "ghost" && styles.ghost,
-        variant === "danger" && styles.danger,
-        pressed && !isDisabled && variant === "primary" && styles.primaryPressed,
-        pressed && !isDisabled && variant === "secondary" && styles.secondaryPressed,
-        pressed && !isDisabled && variant === "ghost" && styles.ghostPressed,
-        pressed && !isDisabled && variant === "danger" && styles.dangerPressed,
-        isDisabled && styles.disabled,
-        style,
-      ]}
-    >
-      {loading ? (
-        <ActivityIndicator
-          color={
-            variant === "primary" || variant === "danger"
-              ? COLORS.textOnPrimary
-              : COLORS.text
-          }
-        />
-      ) : (
-        <Text
-          style={[
-            styles.textBase,
-            variant === "primary" && styles.primaryText,
-            variant === "secondary" && styles.secondaryText,
-            variant === "ghost" && styles.ghostText,
-            variant === "danger" && styles.dangerText,
-            isDisabled && styles.disabledText,
-            textStyle,
+      <Pressable
+          onPress={onPress}
+          disabled={isDisabled}
+          style={({ pressed }) => [
+            styles.base,
+            fullWidth && styles.fullWidth,
+            variant === "primary" && {
+              backgroundColor: colors.primary,
+            },
+            variant === "secondary" && {
+              backgroundColor: colors.surface,
+              borderWidth: 1,
+              borderColor: colors.border,
+            },
+            variant === "ghost" && {
+              backgroundColor: "transparent",
+            },
+            variant === "danger" && {
+              backgroundColor: dangerColor,
+            },
+            pressed &&
+            !isDisabled &&
+            variant === "primary" && {
+              backgroundColor: primaryPressedColor,
+            },
+            pressed &&
+            !isDisabled &&
+            variant === "secondary" && {
+              backgroundColor: secondaryPressedColor,
+            },
+            pressed &&
+            !isDisabled &&
+            variant === "ghost" && {
+              backgroundColor: ghostPressedColor,
+            },
+            pressed &&
+            !isDisabled &&
+            variant === "danger" && {
+              backgroundColor: dangerPressedColor,
+            },
+            isDisabled && styles.disabled,
+            style,
           ]}
-        >
-          {title}
-        </Text>
-      )}
-    </Pressable>
+      >
+        {loading ? (
+            <ActivityIndicator color={activityIndicatorColor} />
+        ) : (
+            <Text
+                style={[
+                  styles.textBase,
+                  {
+                    color: buttonTextColor,
+                  },
+                  isDisabled && {
+                    color: colors.textMuted,
+                  },
+                  textStyle,
+                ]}
+            >
+              {title}
+            </Text>
+        )}
+      </Pressable>
   );
 }
 
 const styles = StyleSheet.create({
   base: {
     minHeight: 52,
-    borderRadius: 16,
+    borderRadius: radii.lg,
     paddingHorizontal: 18,
     alignItems: "center",
     justifyContent: "center",
@@ -104,52 +136,11 @@ const styles = StyleSheet.create({
   fullWidth: {
     width: "100%",
   },
-  primary: {
-    backgroundColor: COLORS.primary,
-  },
-  primaryPressed: {
-    backgroundColor: COLORS.primaryPressed,
-  },
-  secondary: {
-    backgroundColor: COLORS.card,
-    borderWidth: 1,
-    borderColor: COLORS.border,
-  },
-  secondaryPressed: {
-    backgroundColor: "#F3F4F6",
-  },
-  ghost: {
-    backgroundColor: "transparent",
-  },
-  ghostPressed: {
-    backgroundColor: "#F3F4F6",
-  },
-  danger: {
-    backgroundColor: COLORS.danger,
-  },
-  dangerPressed: {
-    backgroundColor: COLORS.dangerPressed,
-  },
   disabled: {
     opacity: 0.55,
   },
   textBase: {
     fontSize: 16,
     fontWeight: "700",
-  },
-  primaryText: {
-    color: COLORS.textOnPrimary,
-  },
-  secondaryText: {
-    color: COLORS.text,
-  },
-  ghostText: {
-    color: COLORS.text,
-  },
-  dangerText: {
-    color: COLORS.textOnPrimary,
-  },
-  disabledText: {
-    color: COLORS.mutedText,
   },
 });

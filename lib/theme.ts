@@ -1,7 +1,29 @@
 export type ThemeMode = "system" | "light" | "dark";
 export type ResolvedTheme = "light" | "dark";
 
-export const lightColors = {
+export type AppColors = {
+  background: string;
+  surface: string;
+  surfaceSecondary: string;
+  text: string;
+  textSecondary: string;
+  textMuted: string;
+  primary: string;
+  primarySoft: string;
+  border: string;
+  errorBg: string;
+  errorBorder: string;
+  errorText: string;
+  errorTitle: string;
+  black: string;
+  white: string;
+  success: string;
+  warning: string;
+  shadow: string;
+  overlay: string;
+};
+
+export const lightColors: AppColors = {
   background: "#F6F7FB",
   surface: "#FFFFFF",
   surfaceSecondary: "#EEF2F7",
@@ -21,9 +43,9 @@ export const lightColors = {
   warning: "#D97706",
   shadow: "#000000",
   overlay: "rgba(17, 17, 17, 0.08)",
-} as const;
+};
 
-export const darkColors = {
+export const darkColors: AppColors = {
   background: "#0F1115",
   surface: "#171A21",
   surfaceSecondary: "#1E2430",
@@ -43,9 +65,7 @@ export const darkColors = {
   warning: "#F59E0B",
   shadow: "#000000",
   overlay: "rgba(255, 255, 255, 0.08)",
-} as const;
-
-export type AppColors = typeof lightColors;
+};
 
 export const spacing = {
   xs: 6,
@@ -86,7 +106,7 @@ export const shadows = {
 };
 
 export function getColorsForResolvedTheme(
-  resolvedTheme: ResolvedTheme
+    resolvedTheme: ResolvedTheme
 ): AppColors {
   return resolvedTheme === "dark" ? darkColors : lightColors;
 }
