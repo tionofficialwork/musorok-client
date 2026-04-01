@@ -25,9 +25,14 @@ import {
 } from "../../lib/activeOrder";
 import {
   ACTIVE_ORDER_STATUSES,
+  getActiveOrderProgressValue,
   getActiveOrderStatusDescription,
   getActiveOrderStatusMeta,
+  getActiveOrderTimelineSteps,
   getOrderStatusLabel,
+  getOrderStatusShortLabel,
+  isCompletedActiveOrderTimelineStep,
+  isCurrentActiveOrderTimelineStep,
 } from "../../lib/orderStatus";
 import { getOwnerKey } from "../../lib/profileOwner";
 import { supabase } from "../../lib/supabase";
@@ -74,6 +79,12 @@ export default function ActiveOrderScreen() {
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [errorText, setErrorText] = useState<string | null>(null);
+
+  const timelineSteps = useMemo(() => getActiveOrderTimelineSteps(), []);
+  const statusLabel = getOrderStatusLabel(order?.status ?? null);
+  const shortStatusLabel = getOrderStatusShortLabel(order?.status ?? null);
+  const orderMeta = getActiveOrderStatusMeta(order?.status ?? null);
+  const progressValue = getActiveOrderProgressValue(order?.status ?? null);
 
   const applyStoredOrder = useCallback(async () => {
     const storedOrder = await getActiveOrder();
@@ -276,8 +287,9 @@ export default function ActiveOrderScreen() {
     router.push("/order/history");
   };
 
-  const statusLabel = getOrderStatusLabel(order?.status ?? null);
-  const orderMeta = getActiveOrderStatusMeta(order?.status ?? null);
+  const handleGoHome = () => {
+    router.replace("/");
+  };
 
   return (
       <>
@@ -302,79 +314,171 @@ export default function ActiveOrderScreen() {
                       <RefreshControl refreshing={isRefreshing} onRefresh={handleRefresh} />
                     }
                 >
-                  <View style={styles.hero}>
-                    <Text style={styles.eyebrow}>После создания заказа</Text>
-                    <Text style={styles.title}>Текущий заказ</Text>
-                    <Text style={styles.subtitle}>
-                      Здесь отображается актуальный заказ, который ещё не завершён и не
-                      отменён.
-                    </Text>
-                  </View>
-
-                  {errorText ? (
-                      <ErrorCard
-                          title="Проблема с загрузкой"
-                          description={errorText}
-                          actionLabel="Повторить"
-                          onAction={handleRefresh}
-                      />
-                  ) : null}
-
                   {!order ? (
-                      <ScreenSection
-                          title="Сейчас активного заказа нет"
-                          subtitle="Можно быстро создать новый заказ или перейти в историю"
-                      >
-                        <AppCard>
-                          <View style={styles.emptyIconWrap}>
-                            <Text style={styles.emptyIcon}>🗑️</Text>
-                          </View>
-
-                          <Text style={styles.emptyTitle}>Нет заказа в работе</Text>
-                          <Text style={styles.emptyText}>
-                            Когда создашь новый заказ, он появится здесь со статусом и
-                            основной информацией.
-                          </Text>
-
-                          <View style={styles.emptyActions}>
-                            <AppButton title="Создать заказ" onPress={handleCreateOrder} />
-                            <View style={styles.actionSpacer} />
-                            <AppButton
-                                title="Открыть историю"
-                                onPress={handleOpenHistory}
-                                variant="secondary"
-                            />
-                          </View>
-                        </AppCard>
-                      </ScreenSection>
-                  ) : (
                       <>
+                        <View style={styles.hero}>
+                          <Text style={styles.eyebrow}>Активный заказ</Text>
+                          <Text style={styles.title}>Сейчас заказов в работе нет</Text>
+                          <Text style={styles.subtitle}>
+                            Когда создашь новый заказ, здесь появятся статус, прогресс и
+                            основные детали выполнения.
+                          </Text>
+                        </View>
+
+                        {errorText ? (
+                            <ErrorCard
+                                title="Проблема с загрузкой"
+                                description={errorText}
+                                actionLabel="Повторить"
+                                onAction={handleRefresh}
+                            />
+                        ) : null}
+
                         <ScreenSection
-                            title="Статус заказа"
-                            subtitle="Основная информация по текущему заказу"
+                            title="Можно сделать дальше"
+                            subtitle="Выбери следующий шаг"
                         >
                           <AppCard>
-                            <View style={styles.statusHeader}>
-                              <View style={styles.statusHeaderText}>
-                                <Text style={styles.orderId}>Заказ #{order.id}</Text>
-                                <Text style={styles.statusSubtitle}>{orderMeta}</Text>
-                              </View>
-
-                              <StatusPill status={order.status} label={statusLabel} />
+                            <View style={styles.emptyIconWrap}>
+                              <Text style={styles.emptyIcon}>🗑️</Text>
                             </View>
 
-                            <View style={styles.statusBox}>
-                              <Text style={styles.statusBoxTitle}>Что происходит сейчас</Text>
-                              <Text style={styles.statusBoxText}>
-                                {getActiveOrderStatusDescription(order.status)}
-                              </Text>
+                            <Text style={styles.emptyTitle}>Нет заказа в работе</Text>
+                            <Text style={styles.emptyText}>
+                              Создай новый заказ за пару шагов или открой историю, чтобы
+                              повторить прошлый сценарий.
+                            </Text>
+
+                            <View style={styles.emptyActions}>
+                              <AppButton title="Создать заказ" onPress={handleCreateOrder} />
+                              <View style={styles.actionSpacer} />
+                              <AppButton
+                                  title="Открыть историю"
+                                  onPress={handleOpenHistory}
+                                  variant="secondary"
+                              />
+                            </View>
+                          </AppCard>
+                        </ScreenSection>
+                      </>
+                  ) : (
+                      <>
+                        <View style={styles.heroCard}>
+                          <View style={styles.heroTopRow}>
+                            <View style={styles.heroCopy}>
+                              <Text style={styles.eyebrow}>Заказ #{order.id}</Text>
+                              <Text style={styles.heroTitle}>{shortStatusLabel}</Text>
+                              <Text style={styles.heroSubtitle}>{orderMeta}</Text>
+                            </View>
+
+                            <StatusPill status={order.status} label={statusLabel} />
+                          </View>
+
+                          <View style={styles.progressHeader}>
+                            <Text style={styles.progressLabel}>Прогресс заказа</Text>
+                            <Text style={styles.progressValue}>{progressValue}%</Text>
+                          </View>
+
+                          <View style={styles.progressTrack}>
+                            <View
+                                style={[
+                                  styles.progressFill,
+                                  { width: `${progressValue}%` },
+                                ]}
+                            />
+                          </View>
+
+                          <View style={styles.statusBox}>
+                            <Text style={styles.statusBoxTitle}>Что происходит сейчас</Text>
+                            <Text style={styles.statusBoxText}>
+                              {getActiveOrderStatusDescription(order.status)}
+                            </Text>
+                          </View>
+                        </View>
+
+                        {errorText ? (
+                            <ErrorCard
+                                title="Проблема с загрузкой"
+                                description={errorText}
+                                actionLabel="Повторить"
+                                onAction={handleRefresh}
+                            />
+                        ) : null}
+
+                        <ScreenSection
+                            title="Этапы выполнения"
+                            subtitle="Путь заказа от создания до прибытия курьера"
+                        >
+                          <AppCard>
+                            <View style={styles.timeline}>
+                              {timelineSteps.map((step, index) => {
+                                const isCurrent = isCurrentActiveOrderTimelineStep(
+                                    order.status,
+                                    step.status
+                                );
+                                const isCompleted = isCompletedActiveOrderTimelineStep(
+                                    order.status,
+                                    step.status
+                                );
+                                const isLast = index === timelineSteps.length - 1;
+
+                                return (
+                                    <View key={step.status} style={styles.timelineItem}>
+                                      <View style={styles.timelineRail}>
+                                        <View
+                                            style={[
+                                              styles.timelineDot,
+                                              isCompleted ? styles.timelineDotCompleted : undefined,
+                                              isCurrent ? styles.timelineDotCurrent : undefined,
+                                            ]}
+                                        >
+                                          {isCompleted ? (
+                                              <Text style={styles.timelineDotDone}>✓</Text>
+                                          ) : (
+                                              <Text
+                                                  style={[
+                                                    styles.timelineDotIndex,
+                                                    isCurrent
+                                                        ? styles.timelineDotIndexCurrent
+                                                        : undefined,
+                                                  ]}
+                                              >
+                                                {index + 1}
+                                              </Text>
+                                          )}
+                                        </View>
+
+                                        {!isLast ? (
+                                            <View
+                                                style={[
+                                                  styles.timelineLine,
+                                                  isCompleted ? styles.timelineLineCompleted : undefined,
+                                                ]}
+                                            />
+                                        ) : null}
+                                      </View>
+
+                                      <View style={styles.timelineContent}>
+                                        <Text
+                                            style={[
+                                              styles.timelineTitle,
+                                              isCurrent ? styles.timelineTitleCurrent : undefined,
+                                            ]}
+                                        >
+                                          {step.shortLabel}
+                                        </Text>
+                                        <Text style={styles.timelineMeta}>{step.meta}</Text>
+                                      </View>
+                                    </View>
+                                );
+                              })}
                             </View>
                           </AppCard>
                         </ScreenSection>
 
                         <ScreenSection
-                            title="Детали заказа"
-                            subtitle="Содержимое и адрес"
+                            title="Кратко по заказу"
+                            subtitle="Главные данные по текущей заявке"
                         >
                           <AppCard>
                             <InfoRow
@@ -389,8 +493,7 @@ export default function ActiveOrderScreen() {
                                 rightAligned
                                 styles={styles}
                             />
-
-                            {order.apartment || order.entrance ? (
+                            {(order.apartment || order.entrance) ? (
                                 <>
                                   <Divider styles={styles} />
                                   <InfoRow
@@ -406,56 +509,57 @@ export default function ActiveOrderScreen() {
                                   />
                                 </>
                             ) : null}
-
                             <Divider styles={styles} />
                             <InfoRow
                                 label="Телефон"
                                 value={order.phone || "Не указан"}
                                 styles={styles}
                             />
-
-                            {order.comment ? (
-                                <>
-                                  <Divider styles={styles} />
-                                  <View style={styles.noteBox}>
-                                    <Text style={styles.noteTitle}>Комментарий для курьера</Text>
-                                    <Text style={styles.noteText}>{order.comment}</Text>
-                                  </View>
-                                </>
-                            ) : null}
                           </AppCard>
                         </ScreenSection>
 
+                        {(order.comment || order.leave_at_door || order.should_call || order.call_required) ? (
+                            <ScreenSection
+                                title="Пожелания и параметры"
+                                subtitle="Как лучше выполнить этот заказ"
+                            >
+                              <AppCard>
+                                <InfoRow
+                                    label="Оставить у двери"
+                                    value={order.leave_at_door ? "Да" : "Нет"}
+                                    styles={styles}
+                                />
+                                <Divider styles={styles} />
+                                <InfoRow
+                                    label="Позвонить заранее"
+                                    value={order.should_call || order.call_required ? "Да" : "Нет"}
+                                    styles={styles}
+                                />
+
+                                {order.comment ? (
+                                    <>
+                                      <Divider styles={styles} />
+                                      <View style={styles.noteBox}>
+                                        <Text style={styles.noteTitle}>Комментарий для курьера</Text>
+                                        <Text style={styles.noteText}>{order.comment}</Text>
+                                      </View>
+                                    </>
+                                ) : null}
+                              </AppCard>
+                            </ScreenSection>
+                        ) : null}
+
                         <ScreenSection
-                            title="Параметры выполнения"
-                            subtitle="Как оформлен заказ"
+                            title="Оплата"
+                            subtitle="Сумма и выбранный способ оплаты"
                         >
                           <AppCard>
-                            <InfoRow
-                                label="Оставить у двери"
-                                value={order.leave_at_door ? "Да" : "Нет"}
-                                styles={styles}
-                            />
-                            <Divider styles={styles} />
-                            <InfoRow
-                                label="Позвонить заранее"
-                                value={order.should_call || order.call_required ? "Да" : "Нет"}
-                                styles={styles}
-                            />
-                            <Divider styles={styles} />
                             <InfoRow
                                 label="Способ оплаты"
                                 value={formatPaymentMethod(order.payment_method)}
                                 styles={styles}
                             />
-                          </AppCard>
-                        </ScreenSection>
-
-                        <ScreenSection
-                            title="Сумма"
-                            subtitle="Финальные значения заказа"
-                        >
-                          <AppCard>
+                            <Divider styles={styles} />
                             <InfoRow
                                 label="Стоимость пакета"
                                 value={`${Number(order.package_price ?? 0)} ₽`}
@@ -475,6 +579,28 @@ export default function ActiveOrderScreen() {
                               </Text>
                             </View>
                           </AppCard>
+                        </ScreenSection>
+
+                        <ScreenSection
+                            title="Быстрые действия"
+                            subtitle="Навигация по связанным разделам"
+                        >
+                          <View style={styles.quickActions}>
+                            <AppButton
+                                title="Обновить статус"
+                                onPress={handleRefresh}
+                            />
+                            <AppButton
+                                title="История заказов"
+                                variant="secondary"
+                                onPress={handleOpenHistory}
+                            />
+                            <AppButton
+                                title="На главную"
+                                variant="secondary"
+                                onPress={handleGoHome}
+                            />
+                          </View>
                         </ScreenSection>
                       </>
                   )}
@@ -639,6 +765,148 @@ function createStyles(colors: ReturnType<typeof useAppTheme>["colors"]) {
       lineHeight: 22,
       color: colors.textMuted,
     },
+    heroCard: {
+      backgroundColor: colors.surface,
+      borderRadius: radii.xl,
+      borderWidth: 1,
+      borderColor: colors.border,
+      padding: spacing.lg,
+      gap: spacing.md,
+    },
+    heroTopRow: {
+      flexDirection: "row",
+      alignItems: "flex-start",
+      justifyContent: "space-between",
+      gap: spacing.md,
+    },
+    heroCopy: {
+      flex: 1,
+      gap: 4,
+    },
+    heroTitle: {
+      fontSize: typography.h1,
+      fontWeight: "800",
+      color: colors.text,
+    },
+    heroSubtitle: {
+      fontSize: typography.body,
+      lineHeight: 21,
+      color: colors.textMuted,
+    },
+    progressHeader: {
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "space-between",
+      gap: spacing.md,
+    },
+    progressLabel: {
+      fontSize: typography.bodySmall,
+      fontWeight: "700",
+      color: colors.textSecondary,
+    },
+    progressValue: {
+      fontSize: typography.bodySmall,
+      fontWeight: "800",
+      color: colors.text,
+    },
+    progressTrack: {
+      height: 10,
+      borderRadius: radii.pill,
+      backgroundColor: colors.surfaceSecondary,
+      overflow: "hidden",
+    },
+    progressFill: {
+      height: "100%",
+      borderRadius: radii.pill,
+      backgroundColor: colors.primary,
+    },
+    statusBox: {
+      backgroundColor: colors.surfaceSecondary,
+      borderRadius: radii.lg,
+      padding: spacing.md,
+    },
+    statusBoxTitle: {
+      fontSize: typography.body,
+      fontWeight: "700",
+      color: colors.text,
+      marginBottom: 4,
+    },
+    statusBoxText: {
+      fontSize: typography.body,
+      lineHeight: 21,
+      color: colors.textMuted,
+    },
+    timeline: {
+      gap: spacing.md,
+    },
+    timelineItem: {
+      flexDirection: "row",
+      alignItems: "stretch",
+      gap: spacing.md,
+    },
+    timelineRail: {
+      width: 28,
+      alignItems: "center",
+    },
+    timelineDot: {
+      width: 28,
+      height: 28,
+      borderRadius: 999,
+      borderWidth: 2,
+      borderColor: colors.border,
+      backgroundColor: colors.surface,
+      alignItems: "center",
+      justifyContent: "center",
+    },
+    timelineDotCompleted: {
+      backgroundColor: colors.primary,
+      borderColor: colors.primary,
+    },
+    timelineDotCurrent: {
+      borderColor: colors.primary,
+      backgroundColor: colors.primarySoft,
+    },
+    timelineDotDone: {
+      fontSize: 12,
+      fontWeight: "900",
+      color: colors.white,
+    },
+    timelineDotIndex: {
+      fontSize: 12,
+      fontWeight: "800",
+      color: colors.textSecondary,
+    },
+    timelineDotIndexCurrent: {
+      color: colors.primary,
+    },
+    timelineLine: {
+      flex: 1,
+      width: 2,
+      marginTop: 6,
+      marginBottom: -6,
+      backgroundColor: colors.border,
+    },
+    timelineLineCompleted: {
+      backgroundColor: colors.primary,
+    },
+    timelineContent: {
+      flex: 1,
+      paddingBottom: spacing.sm,
+    },
+    timelineTitle: {
+      fontSize: typography.body,
+      fontWeight: "700",
+      color: colors.text,
+      marginBottom: 4,
+    },
+    timelineTitleCurrent: {
+      color: colors.primary,
+    },
+    timelineMeta: {
+      fontSize: typography.bodySmall,
+      lineHeight: 20,
+      color: colors.textMuted,
+    },
     emptyIconWrap: {
       width: 72,
       height: 72,
@@ -670,43 +938,6 @@ function createStyles(colors: ReturnType<typeof useAppTheme>["colors"]) {
     },
     actionSpacer: {
       height: spacing.sm,
-    },
-    statusHeader: {
-      flexDirection: "row",
-      alignItems: "flex-start",
-      justifyContent: "space-between",
-      gap: spacing.md,
-      marginBottom: spacing.md,
-    },
-    statusHeaderText: {
-      flex: 1,
-      gap: 4,
-    },
-    orderId: {
-      fontSize: typography.h3,
-      fontWeight: "800",
-      color: colors.text,
-    },
-    statusSubtitle: {
-      fontSize: typography.body,
-      lineHeight: 21,
-      color: colors.textMuted,
-    },
-    statusBox: {
-      backgroundColor: colors.surfaceSecondary,
-      borderRadius: radii.lg,
-      padding: spacing.md,
-    },
-    statusBoxTitle: {
-      fontSize: typography.body,
-      fontWeight: "700",
-      color: colors.text,
-      marginBottom: 4,
-    },
-    statusBoxText: {
-      fontSize: typography.body,
-      lineHeight: 21,
-      color: colors.textMuted,
     },
     infoRow: {
       flexDirection: "row",
@@ -767,6 +998,9 @@ function createStyles(colors: ReturnType<typeof useAppTheme>["colors"]) {
       fontSize: typography.h2,
       fontWeight: "800",
       color: colors.text,
+    },
+    quickActions: {
+      gap: spacing.sm,
     },
   });
 }

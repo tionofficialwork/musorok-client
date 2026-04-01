@@ -13,7 +13,8 @@ import AppCard from "../../components/ui/AppCard";
 import ScreenSection from "../../components/ui/ScreenSection";
 import { completeOnboarding, getOnboardingState } from "../../lib/onboarding";
 import { getAuthSession } from "../../lib/auth";
-import { colors, radii, spacing, typography } from "../../lib/theme";
+import { radii, spacing, typography } from "../../lib/theme";
+import { useAppTheme } from "../../providers/AppThemeProvider";
 
 type OnboardingStep = {
   emoji: string;
@@ -28,26 +29,28 @@ const STEPS: OnboardingStep[] = [
     eyebrow: "Шаг 1",
     title: "Вынос мусора по кнопке",
     description:
-      "Оформляй заказ быстро: выбери пакет, укажи адрес и отправь заявку без лишних действий.",
+        "Оформляй заказ быстро: выбери пакет, укажи адрес и отправь заявку без лишних действий.",
   },
   {
     emoji: "⚡",
     eyebrow: "Шаг 2",
     title: "Повтор заказа за пару секунд",
     description:
-      "История заказов помогает заново запустить привычный сценарий без повторного заполнения данных.",
+        "История заказов помогает заново запустить привычный сценарий без повторного заполнения данных.",
   },
   {
     emoji: "🔔",
     eyebrow: "Шаг 3",
     title: "Прозрачный и удобный опыт",
     description:
-      "Дальше приложение станет ещё сильнее: уведомления, карта и более персональный сценарий заказа.",
+        "Дальше приложение станет ещё сильнее: уведомления, карта и более персональный сценарий заказа.",
   },
 ];
 
 export default function OnboardingScreen() {
   const router = useRouter();
+  const { colors } = useAppTheme();
+  const styles = useMemo(() => createStyles(colors), [colors]);
 
   const [isChecking, setIsChecking] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -126,216 +129,219 @@ export default function OnboardingScreen() {
 
   if (isChecking) {
     return (
-      <SafeAreaView style={styles.safeArea}>
-        <Stack.Screen options={{ title: "Добро пожаловать" }} />
-        <View style={styles.loadingState}>
-          <ActivityIndicator size="large" color={colors.primary} />
-          <Text style={styles.loadingTitle}>Подготавливаем приложение</Text>
-          <Text style={styles.loadingText}>Проверяем состояние первого запуска.</Text>
-        </View>
-      </SafeAreaView>
+        <SafeAreaView style={styles.safeArea}>
+          <Stack.Screen options={{ title: "Добро пожаловать" }} />
+          <View style={styles.loadingState}>
+            <ActivityIndicator size="large" color={colors.primary} />
+            <Text style={styles.loadingTitle}>Подготавливаем приложение</Text>
+            <Text style={styles.loadingText}>Проверяем состояние первого запуска.</Text>
+          </View>
+        </SafeAreaView>
     );
   }
 
   return (
-    <SafeAreaView style={styles.safeArea}>
-      <Stack.Screen options={{ title: "Добро пожаловать" }} />
+      <SafeAreaView style={styles.safeArea}>
+        <Stack.Screen options={{ title: "Добро пожаловать" }} />
 
-      <ScrollView
-        style={styles.scroll}
-        contentContainerStyle={styles.content}
-        showsVerticalScrollIndicator={false}
-      >
-        <View style={styles.hero}>
-          <Text style={styles.badge}>МусорОК</Text>
-          <Text style={styles.title}>Добро пожаловать</Text>
-          <Text style={styles.subtitle}>
-            Коротко покажем, как устроен сервис и почему пользоваться им удобно.
-          </Text>
-        </View>
-
-        <View style={styles.progressRow}>
-          {STEPS.map((step, index) => {
-            const isActive = index === currentStepIndex;
-            const isPassed = index < currentStepIndex;
-
-            return (
-              <View
-                key={step.title}
-                style={[
-                  styles.progressDot,
-                  isActive ? styles.progressDotActive : undefined,
-                  isPassed ? styles.progressDotPassed : undefined,
-                ]}
-              />
-            );
-          })}
-        </View>
-
-        <ScreenSection
-          title={`${currentStep.eyebrow} из ${STEPS.length}`}
-          description="Основные возможности клиентского приложения"
+        <ScrollView
+            style={styles.scroll}
+            contentContainerStyle={styles.content}
+            showsVerticalScrollIndicator={false}
         >
-          <AppCard>
-            <View style={styles.stepIconWrap}>
-              <Text style={styles.stepIcon}>{currentStep.emoji}</Text>
-            </View>
+          <View style={styles.hero}>
+            <Text style={styles.badge}>МусорОК</Text>
+            <Text style={styles.title}>Добро пожаловать</Text>
+            <Text style={styles.subtitle}>
+              Коротко покажем, как устроен сервис и почему пользоваться им удобно.
+            </Text>
+          </View>
 
-            <Text style={styles.stepEyebrow}>{currentStep.eyebrow}</Text>
-            <Text style={styles.stepTitle}>{currentStep.title}</Text>
-            <Text style={styles.stepDescription}>{currentStep.description}</Text>
-          </AppCard>
-        </ScreenSection>
+          <View style={styles.progressRow}>
+            {STEPS.map((step, index) => {
+              const isActive = index === currentStepIndex;
+              const isPassed = index < currentStepIndex;
 
-        <ScreenSection
-          title="Что уже доступно"
-          description="Текущая основа клиентского приложения"
-        >
-          <AppCard>
-            <View style={styles.featureList}>
-              <Text style={styles.featureItem}>• создание заказа</Text>
-              <Text style={styles.featureItem}>• активный заказ</Text>
-              <Text style={styles.featureItem}>• история и повтор заказа</Text>
-              <Text style={styles.featureItem}>• профиль, адреса и настройки</Text>
-            </View>
-          </AppCard>
-        </ScreenSection>
+              return (
+                  <View
+                      key={step.title}
+                      style={[
+                        styles.progressDot,
+                        isActive ? styles.progressDotActive : undefined,
+                        isPassed ? styles.progressDotPassed : undefined,
+                      ]}
+                  />
+              );
+            })}
+          </View>
 
-        <View style={styles.actions}>
-          <AppButton
-            title={primaryCtaLabel}
-            onPress={handlePrimaryPress}
-            disabled={isSubmitting}
-          />
+          <ScreenSection
+              title={`${currentStep.eyebrow} из ${STEPS.length}`}
+              subtitle="Основные возможности клиентского приложения"
+          >
+            <AppCard>
+              <View style={styles.stepIconWrap}>
+                <Text style={styles.stepIcon}>{currentStep.emoji}</Text>
+              </View>
 
-          <AppButton
-            title="Пропустить"
-            variant="secondary"
-            onPress={handleSkip}
-            disabled={isSubmitting}
-          />
-        </View>
-      </ScrollView>
-    </SafeAreaView>
+              <Text style={styles.stepEyebrow}>{currentStep.eyebrow}</Text>
+              <Text style={styles.stepTitle}>{currentStep.title}</Text>
+              <Text style={styles.stepDescription}>{currentStep.description}</Text>
+            </AppCard>
+          </ScreenSection>
+
+          <ScreenSection
+              title="Что уже доступно"
+              subtitle="Текущая основа клиентского приложения"
+          >
+            <AppCard>
+              <View style={styles.featureList}>
+                <Text style={styles.featureItem}>• создание заказа</Text>
+                <Text style={styles.featureItem}>• активный заказ</Text>
+                <Text style={styles.featureItem}>• история и повтор заказа</Text>
+                <Text style={styles.featureItem}>• профиль, адреса и настройки</Text>
+              </View>
+            </AppCard>
+          </ScreenSection>
+
+          <View style={styles.actions}>
+            <AppButton
+                title={primaryCtaLabel}
+                onPress={handlePrimaryPress}
+                disabled={isSubmitting}
+            />
+
+            <AppButton
+                title="Пропустить"
+                variant="secondary"
+                onPress={handleSkip}
+                disabled={isSubmitting}
+            />
+          </View>
+        </ScrollView>
+      </SafeAreaView>
   );
 }
 
-const styles = StyleSheet.create({
-  safeArea: {
-    flex: 1,
-    backgroundColor: colors.background,
-  },
-  scroll: {
-    flex: 1,
-  },
-  content: {
-    paddingHorizontal: spacing.lg,
-    paddingTop: spacing.lg,
-    paddingBottom: spacing.xxl,
-    gap: spacing.lg,
-  },
-  loadingState: {
-    flex: 1,
-    alignItems: "center",
-    justifyContent: "center",
-    paddingHorizontal: spacing.xl,
-    gap: spacing.sm,
-    backgroundColor: colors.background,
-  },
-  loadingTitle: {
-    fontSize: typography.h3,
-    fontWeight: "800",
-    color: colors.text,
-    textAlign: "center",
-  },
-  loadingText: {
-    fontSize: typography.body,
-    color: colors.textMuted,
-    textAlign: "center",
-  },
-  hero: {
-    gap: spacing.sm,
-    paddingTop: spacing.sm,
-  },
-  badge: {
-    alignSelf: "flex-start",
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.xs,
-    borderRadius: 999,
-    backgroundColor: colors.primarySoft,
-    color: colors.primary,
-    fontSize: typography.caption,
-    fontWeight: "800",
-    textTransform: "uppercase",
-    letterSpacing: 0.6,
-  },
-  title: {
-    fontSize: typography.h1,
-    fontWeight: "800",
-    color: colors.text,
-  },
-  subtitle: {
-    fontSize: typography.body,
-    lineHeight: 22,
-    color: colors.textMuted,
-  },
-  progressRow: {
-    flexDirection: "row",
-    gap: spacing.sm,
-    marginTop: spacing.xs,
-  },
-  progressDot: {
-    flex: 1,
-    height: 8,
-    borderRadius: 999,
-    backgroundColor: colors.border,
-  },
-  progressDotActive: {
-    backgroundColor: colors.primary,
-  },
-  progressDotPassed: {
-    backgroundColor: colors.primarySoft,
-  },
-  stepIconWrap: {
-    width: 72,
-    height: 72,
-    borderRadius: radii.xl,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: colors.surfaceSecondary,
-    marginBottom: spacing.md,
-  },
-  stepIcon: {
-    fontSize: 32,
-  },
-  stepEyebrow: {
-    fontSize: typography.caption,
-    fontWeight: "700",
-    color: colors.primary,
-    textTransform: "uppercase",
-    letterSpacing: 0.4,
-    marginBottom: spacing.xs,
-  },
-  stepTitle: {
-    fontSize: typography.h2,
-    fontWeight: "800",
-    color: colors.text,
-    marginBottom: spacing.sm,
-  },
-  stepDescription: {
-    fontSize: typography.body,
-    lineHeight: 22,
-    color: colors.textMuted,
-  },
-  featureList: {
-    gap: spacing.sm,
-  },
-  featureItem: {
-    fontSize: typography.body,
-    lineHeight: 22,
-    color: colors.text,
-  },
-  actions: {
-    gap: spacing.md,
-  },
-});
+function createStyles(colors: ReturnType<typeof useAppTheme>["colors"]) {
+  return StyleSheet.create({
+    safeArea: {
+      flex: 1,
+      backgroundColor: colors.background,
+    },
+    scroll: {
+      flex: 1,
+      backgroundColor: colors.background,
+    },
+    content: {
+      paddingHorizontal: spacing.lg,
+      paddingTop: spacing.lg,
+      paddingBottom: spacing.xxl,
+      gap: spacing.lg,
+    },
+    loadingState: {
+      flex: 1,
+      alignItems: "center",
+      justifyContent: "center",
+      paddingHorizontal: spacing.xl,
+      gap: spacing.sm,
+      backgroundColor: colors.background,
+    },
+    loadingTitle: {
+      fontSize: typography.h3,
+      fontWeight: "800",
+      color: colors.text,
+      textAlign: "center",
+    },
+    loadingText: {
+      fontSize: typography.body,
+      color: colors.textMuted,
+      textAlign: "center",
+    },
+    hero: {
+      gap: spacing.sm,
+      paddingTop: spacing.sm,
+    },
+    badge: {
+      alignSelf: "flex-start",
+      paddingHorizontal: spacing.md,
+      paddingVertical: spacing.xs,
+      borderRadius: 999,
+      backgroundColor: colors.primarySoft,
+      color: colors.primary,
+      fontSize: typography.caption,
+      fontWeight: "800",
+      textTransform: "uppercase",
+      letterSpacing: 0.6,
+    },
+    title: {
+      fontSize: typography.h1,
+      fontWeight: "800",
+      color: colors.text,
+    },
+    subtitle: {
+      fontSize: typography.body,
+      lineHeight: 22,
+      color: colors.textMuted,
+    },
+    progressRow: {
+      flexDirection: "row",
+      gap: spacing.sm,
+      marginTop: spacing.xs,
+    },
+    progressDot: {
+      flex: 1,
+      height: 8,
+      borderRadius: 999,
+      backgroundColor: colors.border,
+    },
+    progressDotActive: {
+      backgroundColor: colors.primary,
+    },
+    progressDotPassed: {
+      backgroundColor: colors.primarySoft,
+    },
+    stepIconWrap: {
+      width: 72,
+      height: 72,
+      borderRadius: radii.xl,
+      alignItems: "center",
+      justifyContent: "center",
+      backgroundColor: colors.surfaceSecondary,
+      marginBottom: spacing.md,
+    },
+    stepIcon: {
+      fontSize: 32,
+    },
+    stepEyebrow: {
+      fontSize: typography.caption,
+      fontWeight: "700",
+      color: colors.primary,
+      textTransform: "uppercase",
+      letterSpacing: 0.4,
+      marginBottom: spacing.xs,
+    },
+    stepTitle: {
+      fontSize: typography.h2,
+      fontWeight: "800",
+      color: colors.text,
+      marginBottom: spacing.sm,
+    },
+    stepDescription: {
+      fontSize: typography.body,
+      lineHeight: 22,
+      color: colors.textMuted,
+    },
+    featureList: {
+      gap: spacing.sm,
+    },
+    featureItem: {
+      fontSize: typography.body,
+      lineHeight: 22,
+      color: colors.text,
+    },
+    actions: {
+      gap: spacing.md,
+    },
+  });
+}

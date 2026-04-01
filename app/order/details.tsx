@@ -66,18 +66,12 @@ function resolvePackageLabel(packageId: string, packageName: string) {
   }
 
   switch (packageId) {
-    case "small":
-      return "Малый пакет";
-    case "medium":
-      return "Стандарт";
-    case "large":
+    case "s":
+      return "Маленький пакет";
+    case "m":
+      return "Средний пакет";
+    case "l":
       return "Большой пакет";
-    case "1":
-      return "1 пакет";
-    case "2-3":
-      return "2-3 пакета";
-    case "4+":
-      return "4+ пакетов";
     default:
       return "Пакет";
   }
@@ -91,18 +85,12 @@ function resolvePackagePrice(rawPrice: string, packageId: string) {
   }
 
   switch (packageId) {
-    case "small":
-      return 149;
-    case "medium":
-      return 249;
-    case "large":
-      return 349;
-    case "1":
-      return 99;
-    case "2-3":
-      return 149;
-    case "4+":
+    case "s":
       return 199;
+    case "m":
+      return 299;
+    case "l":
+      return 449;
     default:
       return 0;
   }

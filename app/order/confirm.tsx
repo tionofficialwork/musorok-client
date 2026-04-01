@@ -17,6 +17,9 @@ import createOrder from "../../lib/createOrder";
 import { radii, spacing, typography } from "../../lib/theme";
 import { useAppTheme } from "../../providers/AppThemeProvider";
 
+type PaymentMethod = "cash" | "card";
+type TipOption = 0 | 50 | 100 | 150 | 200;
+
 type ConfirmParams = {
   packageId?: string;
   packageName?: string;
@@ -28,12 +31,32 @@ type ConfirmParams = {
   phone?: string;
   leaveAtDoor?: string;
   shouldCall?: string;
+  paymentMethod?: string;
+  tip?: string;
+  total?: string;
 };
 
-type PaymentMethod = "cash" | "card";
-type TipOption = 0 | 49 | 99 | 149;
+const TIP_OPTIONS: TipOption[] = [0, 50, 100, 150, 200];
 
-const TIP_OPTIONS: TipOption[] = [0, 49, 99, 149];
+function parsePaymentMethod(value: string | undefined): PaymentMethod {
+  return value === "card" ? "card" : "cash";
+}
+
+function parseTip(value: string | undefined): TipOption {
+  const parsed = Number(value);
+
+  if (
+      parsed === 0 ||
+      parsed === 50 ||
+      parsed === 100 ||
+      parsed === 150 ||
+      parsed === 200
+  ) {
+    return parsed;
+  }
+
+  return 0;
+}
 
 export default function OrderConfirmScreen() {
   const router = useRouter();
@@ -59,8 +82,22 @@ export default function OrderConfirmScreen() {
   const shouldCall =
       typeof params.shouldCall === "string" ? params.shouldCall === "true" : true;
 
-  const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>("cash");
-  const [tip, setTip] = useState<TipOption>(0);
+  const initialPaymentMethod = useMemo(
+      () =>
+          parsePaymentMethod(
+              typeof params.paymentMethod === "string" ? params.paymentMethod : undefined
+          ),
+      [params.paymentMethod]
+  );
+
+  const initialTip = useMemo(
+      () => parseTip(typeof params.tip === "string" ? params.tip : undefined),
+      [params.tip]
+  );
+
+  const [paymentMethod, setPaymentMethod] =
+      useState<PaymentMethod>(initialPaymentMethod);
+  const [tip, setTip] = useState<TipOption>(initialTip);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const total = useMemo(() => packagePrice + tip, [packagePrice, tip]);
@@ -222,7 +259,7 @@ export default function OrderConfirmScreen() {
 
               <ScreenSection
                   title="Способ оплаты"
-                  subtitle="Поле уже сохраняется в заказ, даже если онлайн-оплата ещё в roadmap"
+                  subtitle="Значение уже приехало с предыдущего шага, но его можно изменить перед созданием заказа"
               >
                 <View style={styles.selectGroup}>
                   <SelectableCard
@@ -243,10 +280,7 @@ export default function OrderConfirmScreen() {
                 </View>
               </ScreenSection>
 
-              <ScreenSection
-                  title="Чаевые курьеру"
-                  subtitle="Необязательно"
-              >
+              <ScreenSection title="Чаевые курьеру" subtitle="Необязательно">
                 <View style={styles.tipWrap}>
                   {TIP_OPTIONS.map((value) => (
                       <TipChip
