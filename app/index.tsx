@@ -1,5 +1,6 @@
 import { useCallback, useMemo, useState } from "react";
 import {
+  ActivityIndicator,
   SafeAreaView,
   ScrollView,
   StyleSheet,
@@ -10,14 +11,16 @@ import { Stack, useFocusEffect, useRouter } from "expo-router";
 import AppButton from "../components/ui/AppButton";
 import AppCard from "../components/ui/AppCard";
 import ScreenSection from "../components/ui/ScreenSection";
+import StatusPill from "../components/ui/StatusPill";
+import { getActiveOrder, type StoredActiveOrder } from "../lib/activeOrder";
 import {
-  getActiveOrder,
+  getActiveOrderProgressValue,
+  getActiveOrderStatusMeta,
+  getOrderStatusLabel,
+  getOrderStatusShortLabel,
   isActiveOrderStatus,
-} from "../lib/activeOrder";
-import {
-  spacing,
-  typography,
-} from "../lib/theme";
+} from "../lib/orderStatus";
+import { spacing, typography } from "../lib/theme";
 import { useAppTheme } from "../providers/AppThemeProvider";
 
 export default function HomeScreen() {
@@ -25,17 +28,42 @@ export default function HomeScreen() {
   const { colors } = useAppTheme();
   const styles = useMemo(() => createStyles(colors), [colors]);
 
-  const [hasActiveOrder, setHasActiveOrder] = useState(false);
+  const [activeOrder, setActiveOrder] = useState<StoredActiveOrder | null>(null);
+  const [isLoadingActiveOrder, setIsLoadingActiveOrder] = useState(true);
 
   const loadActiveOrderState = useCallback(async () => {
-    const activeOrder = await getActiveOrder();
-    setHasActiveOrder(isActiveOrderStatus(activeOrder?.status ?? null));
+    try {
+      setIsLoadingActiveOrder(true);
+
+      const storedOrder = await getActiveOrder();
+
+      if (storedOrder && isActiveOrderStatus(storedOrder.status ?? null)) {
+        setActiveOrder(storedOrder);
+      } else {
+        setActiveOrder(null);
+      }
+    } finally {
+      setIsLoadingActiveOrder(false);
+    }
   }, []);
 
   useFocusEffect(
       useCallback(() => {
         loadActiveOrderState();
       }, [loadActiveOrderState])
+  );
+
+  const hasActiveOrder = Boolean(
+      activeOrder && isActiveOrderStatus(activeOrder.status ?? null)
+  );
+
+  const activeOrderStatusLabel = getOrderStatusLabel(activeOrder?.status ?? null);
+  const activeOrderShortStatus = getOrderStatusShortLabel(
+      activeOrder?.status ?? null
+  );
+  const activeOrderMeta = getActiveOrderStatusMeta(activeOrder?.status ?? null);
+  const activeOrderProgress = getActiveOrderProgressValue(
+      activeOrder?.status ?? null
   );
 
   return (
@@ -64,6 +92,100 @@ export default function HomeScreen() {
               />
             </View>
           </AppCard>
+
+          <ScreenSection
+              title="Активный заказ"
+              subtitle={
+                hasActiveOrder
+                    ? "Краткое состояние текущего заказа"
+                    : "Здесь появится текущий заказ, когда он будет в работе"
+              }
+          >
+            {isLoadingActiveOrder ? (
+                <AppCard>
+                  <View style={styles.loadingState}>
+                    <ActivityIndicator size="small" color={colors.primary} />
+                    <Text style={styles.loadingText}>Проверяем активный заказ...</Text>
+                  </View>
+                </AppCard>
+            ) : hasActiveOrder && activeOrder ? (
+                <AppCard>
+                  <View style={styles.activeOrderTopRow}>
+                    <View style={styles.activeOrderCopy}>
+                      <Text style={styles.activeOrderEyebrow}>
+                        Заказ #{String(activeOrder.id)}
+                      </Text>
+                      <Text style={styles.activeOrderTitle}>
+                        {activeOrderShortStatus}
+                      </Text>
+                      <Text style={styles.activeOrderSubtitle}>{activeOrderMeta}</Text>
+                    </View>
+
+                    <StatusPill
+                        status={activeOrder.status}
+                        label={activeOrderStatusLabel}
+                    />
+                  </View>
+
+                  <View style={styles.progressHeader}>
+                    <Text style={styles.progressLabel}>Прогресс</Text>
+                    <Text style={styles.progressValue}>{activeOrderProgress}%</Text>
+                  </View>
+
+                  <View style={styles.progressTrack}>
+                    <View
+                        style={[
+                          styles.progressFill,
+                          { width: `${activeOrderProgress}%` },
+                        ]}
+                    />
+                  </View>
+
+                  <View style={styles.summaryGrid}>
+                    <View style={styles.summaryItem}>
+                      <Text style={styles.summaryLabel}>Пакет</Text>
+                      <Text style={styles.summaryValue}>
+                        {activeOrder.package_label || "Не указан"}
+                      </Text>
+                    </View>
+
+                    <View style={styles.summaryItem}>
+                      <Text style={styles.summaryLabel}>Адрес</Text>
+                      <Text style={styles.summaryValue} numberOfLines={2}>
+                        {activeOrder.address || "Не указан"}
+                      </Text>
+                    </View>
+                  </View>
+
+                  <View style={styles.activeOrderActions}>
+                    <AppButton
+                        title="Открыть заказ"
+                        onPress={() => router.push("/order/active")}
+                    />
+                    <AppButton
+                        title="История"
+                        variant="secondary"
+                        onPress={() => router.push("/order/history")}
+                    />
+                  </View>
+                </AppCard>
+            ) : (
+                <AppCard>
+                  <Text style={styles.emptyOrderTitle}>Сейчас активного заказа нет</Text>
+                  <Text style={styles.emptyOrderText}>
+                    Когда создашь новый заказ, здесь будут отображаться его статус,
+                    прогресс и ключевые детали.
+                  </Text>
+
+                  <View style={styles.emptyOrderActions}>
+                    <AppButton
+                        title="Создать заказ"
+                        onPress={() => router.push("/order/package")}
+                    />
+                  </View>
+                </AppCard>
+            )}
+          </ScreenSection>
 
           <ScreenSection
               title="Быстрые действия"
@@ -171,6 +293,113 @@ function createStyles(colors: ReturnType<typeof useAppTheme>["colors"]) {
       color: colors.textSecondary,
     },
     heroActions: {
+      marginTop: spacing.lg,
+    },
+    loadingState: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: spacing.sm,
+    },
+    loadingText: {
+      fontSize: typography.body,
+      color: colors.textSecondary,
+    },
+    activeOrderTopRow: {
+      flexDirection: "row",
+      justifyContent: "space-between",
+      alignItems: "flex-start",
+      gap: spacing.md,
+      marginBottom: spacing.md,
+    },
+    activeOrderCopy: {
+      flex: 1,
+    },
+    activeOrderEyebrow: {
+      fontSize: typography.caption,
+      fontWeight: "800",
+      color: colors.primary,
+      textTransform: "uppercase",
+      letterSpacing: 0.6,
+      marginBottom: spacing.xs,
+    },
+    activeOrderTitle: {
+      fontSize: typography.h2,
+      fontWeight: "800",
+      color: colors.text,
+      marginBottom: spacing.xs,
+    },
+    activeOrderSubtitle: {
+      fontSize: typography.body,
+      lineHeight: 21,
+      color: colors.textSecondary,
+    },
+    progressHeader: {
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "space-between",
+      marginBottom: spacing.sm,
+      gap: spacing.md,
+    },
+    progressLabel: {
+      fontSize: typography.bodySmall,
+      fontWeight: "700",
+      color: colors.textSecondary,
+    },
+    progressValue: {
+      fontSize: typography.bodySmall,
+      fontWeight: "800",
+      color: colors.text,
+    },
+    progressTrack: {
+      height: 10,
+      borderRadius: 999,
+      backgroundColor: colors.surfaceSecondary,
+      overflow: "hidden",
+      marginBottom: spacing.md,
+    },
+    progressFill: {
+      height: "100%",
+      borderRadius: 999,
+      backgroundColor: colors.primary,
+    },
+    summaryGrid: {
+      gap: spacing.md,
+    },
+    summaryItem: {
+      backgroundColor: colors.surfaceSecondary,
+      borderRadius: 14,
+      padding: spacing.md,
+    },
+    summaryLabel: {
+      fontSize: typography.caption,
+      fontWeight: "700",
+      color: colors.textSecondary,
+      textTransform: "uppercase",
+      letterSpacing: 0.4,
+      marginBottom: spacing.xs,
+    },
+    summaryValue: {
+      fontSize: typography.body,
+      fontWeight: "700",
+      color: colors.text,
+      lineHeight: 21,
+    },
+    activeOrderActions: {
+      marginTop: spacing.lg,
+      gap: spacing.sm,
+    },
+    emptyOrderTitle: {
+      fontSize: typography.h3,
+      fontWeight: "800",
+      color: colors.text,
+      marginBottom: spacing.xs,
+    },
+    emptyOrderText: {
+      fontSize: typography.body,
+      lineHeight: 21,
+      color: colors.textSecondary,
+    },
+    emptyOrderActions: {
       marginTop: spacing.lg,
     },
     actions: {

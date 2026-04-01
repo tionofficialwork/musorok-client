@@ -19,7 +19,6 @@ import StatusPill from "../../components/ui/StatusPill";
 import {
   clearActiveOrder,
   getActiveOrder,
-  isActiveOrderStatus,
   syncActiveOrder,
   type StoredActiveOrder,
 } from "../../lib/activeOrder";
@@ -31,6 +30,7 @@ import {
   getActiveOrderTimelineSteps,
   getOrderStatusLabel,
   getOrderStatusShortLabel,
+  isActiveOrderStatus,
   isCompletedActiveOrderTimelineStep,
   isCurrentActiveOrderTimelineStep,
 } from "../../lib/orderStatus";
@@ -144,9 +144,7 @@ export default function ActiveOrderScreen() {
                   : "Не удалось загрузить активный заказ.";
 
           setErrorText(
-              hasStored
-                  ? `Показан локально сохранённый заказ. ${message}`
-                  : message
+              hasStored ? `Показан локально сохранённый заказ. ${message}` : message
           );
         } finally {
           setIsLoading(false);
@@ -167,8 +165,7 @@ export default function ActiveOrderScreen() {
         setOrder(null);
         await clearActiveOrder();
 
-        const title =
-            status === "cancelled" ? "Заказ отменён" : "Заказ завершён";
+        const title = status === "cancelled" ? "Заказ отменён" : "Заказ завершён";
         const message =
             status === "cancelled"
                 ? "Этот заказ больше не активен. Переводим тебя в историю заказов."
@@ -452,7 +449,9 @@ export default function ActiveOrderScreen() {
                                             <View
                                                 style={[
                                                   styles.timelineLine,
-                                                  isCompleted ? styles.timelineLineCompleted : undefined,
+                                                  isCompleted
+                                                      ? styles.timelineLineCompleted
+                                                      : undefined,
                                                 ]}
                                             />
                                         ) : null}
@@ -462,7 +461,9 @@ export default function ActiveOrderScreen() {
                                         <Text
                                             style={[
                                               styles.timelineTitle,
-                                              isCurrent ? styles.timelineTitleCurrent : undefined,
+                                              isCurrent
+                                                  ? styles.timelineTitleCurrent
+                                                  : undefined,
                                             ]}
                                         >
                                           {step.shortLabel}
@@ -493,7 +494,7 @@ export default function ActiveOrderScreen() {
                                 rightAligned
                                 styles={styles}
                             />
-                            {(order.apartment || order.entrance) ? (
+                            {order.apartment || order.entrance ? (
                                 <>
                                   <Divider styles={styles} />
                                   <InfoRow
@@ -518,7 +519,10 @@ export default function ActiveOrderScreen() {
                           </AppCard>
                         </ScreenSection>
 
-                        {(order.comment || order.leave_at_door || order.should_call || order.call_required) ? (
+                        {order.comment ||
+                        order.leave_at_door ||
+                        order.should_call ||
+                        order.call_required ? (
                             <ScreenSection
                                 title="Пожелания и параметры"
                                 subtitle="Как лучше выполнить этот заказ"
@@ -540,7 +544,9 @@ export default function ActiveOrderScreen() {
                                     <>
                                       <Divider styles={styles} />
                                       <View style={styles.noteBox}>
-                                        <Text style={styles.noteTitle}>Комментарий для курьера</Text>
+                                        <Text style={styles.noteTitle}>
+                                          Комментарий для курьера
+                                        </Text>
                                         <Text style={styles.noteText}>{order.comment}</Text>
                                       </View>
                                     </>
@@ -586,10 +592,7 @@ export default function ActiveOrderScreen() {
                             subtitle="Навигация по связанным разделам"
                         >
                           <View style={styles.quickActions}>
-                            <AppButton
-                                title="Обновить статус"
-                                onPress={handleRefresh}
-                            />
+                            <AppButton title="Обновить статус" onPress={handleRefresh} />
                             <AppButton
                                 title="История заказов"
                                 variant="secondary"

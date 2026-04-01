@@ -17,7 +17,7 @@ import createOrder from "../../lib/createOrder";
 import { radii, spacing, typography } from "../../lib/theme";
 import { useAppTheme } from "../../providers/AppThemeProvider";
 
-type PaymentMethod = "cash" | "card";
+type PaymentMethod = "card";
 type TipOption = 0 | 50 | 100 | 150 | 200;
 
 type ConfirmParams = {
@@ -37,10 +37,6 @@ type ConfirmParams = {
 };
 
 const TIP_OPTIONS: TipOption[] = [0, 50, 100, 150, 200];
-
-function parsePaymentMethod(value: string | undefined): PaymentMethod {
-  return value === "card" ? "card" : "cash";
-}
 
 function parseTip(value: string | undefined): TipOption {
   const parsed = Number(value);
@@ -82,22 +78,13 @@ export default function OrderConfirmScreen() {
   const shouldCall =
       typeof params.shouldCall === "string" ? params.shouldCall === "true" : true;
 
-  const initialPaymentMethod = useMemo(
-      () =>
-          parsePaymentMethod(
-              typeof params.paymentMethod === "string" ? params.paymentMethod : undefined
-          ),
-      [params.paymentMethod]
+  const [paymentMethod] = useState<PaymentMethod>("card");
+  const [tip, setTip] = useState<TipOption>(
+      useMemo(
+          () => parseTip(typeof params.tip === "string" ? params.tip : undefined),
+          [params.tip]
+      )
   );
-
-  const initialTip = useMemo(
-      () => parseTip(typeof params.tip === "string" ? params.tip : undefined),
-      [params.tip]
-  );
-
-  const [paymentMethod, setPaymentMethod] =
-      useState<PaymentMethod>(initialPaymentMethod);
-  const [tip, setTip] = useState<TipOption>(initialTip);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const total = useMemo(() => packagePrice + tip, [packagePrice, tip]);
@@ -174,8 +161,7 @@ export default function OrderConfirmScreen() {
                 <Text style={styles.eyebrow}>Шаг 3 из 3</Text>
                 <Text style={styles.title}>Подтверди заказ</Text>
                 <Text style={styles.subtitle}>
-                  Проверь итоговые данные, выбери способ оплаты и при желании оставь
-                  чаевые курьеру.
+                  Проверь итоговые данные и при желании оставь чаевые курьеру.
                 </Text>
               </View>
 
@@ -258,26 +244,17 @@ export default function OrderConfirmScreen() {
               </ScreenSection>
 
               <ScreenSection
-                  title="Способ оплаты"
-                  subtitle="Значение уже приехало с предыдущего шага, но его можно изменить перед созданием заказа"
+                  title="Оплата"
+                  subtitle="Для новых заказов доступна только оплата картой"
               >
-                <View style={styles.selectGroup}>
-                  <SelectableCard
-                      title="Наличными"
-                      subtitle="Оплата при выполнении заказа"
-                      selected={paymentMethod === "cash"}
-                      onPress={() => setPaymentMethod("cash")}
-                      styles={styles}
-                  />
-
-                  <SelectableCard
-                      title="Картой"
-                      subtitle="Пока сохраняем как выбранный способ оплаты"
-                      selected={paymentMethod === "card"}
-                      onPress={() => setPaymentMethod("card")}
-                      styles={styles}
-                  />
-                </View>
+                <AppCard>
+                  <View style={styles.paymentMethodCard}>
+                    <Text style={styles.paymentMethodTitle}>Карта</Text>
+                    <Text style={styles.paymentMethodSubtitle}>
+                      Способ оплаты уже зафиксирован и будет передан при создании заказа.
+                    </Text>
+                  </View>
+                </AppCard>
               </ScreenSection>
 
               <ScreenSection title="Чаевые курьеру" subtitle="Необязательно">
@@ -302,6 +279,13 @@ export default function OrderConfirmScreen() {
                   <View style={styles.priceRow}>
                     <Text style={styles.summaryLabel}>Пакет</Text>
                     <Text style={styles.summaryValue}>{packagePrice} ₽</Text>
+                  </View>
+
+                  <View style={styles.divider} />
+
+                  <View style={styles.priceRow}>
+                    <Text style={styles.summaryLabel}>Способ оплаты</Text>
+                    <Text style={styles.summaryValue}>Карта</Text>
                   </View>
 
                   <View style={styles.divider} />
@@ -335,44 +319,6 @@ export default function OrderConfirmScreen() {
           </View>
         </SafeAreaView>
       </>
-  );
-}
-
-type SelectableCardProps = {
-  title: string;
-  subtitle: string;
-  selected: boolean;
-  onPress: () => void;
-  styles: ReturnType<typeof createStyles>;
-};
-
-function SelectableCard({
-                          title,
-                          subtitle,
-                          selected,
-                          onPress,
-                          styles,
-                        }: SelectableCardProps) {
-  return (
-      <Pressable
-          onPress={onPress}
-          style={({ pressed }) => [
-            styles.selectableCard,
-            selected ? styles.selectableCardActive : undefined,
-            pressed ? styles.pressed : undefined,
-          ]}
-      >
-        <View style={styles.selectableHeader}>
-          <View style={styles.radioOuter}>
-            {selected ? <View style={styles.radioInner} /> : null}
-          </View>
-
-          <View style={styles.selectableTextBlock}>
-            <Text style={styles.selectableTitle}>{title}</Text>
-            <Text style={styles.selectableSubtitle}>{subtitle}</Text>
-          </View>
-        </View>
-      </Pressable>
   );
 }
 
@@ -491,55 +437,23 @@ function createStyles(colors: ReturnType<typeof useAppTheme>["colors"]) {
       lineHeight: 21,
       color: colors.textMuted,
     },
-    selectGroup: {
-      gap: spacing.md,
-    },
-    selectableCard: {
-      backgroundColor: colors.surface,
-      borderWidth: 1,
-      borderColor: colors.border,
+    paymentMethodCard: {
       borderRadius: radii.xl,
-      padding: spacing.md,
-    },
-    selectableCardActive: {
-      borderColor: colors.primary,
       backgroundColor: colors.primarySoft,
-    },
-    selectableHeader: {
-      flexDirection: "row",
-      alignItems: "flex-start",
-      gap: spacing.md,
-    },
-    radioOuter: {
-      width: 22,
-      height: 22,
-      borderRadius: 999,
-      borderWidth: 2,
+      padding: spacing.md,
+      gap: spacing.xs,
+      borderWidth: 1,
       borderColor: colors.primary,
-      alignItems: "center",
-      justifyContent: "center",
-      marginTop: 2,
-      backgroundColor: colors.surface,
     },
-    radioInner: {
-      width: 10,
-      height: 10,
-      borderRadius: 999,
-      backgroundColor: colors.primary,
-    },
-    selectableTextBlock: {
-      flex: 1,
-      gap: 4,
-    },
-    selectableTitle: {
+    paymentMethodTitle: {
       fontSize: typography.body,
-      fontWeight: "700",
-      color: colors.text,
+      fontWeight: "800",
+      color: colors.primary,
     },
-    selectableSubtitle: {
+    paymentMethodSubtitle: {
       fontSize: typography.body,
       lineHeight: 21,
-      color: colors.textMuted,
+      color: colors.text,
     },
     tipWrap: {
       flexDirection: "row",

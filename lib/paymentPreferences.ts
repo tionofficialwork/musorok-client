@@ -2,7 +2,7 @@ import { supabase } from "./supabase";
 import { getOwnerKey } from "./profileOwner";
 import { getProfileOwnerKey } from "./profileIdentity";
 
-export type PaymentMethod = "cash" | "card";
+export type PaymentMethod = "card";
 
 export type PaymentPreferences = {
   defaultMethod: PaymentMethod;
@@ -15,17 +15,17 @@ export type PaymentPreferences = {
 
 type PaymentPreferencesRow = {
   owner_key: string;
-  default_method: PaymentMethod;
-  allow_cash: boolean;
-  allow_card: boolean;
-  default_tip: number;
-  ask_before_changing_method: boolean;
+  default_method: string | null;
+  allow_cash: boolean | null;
+  allow_card: boolean | null;
+  default_tip: number | null;
+  ask_before_changing_method: boolean | null;
   updated_at: string | null;
 };
 
 export const DEFAULT_PAYMENT_PREFERENCES: PaymentPreferences = {
   defaultMethod: "card",
-  allowCash: true,
+  allowCash: false,
   allowCard: true,
   defaultTip: 0,
   askBeforeChangingMethod: false,
@@ -50,54 +50,29 @@ async function resolvePaymentIdentity(): Promise<PaymentIdentity> {
 }
 
 function sanitizePreferences(
-  value: Partial<PaymentPreferences> | null | undefined,
+    value: Partial<PaymentPreferences> | null | undefined
 ): PaymentPreferences {
-  const allowCash =
-    typeof value?.allowCash === "boolean"
-      ? value.allowCash
-      : DEFAULT_PAYMENT_PREFERENCES.allowCash;
-
   const allowCard =
-    typeof value?.allowCard === "boolean"
-      ? value.allowCard
-      : DEFAULT_PAYMENT_PREFERENCES.allowCard;
-
-  let defaultMethod: PaymentMethod =
-    value?.defaultMethod === "cash" || value?.defaultMethod === "card"
-      ? value.defaultMethod
-      : DEFAULT_PAYMENT_PREFERENCES.defaultMethod;
-
-  if (!allowCash && allowCard) {
-    defaultMethod = "card";
-  }
-
-  if (!allowCard && allowCash) {
-    defaultMethod = "cash";
-  }
-
-  if (!allowCash && !allowCard) {
-    return {
-      ...DEFAULT_PAYMENT_PREFERENCES,
-      updatedAt: value?.updatedAt ?? null,
-    };
-  }
+      typeof value?.allowCard === "boolean"
+          ? value.allowCard
+          : DEFAULT_PAYMENT_PREFERENCES.allowCard;
 
   const defaultTip =
-    typeof value?.defaultTip === "number" &&
-    Number.isFinite(value.defaultTip) &&
-    value.defaultTip >= 0
-      ? Math.round(value.defaultTip)
-      : DEFAULT_PAYMENT_PREFERENCES.defaultTip;
+      typeof value?.defaultTip === "number" &&
+      Number.isFinite(value.defaultTip) &&
+      value.defaultTip >= 0
+          ? Math.round(value.defaultTip)
+          : DEFAULT_PAYMENT_PREFERENCES.defaultTip;
 
   const askBeforeChangingMethod =
-    typeof value?.askBeforeChangingMethod === "boolean"
-      ? value.askBeforeChangingMethod
-      : DEFAULT_PAYMENT_PREFERENCES.askBeforeChangingMethod;
+      typeof value?.askBeforeChangingMethod === "boolean"
+          ? value.askBeforeChangingMethod
+          : DEFAULT_PAYMENT_PREFERENCES.askBeforeChangingMethod;
 
   return {
-    defaultMethod,
-    allowCash,
-    allowCard,
+    defaultMethod: "card",
+    allowCash: false,
+    allowCard: allowCard === false ? true : true,
     defaultTip,
     askBeforeChangingMethod,
     updatedAt: value?.updatedAt ?? null,
@@ -106,25 +81,27 @@ function sanitizePreferences(
 
 function mapRowToPreferences(row: PaymentPreferencesRow): PaymentPreferences {
   return sanitizePreferences({
-    defaultMethod: row.default_method,
-    allowCash: row.allow_cash,
-    allowCard: row.allow_card,
-    defaultTip: row.default_tip,
-    askBeforeChangingMethod: row.ask_before_changing_method,
+    defaultMethod: "card",
+    allowCash: false,
+    allowCard: row.allow_card !== false,
+    defaultTip:
+        typeof row.default_tip === "number" ? row.default_tip : DEFAULT_PAYMENT_PREFERENCES.defaultTip,
+    askBeforeChangingMethod:
+        row.ask_before_changing_method === true,
     updatedAt: row.updated_at,
   });
 }
 
 async function getRowByOwnerKey(
-  ownerKey: string,
+    ownerKey: string
 ): Promise<PaymentPreferencesRow | null> {
   const { data, error } = await supabase
-    .from("user_payment_preferences")
-    .select(
-      "owner_key, default_method, allow_cash, allow_card, default_tip, ask_before_changing_method, updated_at",
-    )
-    .eq("owner_key", ownerKey)
-    .maybeSingle<PaymentPreferencesRow>();
+      .from("user_payment_preferences")
+      .select(
+          "owner_key, default_method, allow_cash, allow_card, default_tip, ask_before_changing_method, updated_at"
+      )
+      .eq("owner_key", ownerKey)
+      .maybeSingle<PaymentPreferencesRow>();
 
   if (error) {
     throw error;
@@ -134,20 +111,23 @@ async function getRowByOwnerKey(
 }
 
 async function migrateLegacyRowToProfileOwnerKey(
-  legacyRow: PaymentPreferencesRow,
-  profileOwnerKey: string,
+    legacyRow: PaymentPreferencesRow,
+    profileOwnerKey: string
 ): Promise<PaymentPreferencesRow> {
   const { data, error } = await supabase
-    .from("user_payment_preferences")
-    .update({
-      owner_key: profileOwnerKey,
-      updated_at: new Date().toISOString(),
-    })
-    .eq("owner_key", legacyRow.owner_key)
-    .select(
-      "owner_key, default_method, allow_cash, allow_card, default_tip, ask_before_changing_method, updated_at",
-    )
-    .single<PaymentPreferencesRow>();
+      .from("user_payment_preferences")
+      .update({
+        owner_key: profileOwnerKey,
+        default_method: "card",
+        allow_cash: false,
+        allow_card: true,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("owner_key", legacyRow.owner_key)
+      .select(
+          "owner_key, default_method, allow_cash, allow_card, default_tip, ask_before_changing_method, updated_at"
+      )
+      .single<PaymentPreferencesRow>();
 
   if (error) {
     throw error;
@@ -189,14 +169,14 @@ export async function getPaymentPreferences(): Promise<PaymentPreferences> {
 }
 
 export async function savePaymentPreferences(
-  patch: Partial<PaymentPreferences>,
+    patch: Partial<PaymentPreferences>
 ): Promise<PaymentPreferences> {
   const { profileOwnerKey } = await resolvePaymentIdentity();
   const existingRow = await resolvePaymentRow();
 
   const current = existingRow
-    ? mapRowToPreferences(existingRow)
-    : DEFAULT_PAYMENT_PREFERENCES;
+      ? mapRowToPreferences(existingRow)
+      : DEFAULT_PAYMENT_PREFERENCES;
 
   const next = sanitizePreferences({
     ...current,
@@ -204,11 +184,11 @@ export async function savePaymentPreferences(
     updatedAt: new Date().toISOString(),
   });
 
-  const payload: PaymentPreferencesRow = {
+  const payload = {
     owner_key: profileOwnerKey,
-    default_method: next.defaultMethod,
-    allow_cash: next.allowCash,
-    allow_card: next.allowCard,
+    default_method: "card",
+    allow_cash: false,
+    allow_card: true,
     default_tip: next.defaultTip,
     ask_before_changing_method: next.askBeforeChangingMethod,
     updated_at: next.updatedAt,
@@ -216,9 +196,9 @@ export async function savePaymentPreferences(
 
   if (existingRow) {
     const { error } = await supabase
-      .from("user_payment_preferences")
-      .update(payload)
-      .eq("owner_key", existingRow.owner_key);
+        .from("user_payment_preferences")
+        .update(payload)
+        .eq("owner_key", existingRow.owner_key);
 
     if (error) {
       throw error;
@@ -228,10 +208,10 @@ export async function savePaymentPreferences(
   }
 
   const { error } = await supabase
-    .from("user_payment_preferences")
-    .upsert(payload, {
-      onConflict: "owner_key",
-    });
+      .from("user_payment_preferences")
+      .upsert(payload, {
+        onConflict: "owner_key",
+      });
 
   if (error) {
     throw error;

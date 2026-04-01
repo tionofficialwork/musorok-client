@@ -29,7 +29,7 @@ type DetailsParams = {
   price?: string;
 };
 
-type PaymentMethod = "cash" | "card";
+type PaymentMethod = "card";
 
 type PrefillState = {
   address: string;
@@ -215,14 +215,14 @@ export default function OrderDetailsScreen() {
   const [address, setAddress] = useState("");
   const [phone, setPhone] = useState("");
   const [shouldCall, setShouldCall] = useState(false);
-  const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>("cash");
+  const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>("card");
   const [tip, setTip] = useState(0);
 
   const [prefill, setPrefill] = useState<PrefillState>({
     address: "",
     phone: "",
     shouldCall: false,
-    paymentMethod: "cash",
+    paymentMethod: "card",
     tip: 0,
     profileName: "",
   });
@@ -279,8 +279,7 @@ export default function OrderDetailsScreen() {
           phone:
               typeof profileRow?.phone === "string" ? profileRow.phone.trim() : "",
           shouldCall: profileRow?.call_allowed === true,
-          paymentMethod:
-              paymentPreferences.defaultMethod === "card" ? "card" : "cash",
+          paymentMethod: "card",
           tip:
               typeof paymentPreferences.defaultTip === "number" &&
               Number.isFinite(paymentPreferences.defaultTip) &&
@@ -309,7 +308,7 @@ export default function OrderDetailsScreen() {
         }
 
         setShouldCall(nextPrefill.shouldCall);
-        setPaymentMethod(nextPrefill.paymentMethod);
+        setPaymentMethod("card");
         setTip(nextPrefill.tip);
       } catch (error) {
         console.error("Failed to load order prefill", error);
@@ -344,10 +343,6 @@ export default function OrderDetailsScreen() {
         prefill.paymentMethod
     );
   }, [prefill]);
-
-  const displayPaymentMethod = useMemo(() => {
-    return paymentMethod === "card" ? "Карта" : "Наличные";
-  }, [paymentMethod]);
 
   const totalPreview = useMemo(() => {
     return resolvedPackagePrice + tip;
@@ -394,7 +389,7 @@ export default function OrderDetailsScreen() {
           phone: normalizedPhone,
           leaveAtDoor: "false",
           shouldCall: String(shouldCall),
-          paymentMethod,
+          paymentMethod: "card",
           tip: String(tip),
           total: String(totalPreview),
         },
@@ -467,9 +462,7 @@ export default function OrderDetailsScreen() {
                         {prefill.profileName ? (
                             <View style={styles.prefillRow}>
                               <Text style={styles.prefillLabel}>Профиль</Text>
-                              <Text style={styles.prefillValue}>
-                                {prefill.profileName}
-                              </Text>
+                              <Text style={styles.prefillValue}>{prefill.profileName}</Text>
                             </View>
                         ) : null}
 
@@ -491,9 +484,7 @@ export default function OrderDetailsScreen() {
 
                         <View style={styles.prefillRow}>
                           <Text style={styles.prefillLabel}>Оплата</Text>
-                          <Text style={styles.prefillValue}>
-                            {prefill.paymentMethod === "card" ? "Карта" : "Наличные"}
-                          </Text>
+                          <Text style={styles.prefillValue}>Карта</Text>
                         </View>
 
                         <View style={styles.prefillRow}>
@@ -586,23 +577,15 @@ export default function OrderDetailsScreen() {
 
               <ScreenSection
                   title="Оплата"
-                  subtitle="Можно быстро скорректировать метод и чаевые перед заказом"
+                  subtitle="Оплата заказа доступна только картой"
               >
                 <AppCard>
-                  <Text style={styles.label}>Метод оплаты</Text>
-                  <View style={styles.optionGroup}>
-                    <ChoiceButton
-                        title="Карта"
-                        isSelected={paymentMethod === "card"}
-                        onPress={() => setPaymentMethod("card")}
-                        disabled={loading}
-                    />
-                    <ChoiceButton
-                        title="Наличные"
-                        isSelected={paymentMethod === "cash"}
-                        onPress={() => setPaymentMethod("cash")}
-                        disabled={loading}
-                    />
+                  <Text style={styles.label}>Способ оплаты</Text>
+                  <View style={styles.paymentMethodCard}>
+                    <Text style={styles.paymentMethodTitle}>Карта</Text>
+                    <Text style={styles.paymentMethodSubtitle}>
+                      Это единственный доступный способ оплаты для новых заказов.
+                    </Text>
                   </View>
 
                   <View style={styles.paymentDivider} />
@@ -621,7 +604,7 @@ export default function OrderDetailsScreen() {
                   </View>
 
                   <View style={styles.paymentSummaryBox}>
-                    <InfoRow label="Метод оплаты" value={displayPaymentMethod} styles={styles} />
+                    <InfoRow label="Метод оплаты" value="Карта" styles={styles} />
                     <View style={styles.summaryDivider} />
                     <InfoRow label="Чаевые" value={`${tip} ₽`} styles={styles} />
                     <View style={styles.summaryDivider} />
@@ -918,6 +901,22 @@ function createStyles(colors: ReturnType<typeof useAppTheme>["colors"]) {
     },
     optionGroup: {
       gap: spacing.sm,
+    },
+    paymentMethodCard: {
+      borderRadius: radii.lg,
+      backgroundColor: colors.primarySoft,
+      padding: spacing.md,
+      gap: spacing.xs,
+    },
+    paymentMethodTitle: {
+      fontSize: typography.body,
+      fontWeight: "800",
+      color: colors.primary,
+    },
+    paymentMethodSubtitle: {
+      fontSize: typography.body,
+      lineHeight: 21,
+      color: colors.text,
     },
     paymentDivider: {
       height: 1,

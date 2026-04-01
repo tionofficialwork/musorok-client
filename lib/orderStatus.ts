@@ -16,7 +16,12 @@ export type ActiveOrderStatus = (typeof ACTIVE_ORDER_STATUSES)[number];
 export type InactiveOrderStatus = (typeof INACTIVE_ORDER_STATUSES)[number];
 export type KnownOrderStatus = (typeof ALL_ORDER_STATUSES)[number];
 
-export type OrderStatusTone = "warning" | "info" | "success" | "danger" | "default";
+export type OrderStatusTone =
+    | "warning"
+    | "info"
+    | "success"
+    | "danger"
+    | "default";
 
 export type ActiveOrderTimelineStep = {
   status: ActiveOrderStatus;
@@ -39,14 +44,16 @@ const ORDER_STATUS_CONFIG: Record<KnownOrderStatus, OrderStatusConfig> = {
     label: "Новый заказ",
     shortLabel: "Создан",
     tone: "warning",
-    description: "Заказ создан и уже передан в систему. Скоро начнётся поиск курьера.",
+    description:
+        "Заказ создан и уже передан в систему. Скоро начнётся поиск курьера.",
     meta: "Ожидаем назначения курьера",
   },
   assigned: {
     label: "Курьер назначен",
     shortLabel: "Назначен",
     tone: "info",
-    description: "К заказу уже привязан курьер. Он готовится начать движение.",
+    description:
+        "К заказу уже привязан курьер. Он готовится начать движение.",
     meta: "Курьер уже взял заказ",
   },
   on_the_way: {
@@ -179,9 +186,7 @@ export function getCurrentActiveOrderTimelineStep(
     return null;
   }
 
-  return (
-      ACTIVE_ORDER_TIMELINE.find((step) => step.status === status) ?? null
-  );
+  return ACTIVE_ORDER_TIMELINE.find((step) => step.status === status) ?? null;
 }
 
 export function isCompletedActiveOrderTimelineStep(
