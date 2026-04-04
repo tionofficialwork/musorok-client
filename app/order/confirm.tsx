@@ -27,6 +27,9 @@ type ConfirmParams = {
   address?: string;
   apartment?: string;
   entrance?: string;
+  floor?: string;
+  intercom?: string;
+  addressLabel?: string;
   comment?: string;
   phone?: string;
   leaveAtDoor?: string;
@@ -34,6 +37,8 @@ type ConfirmParams = {
   paymentMethod?: string;
   tip?: string;
   total?: string;
+  latitude?: string;
+  longitude?: string;
 };
 
 const TIP_OPTIONS: TipOption[] = [0, 50, 100, 150, 200];
@@ -54,6 +59,31 @@ function parseTip(value: string | undefined): TipOption {
   return 0;
 }
 
+function parseCoordinate(value: string | undefined) {
+  if (!value) {
+    return null;
+  }
+
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function buildAddressDetails(params: {
+  apartment: string;
+  entrance: string;
+  floor: string;
+  intercom: string;
+}) {
+  return [
+    params.apartment ? `кв. ${params.apartment}` : "",
+    params.entrance ? `подъезд ${params.entrance}` : "",
+    params.floor ? `этаж ${params.floor}` : "",
+    params.intercom ? `домофон ${params.intercom}` : "",
+  ]
+      .filter(Boolean)
+      .join(", ");
+}
+
 export default function OrderConfirmScreen() {
   const router = useRouter();
   const params = useLocalSearchParams<ConfirmParams>();
@@ -70,8 +100,19 @@ export default function OrderConfirmScreen() {
   const address = typeof params.address === "string" ? params.address : "";
   const apartment = typeof params.apartment === "string" ? params.apartment : "";
   const entrance = typeof params.entrance === "string" ? params.entrance : "";
+  const floor = typeof params.floor === "string" ? params.floor : "";
+  const intercom = typeof params.intercom === "string" ? params.intercom : "";
+  const addressLabel =
+      typeof params.addressLabel === "string" ? params.addressLabel : "";
   const comment = typeof params.comment === "string" ? params.comment : "";
   const phone = typeof params.phone === "string" ? params.phone : "";
+
+  const latitude = parseCoordinate(
+      typeof params.latitude === "string" ? params.latitude : undefined
+  );
+  const longitude = parseCoordinate(
+      typeof params.longitude === "string" ? params.longitude : undefined
+  );
 
   const leaveAtDoor =
       typeof params.leaveAtDoor === "string" ? params.leaveAtDoor === "true" : false;
@@ -89,6 +130,23 @@ export default function OrderConfirmScreen() {
 
   const total = useMemo(() => packagePrice + tip, [packagePrice, tip]);
 
+  const addressDetails = useMemo(() => {
+    return buildAddressDetails({
+      apartment,
+      entrance,
+      floor,
+      intercom,
+    });
+  }, [apartment, entrance, floor, intercom]);
+
+  const coordsText = useMemo(() => {
+    if (latitude === null || longitude === null) {
+      return "";
+    }
+
+    return `${latitude.toFixed(6)}, ${longitude.toFixed(6)}`;
+  }, [latitude, longitude]);
+
   const handleCreateOrder = async () => {
     if (isSubmitting) {
       return;
@@ -98,6 +156,14 @@ export default function OrderConfirmScreen() {
       Alert.alert(
           "Не хватает данных",
           "Похоже, часть данных заказа потерялась. Вернись на предыдущий шаг и проверь форму."
+      );
+      return;
+    }
+
+    if (latitude === null || longitude === null) {
+      Alert.alert(
+          "Не хватает координат",
+          "Адрес должен быть выбран на карте. Вернись назад и подтверди точку."
       );
       return;
     }
@@ -113,6 +179,11 @@ export default function OrderConfirmScreen() {
         package_price: packagePrice,
         apartment,
         entrance,
+        floor,
+        intercom,
+        address_label: addressLabel,
+        latitude,
+        longitude,
         comment,
         leave_at_door: leaveAtDoor,
         phone,
@@ -175,6 +246,16 @@ export default function OrderConfirmScreen() {
                     <Text style={styles.summaryValue}>{packageName}</Text>
                   </View>
 
+                  {addressLabel ? (
+                      <>
+                        <View style={styles.divider} />
+                        <View style={styles.summaryRow}>
+                          <Text style={styles.summaryLabel}>Название адреса</Text>
+                          <Text style={styles.summaryValueRight}>{addressLabel}</Text>
+                        </View>
+                      </>
+                  ) : null}
+
                   <View style={styles.divider} />
 
                   <View style={styles.summaryRow}>
@@ -182,20 +263,24 @@ export default function OrderConfirmScreen() {
                     <Text style={styles.summaryValueRight}>{address}</Text>
                   </View>
 
-                  {apartment || entrance ? (
+                  {addressDetails ? (
                       <>
                         <View style={styles.divider} />
 
                         <View style={styles.summaryRow}>
                           <Text style={styles.summaryLabel}>Детали адреса</Text>
-                          <Text style={styles.summaryValueRight}>
-                            {[
-                              apartment ? `кв. ${apartment}` : "",
-                              entrance ? `подъезд ${entrance}` : "",
-                            ]
-                                .filter(Boolean)
-                                .join(", ")}
-                          </Text>
+                          <Text style={styles.summaryValueRight}>{addressDetails}</Text>
+                        </View>
+                      </>
+                  ) : null}
+
+                  {coordsText ? (
+                      <>
+                        <View style={styles.divider} />
+
+                        <View style={styles.summaryRow}>
+                          <Text style={styles.summaryLabel}>Координаты</Text>
+                          <Text style={styles.summaryValueRight}>{coordsText}</Text>
                         </View>
                       </>
                   ) : null}
