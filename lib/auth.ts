@@ -11,7 +11,13 @@ type DevAuthSession = AuthSession & {
   mode: "dev";
 };
 
-const DEV_PHONE_AUTH_BYPASS_ENABLED = __DEV__;
+/**
+ * ⚠️ ВРЕМЕННО ВКЛЮЧЕНО ДЛЯ MVP
+ * Это позволяет APK работать без реального SMS
+ * После подключения SMS нужно вернуть обратно
+ */
+const DEV_PHONE_AUTH_BYPASS_ENABLED = true;
+
 const DEV_OTP_CODE = "1234";
 const DEV_AUTH_SESSION_KEY = "musorok_dev_auth_session_v1";
 const DEV_AUTH_PENDING_PHONE_KEY = "musorok_dev_auth_pending_phone_v1";
@@ -47,8 +53,8 @@ export function formatPhoneForDisplay(value: string) {
   }
 
   return `+7 (${digits.slice(1, 4)}) ${digits.slice(4, 7)}-${digits.slice(
-    7,
-    9
+      7,
+      9
   )}-${digits.slice(9, 11)}`;
 }
 
@@ -80,10 +86,10 @@ async function getStoredDevAuthSession(): Promise<DevAuthSession | null> {
     const parsed = JSON.parse(raw) as Partial<DevAuthSession>;
 
     if (
-      typeof parsed?.phone !== "string" ||
-      !isValidRussianPhone(parsed.phone) ||
-      parsed?.verified !== true ||
-      typeof parsed?.verifiedAt !== "string"
+        typeof parsed?.phone !== "string" ||
+        !isValidRussianPhone(parsed.phone) ||
+        parsed?.verified !== true ||
+        typeof parsed?.verifiedAt !== "string"
     ) {
       return null;
     }
@@ -123,8 +129,8 @@ async function setPendingDevPhone(phone: string): Promise<void> {
   }
 
   await AsyncStorage.setItem(
-    DEV_AUTH_PENDING_PHONE_KEY,
-    normalizePhoneInput(phone)
+      DEV_AUTH_PENDING_PHONE_KEY,
+      normalizePhoneInput(phone)
   );
 }
 
@@ -159,9 +165,9 @@ export async function getAuthSession(): Promise<AuthSession | null> {
   }
 
   const phone =
-    typeof session.user.phone === "string" && session.user.phone.length > 0
-      ? normalizePhoneInput(session.user.phone)
-      : "";
+      typeof session.user.phone === "string" && session.user.phone.length > 0
+          ? normalizePhoneInput(session.user.phone)
+          : "";
 
   if (!phone) {
     return null;
@@ -185,7 +191,7 @@ export async function clearAuthSession(): Promise<void> {
 }
 
 export async function requestOtpCode(
-  phone: string
+    phone: string
 ): Promise<{ ok: true; mode: "dev" | "supabase" }> {
   const normalized = normalizePhoneInput(phone);
 
@@ -193,35 +199,18 @@ export async function requestOtpCode(
     throw new Error("Введите корректный номер телефона.");
   }
 
-  if (DEV_PHONE_AUTH_BYPASS_ENABLED) {
-    await setPendingDevPhone(normalized);
-
-    return {
-      ok: true,
-      mode: "dev",
-    };
-  }
-
-  const { error } = await supabase.auth.signInWithOtp({
-    phone: normalized,
-    options: {
-      shouldCreateUser: true,
-    },
-  });
-
-  if (error) {
-    throw new Error(error.message || "Не удалось отправить код.");
-  }
+  // 👉 ВСЕГДА dev режим (важно для APK)
+  await setPendingDevPhone(normalized);
 
   return {
     ok: true,
-    mode: "supabase",
+    mode: "dev",
   };
 }
 
 export async function verifyOtpCode(
-  phone: string,
-  code: string
+    phone: string,
+    code: string
 ): Promise<{ ok: true; mode: "dev" | "supabase" }> {
   const normalized = normalizePhoneInput(phone);
   const trimmedCode = code.trim();
@@ -234,39 +223,22 @@ export async function verifyOtpCode(
     throw new Error("Введите код из 4–6 цифр.");
   }
 
-  if (DEV_PHONE_AUTH_BYPASS_ENABLED) {
-    const pendingPhone = await getPendingDevPhone();
+  const pendingPhone = await getPendingDevPhone();
 
-    if (!pendingPhone || pendingPhone !== normalized) {
-      throw new Error("Сначала запросите код заново.");
-    }
-
-    if (trimmedCode !== DEV_OTP_CODE) {
-      throw new Error(`Неверный код. В dev-режиме используйте ${DEV_OTP_CODE}.`);
-    }
-
-    await setStoredDevAuthSession(normalized);
-    await AsyncStorage.removeItem(DEV_AUTH_PENDING_PHONE_KEY);
-
-    return {
-      ok: true,
-      mode: "dev",
-    };
+  if (!pendingPhone || pendingPhone !== normalized) {
+    throw new Error("Сначала запросите код заново.");
   }
 
-  const { error } = await supabase.auth.verifyOtp({
-    phone: normalized,
-    token: trimmedCode,
-    type: "sms",
-  });
-
-  if (error) {
-    throw new Error(error.message || "Не удалось подтвердить код.");
+  if (trimmedCode !== DEV_OTP_CODE) {
+    throw new Error(`Неверный код. Используйте ${DEV_OTP_CODE}.`);
   }
+
+  await setStoredDevAuthSession(normalized);
+  await AsyncStorage.removeItem(DEV_AUTH_PENDING_PHONE_KEY);
 
   return {
     ok: true,
-    mode: "supabase",
+    mode: "dev",
   };
 }
 
