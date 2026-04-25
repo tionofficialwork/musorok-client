@@ -11,13 +11,11 @@ import {
   View,
 } from "react-native";
 import { Stack, useLocalSearchParams, useRouter } from "expo-router";
-import MapView, { Marker, Region } from "react-native-maps";
 import * as Location from "expo-location";
 
 import AppButton from "../../components/ui/AppButton";
 import AppCard from "../../components/ui/AppCard";
 import AppScreen from "../../components/ui/AppScreen";
-import EmptyState from "../../components/ui/EmptyState";
 import ErrorCard from "../../components/ui/ErrorCard";
 import ScreenHeader from "../../components/ui/ScreenHeader";
 import ScreenSection from "../../components/ui/ScreenSection";
@@ -48,15 +46,6 @@ type MapParams = {
 type SelectedPoint = {
   latitude: number;
   longitude: number;
-};
-
-type PermissionState = "unknown" | "granted" | "denied";
-
-const DEFAULT_REGION: Region = {
-  latitude: 43.238949,
-  longitude: 76.889709,
-  latitudeDelta: 0.02,
-  longitudeDelta: 0.02,
 };
 
 function parseNumberParam(value?: string) {
@@ -141,16 +130,6 @@ export default function OrderMapScreen() {
           }
           : null;
 
-  const [region, setRegion] = useState<Region>(
-      initialPoint
-          ? {
-            latitude: initialPoint.latitude,
-            longitude: initialPoint.longitude,
-            latitudeDelta: 0.01,
-            longitudeDelta: 0.01,
-          }
-          : DEFAULT_REGION
-  );
   const [selectedPoint, setSelectedPoint] = useState<SelectedPoint | null>(
       initialPoint
   );
@@ -162,8 +141,6 @@ export default function OrderMapScreen() {
   const [addressLabel, setAddressLabel] = useState(initialAddressLabel);
   const [comment, setComment] = useState(initialComment);
 
-  const [permissionState, setPermissionState] =
-      useState<PermissionState>("unknown");
   const [isLoadingLocation, setIsLoadingLocation] = useState(!initialPoint);
   const [isResolvingAddress, setIsResolvingAddress] = useState(false);
   const [errorText, setErrorText] = useState<string | null>(null);
@@ -186,7 +163,8 @@ export default function OrderMapScreen() {
       setResolvedAddress(address);
 
       const suggestedLabel =
-          typeof result?.[0]?.street === "string" && result[0].street.trim().length > 0
+          typeof result?.[0]?.street === "string" &&
+          result[0].street.trim().length > 0
               ? result[0].street.trim()
               : "";
 
@@ -201,7 +179,7 @@ export default function OrderMapScreen() {
       console.error("Reverse geocode error:", error);
       setResolvedAddress(buildAddressLabel(null, point));
       setErrorText(
-          "Не удалось точно определить адрес. Можно использовать выбранные координаты."
+          "Не удалось точно определить адрес. Используем выбранные координаты."
       );
     } finally {
       setIsResolvingAddress(false);
@@ -216,14 +194,11 @@ export default function OrderMapScreen() {
       const permission = await Location.requestForegroundPermissionsAsync();
 
       if (permission.status !== "granted") {
-        setPermissionState("denied");
         setErrorText(
-            "Нет доступа к геолокации. Можно выбрать точку вручную на карте."
+            "Нет доступа к геолокации. Разреши доступ к местоположению, чтобы оформить заказ."
         );
         return;
       }
-
-      setPermissionState("granted");
 
       const position = await Location.getCurrentPositionAsync({
         accuracy: Location.Accuracy.Balanced,
@@ -234,15 +209,7 @@ export default function OrderMapScreen() {
         longitude: position.coords.longitude,
       };
 
-      const nextRegion: Region = {
-        ...nextPoint,
-        latitudeDelta: 0.01,
-        longitudeDelta: 0.01,
-      };
-
       setSelectedPoint(nextPoint);
-      setRegion(nextRegion);
-
       await resolveAddressByCoords(nextPoint);
     } catch (error) {
       console.error("Current location error:", error);
@@ -255,37 +222,27 @@ export default function OrderMapScreen() {
   useEffect(() => {
     if (!initialPoint) {
       moveToCurrentLocation();
+      return;
     }
-  }, [initialPoint, moveToCurrentLocation]);
 
-  const handleRegionChangeComplete = useCallback((nextRegion: Region) => {
-    setRegion(nextRegion);
-  }, []);
-
-  const handlePickCenterPoint = useCallback(async () => {
-    const point = {
-      latitude: region.latitude,
-      longitude: region.longitude,
-    };
-
-    setSelectedPoint(point);
-    await resolveAddressByCoords(point);
-  }, [region.latitude, region.longitude, resolveAddressByCoords]);
+    if (!initialAddress) {
+      resolveAddressByCoords(initialPoint);
+    } else {
+      setIsLoadingLocation(false);
+    }
+  }, [initialAddress, initialPoint, moveToCurrentLocation, resolveAddressByCoords]);
 
   const handleConfirmAddress = useCallback(() => {
     if (!selectedPoint || !resolvedAddress.trim()) {
       Alert.alert(
           "Адрес не выбран",
-          "Выбери точку на карте и подтверди адрес."
+          "Нажми «Использовать моё местоположение», чтобы определить адрес."
       );
       return;
     }
 
     if (!packageId.trim()) {
-      Alert.alert(
-          "Не выбран пакет",
-          "Вернись назад и выбери тариф заново."
-      );
+      Alert.alert("Не выбран пакет", "Вернись назад и выбери тариф заново.");
       return;
     }
 
@@ -331,207 +288,151 @@ export default function OrderMapScreen() {
     total,
   ]);
 
-  const handleBackToDetails = useCallback(() => {
-    router.back();
-  }, [router]);
-
   const selectedCoordsText = selectedPoint
       ? `${selectedPoint.latitude.toFixed(6)}, ${selectedPoint.longitude.toFixed(6)}`
-      : `${region.latitude.toFixed(6)}, ${region.longitude.toFixed(6)}`;
+      : "Координаты пока не определены";
 
   return (
       <>
-        <Stack.Screen options={{ title: "Адрес на карте" }} />
+        <Stack.Screen options={{ title: "Адрес" }} />
 
         <AppScreen>
-          {permissionState === "denied" && !selectedPoint ? (
-              <EmptyState
-                  title="Геолокация недоступна"
-                  description="Разрешение на местоположение не выдано. Можно попробовать снова и выбрать точку вручную."
-                  extraText={errorText}
-                  actions={
-                    <>
-                      <AppButton title="Попробовать снова" onPress={moveToCurrentLocation} />
-                      <AppButton
-                          title="Назад"
-                          variant="secondary"
-                          onPress={handleBackToDetails}
-                      />
-                    </>
-                  }
-              />
-          ) : (
-              <KeyboardAvoidingView
-                  style={styles.keyboard}
-                  behavior={Platform.OS === "ios" ? "padding" : undefined}
-              >
-                <ScrollView
-                    contentContainerStyle={styles.content}
-                    keyboardShouldPersistTaps="handled"
-                    showsVerticalScrollIndicator={false}
-                >
-                  <ScreenSection>
-                    <ScreenHeader
-                        title="Выбери адрес на карте"
-                        subtitle="Перемести карту так, чтобы метка была на нужной точке, затем подтверди адрес."
+          <KeyboardAvoidingView
+              style={styles.keyboard}
+              behavior={Platform.OS === "ios" ? "padding" : undefined}
+          >
+            <ScrollView
+                contentContainerStyle={styles.content}
+                keyboardShouldPersistTaps="handled"
+                showsVerticalScrollIndicator={false}
+            >
+              <ScreenSection>
+                <ScreenHeader
+                    title="Укажи адрес"
+                    subtitle="Для стабильного APK временно используем определение адреса по геолокации без карты."
+                />
+
+                {errorText ? (
+                    <ErrorCard
+                        title="Не удалось определить адрес"
+                        description={errorText}
+                        actionLabel="Попробовать ещё раз"
+                        onAction={moveToCurrentLocation}
                     />
+                ) : null}
 
-                    {errorText ? (
-                        <ErrorCard
-                            title="Есть проблема с геолокацией"
-                            description={errorText}
-                            actionLabel="Попробовать ещё раз"
-                            onAction={moveToCurrentLocation}
-                        />
-                    ) : null}
+                <AppCard>
+                  <SectionTitle>Местоположение</SectionTitle>
 
-                    <AppCard style={styles.mapCard}>
-                      <View style={styles.mapHeaderRow}>
-                        <SectionTitle>Карта</SectionTitle>
+                  {isLoadingLocation || isResolvingAddress ? (
+                      <View style={styles.loadingRow}>
+                        <ActivityIndicator size="small" color={colors.primary} />
+                        <Text style={styles.loadingText}>
+                          Определяем адрес и координаты...
+                        </Text>
                       </View>
+                  ) : (
+                      <>
+                        <Text style={styles.addressText}>
+                          {resolvedAddress || "Адрес пока не определён"}
+                        </Text>
+                        <Text style={styles.coordsText}>{selectedCoordsText}</Text>
+                      </>
+                  )}
 
-                      <View style={styles.mapWrap}>
-                        <MapView
-                            style={styles.map}
-                            initialRegion={region}
-                            region={region}
-                            onRegionChangeComplete={handleRegionChangeComplete}
-                            showsUserLocation
-                            showsMyLocationButton={false}
-                        />
+                  <View style={styles.cardButtons}>
+                    <AppButton
+                        title="Использовать моё местоположение"
+                        onPress={moveToCurrentLocation}
+                        disabled={isLoadingLocation || isResolvingAddress}
+                    />
+                  </View>
+                </AppCard>
 
-                        <View pointerEvents="none" style={styles.pinWrap}>
-                          <View style={styles.centerPinOuter}>
-                            <View style={styles.centerPinInner} />
-                          </View>
-                        </View>
+                <AppCard>
+                  <SectionTitle>Детали адреса</SectionTitle>
 
-                        {isLoadingLocation ? (
-                            <View style={styles.mapOverlay}>
-                              <ActivityIndicator size="large" color={colors.primary} />
-                              <Text style={styles.mapOverlayText}>
-                                Определяем местоположение...
-                              </Text>
-                            </View>
-                        ) : null}
-                      </View>
+                  <View style={styles.formGroup}>
+                    <Text style={styles.label}>Название адреса</Text>
+                    <TextInput
+                        style={styles.input}
+                        placeholder="Например: Дом, Работа"
+                        placeholderTextColor={colors.textSecondary}
+                        value={addressLabel}
+                        onChangeText={setAddressLabel}
+                    />
+                  </View>
 
-                      <View style={styles.cardButtons}>
-                        <AppButton
-                            title="Моё местоположение"
-                            variant="secondary"
-                            onPress={moveToCurrentLocation}
-                        />
-                        <AppButton
-                            title="Подтвердить точку в центре карты"
-                            onPress={handlePickCenterPoint}
-                        />
-                      </View>
-                    </AppCard>
+                  <View style={styles.formGroup}>
+                    <Text style={styles.label}>Квартира</Text>
+                    <TextInput
+                        style={styles.input}
+                        placeholder="Например: 24"
+                        placeholderTextColor={colors.textSecondary}
+                        value={apartment}
+                        onChangeText={setApartment}
+                    />
+                  </View>
 
-                    <AppCard>
-                      <SectionTitle>Выбранный адрес</SectionTitle>
-
-                      {isResolvingAddress ? (
-                          <View style={styles.resolvingRow}>
-                            <ActivityIndicator size="small" color={colors.primary} />
-                            <Text style={styles.resolvingText}>Определяем адрес...</Text>
-                          </View>
-                      ) : (
-                          <>
-                            <Text style={styles.addressText}>
-                              {resolvedAddress || "Пока адрес не подтверждён"}
-                            </Text>
-                            <Text style={styles.coordsText}>{selectedCoordsText}</Text>
-                          </>
-                      )}
-                    </AppCard>
-
-                    <AppCard>
-                      <SectionTitle>Детали адреса</SectionTitle>
-
-                      <View style={styles.formGroup}>
-                        <Text style={styles.label}>Название адреса</Text>
-                        <TextInput
-                            style={styles.input}
-                            placeholder="Например: Дом, Работа"
-                            placeholderTextColor={colors.textSecondary}
-                            value={addressLabel}
-                            onChangeText={setAddressLabel}
-                        />
-                      </View>
-
-                      <View style={styles.formGroup}>
-                        <Text style={styles.label}>Квартира</Text>
-                        <TextInput
-                            style={styles.input}
-                            placeholder="Например: 24"
-                            placeholderTextColor={colors.textSecondary}
-                            value={apartment}
-                            onChangeText={setApartment}
-                        />
-                      </View>
-
-                      <View style={styles.formRow}>
-                        <View style={styles.formCol}>
-                          <Text style={styles.label}>Этаж</Text>
-                          <TextInput
-                              style={styles.input}
-                              placeholder="5"
-                              placeholderTextColor={colors.textSecondary}
-                              value={floor}
-                              onChangeText={setFloor}
-                          />
-                        </View>
-
-                        <View style={styles.formCol}>
-                          <Text style={styles.label}>Подъезд</Text>
-                          <TextInput
-                              style={styles.input}
-                              placeholder="2"
-                              placeholderTextColor={colors.textSecondary}
-                              value={entrance}
-                              onChangeText={setEntrance}
-                          />
-                        </View>
-                      </View>
-
-                      <View style={styles.formGroup}>
-                        <Text style={styles.label}>Домофон</Text>
-                        <TextInput
-                            style={styles.input}
-                            placeholder="Например: 24К"
-                            placeholderTextColor={colors.textSecondary}
-                            value={intercom}
-                            onChangeText={setIntercom}
-                        />
-                      </View>
-
-                      <View style={styles.formGroupNoMargin}>
-                        <Text style={styles.label}>Комментарий для курьера</Text>
-                        <TextInput
-                            style={[styles.input, styles.textarea]}
-                            placeholder="Например: вход со двора, не звонить в дверь"
-                            placeholderTextColor={colors.textSecondary}
-                            value={comment}
-                            onChangeText={setComment}
-                            multiline
-                            textAlignVertical="top"
-                        />
-                      </View>
-                    </AppCard>
-
-                    <View style={styles.footerButtons}>
-                      <AppButton
-                          title="Продолжить"
-                          onPress={handleConfirmAddress}
-                          disabled={!canConfirm}
+                  <View style={styles.formRow}>
+                    <View style={styles.formCol}>
+                      <Text style={styles.label}>Этаж</Text>
+                      <TextInput
+                          style={styles.input}
+                          placeholder="5"
+                          placeholderTextColor={colors.textSecondary}
+                          value={floor}
+                          onChangeText={setFloor}
                       />
                     </View>
-                  </ScreenSection>
-                </ScrollView>
-              </KeyboardAvoidingView>
-          )}
+
+                    <View style={styles.formCol}>
+                      <Text style={styles.label}>Подъезд</Text>
+                      <TextInput
+                          style={styles.input}
+                          placeholder="2"
+                          placeholderTextColor={colors.textSecondary}
+                          value={entrance}
+                          onChangeText={setEntrance}
+                      />
+                    </View>
+                  </View>
+
+                  <View style={styles.formGroup}>
+                    <Text style={styles.label}>Домофон</Text>
+                    <TextInput
+                        style={styles.input}
+                        placeholder="Например: 24К"
+                        placeholderTextColor={colors.textSecondary}
+                        value={intercom}
+                        onChangeText={setIntercom}
+                    />
+                  </View>
+
+                  <View style={styles.formGroupNoMargin}>
+                    <Text style={styles.label}>Комментарий для курьера</Text>
+                    <TextInput
+                        style={[styles.input, styles.textarea]}
+                        placeholder="Например: вход со двора, не звонить в дверь"
+                        placeholderTextColor={colors.textSecondary}
+                        value={comment}
+                        onChangeText={setComment}
+                        multiline
+                        textAlignVertical="top"
+                    />
+                  </View>
+                </AppCard>
+
+                <View style={styles.footerButtons}>
+                  <AppButton
+                      title="Продолжить"
+                      onPress={handleConfirmAddress}
+                      disabled={!canConfirm}
+                  />
+                </View>
+              </ScreenSection>
+            </ScrollView>
+          </KeyboardAvoidingView>
         </AppScreen>
       </>
   );
@@ -545,64 +446,12 @@ function createStyles(colors: ReturnType<typeof useAppTheme>["colors"]) {
     content: {
       paddingBottom: spacing.xl,
     },
-    mapCard: {
-      gap: spacing.md,
-    },
-    mapHeaderRow: {
-      marginBottom: -spacing.sm,
-    },
-    mapWrap: {
-      height: 340,
-      borderRadius: radii.lg,
-      overflow: "hidden",
-      backgroundColor: colors.surfaceSecondary,
-    },
-    map: {
-      width: "100%",
-      height: "100%",
-    },
-    pinWrap: {
-      ...StyleSheet.absoluteFillObject,
-      alignItems: "center",
-      justifyContent: "center",
-    },
-    centerPinOuter: {
-      width: 26,
-      height: 26,
-      borderRadius: 999,
-      backgroundColor: colors.white,
-      borderWidth: 2,
-      borderColor: colors.primary,
-      alignItems: "center",
-      justifyContent: "center",
-      marginBottom: 24,
-    },
-    centerPinInner: {
-      width: 10,
-      height: 10,
-      borderRadius: 999,
-      backgroundColor: colors.primary,
-    },
-    mapOverlay: {
-      ...StyleSheet.absoluteFillObject,
-      alignItems: "center",
-      justifyContent: "center",
-      gap: spacing.sm,
-      backgroundColor: colors.overlay,
-    },
-    mapOverlayText: {
-      fontSize: typography.body,
-      color: colors.textSecondary,
-    },
-    cardButtons: {
-      gap: spacing.md,
-    },
-    resolvingRow: {
+    loadingRow: {
       flexDirection: "row",
       alignItems: "center",
       gap: spacing.sm,
     },
-    resolvingText: {
+    loadingText: {
       fontSize: typography.body,
       color: colors.textSecondary,
     },
@@ -616,6 +465,10 @@ function createStyles(colors: ReturnType<typeof useAppTheme>["colors"]) {
       marginTop: spacing.sm,
       fontSize: typography.bodySmall,
       color: colors.textSecondary,
+    },
+    cardButtons: {
+      marginTop: spacing.lg,
+      gap: spacing.md,
     },
     formGroup: {
       marginBottom: spacing.md,
