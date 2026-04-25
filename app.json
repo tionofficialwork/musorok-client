@@ -19,9 +19,17 @@
     "android": {
       "package": "com.musorok.client"
     },
-    "plugins": ["expo-router"],
+    "plugins": [
+      "expo-router"
+    ],
     "experiments": {
       "typedRoutes": true
+    },
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "55889869-c8da-44ec-828d-dc1f1c2d312c"
+      }
     }
   }
 }
