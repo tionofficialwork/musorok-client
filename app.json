@@ -21,7 +21,10 @@
       "permissions": [
         "ACCESS_COARSE_LOCATION",
         "ACCESS_FINE_LOCATION"
-      ]
+      ],
+      "config": {
+        "yandexMapsApiKey": "1392b5b4-ec17-4717-af38-b11f0654f54f"
+      }
     },
     "plugins": [
       "expo-router",
