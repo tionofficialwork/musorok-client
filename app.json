@@ -17,7 +17,11 @@
       "bundleIdentifier": "com.musorok.client"
     },
     "android": {
-      "package": "com.musorok.client"
+      "package": "com.musorok.client",
+      "permissions": [
+        "ACCESS_COARSE_LOCATION",
+        "ACCESS_FINE_LOCATION"
+      ]
     },
     "plugins": [
       "expo-router"

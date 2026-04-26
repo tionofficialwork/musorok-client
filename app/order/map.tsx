@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -12,6 +12,7 @@ import {
 } from "react-native";
 import { Stack, useLocalSearchParams, useRouter } from "expo-router";
 import * as Location from "expo-location";
+import YaMap from "react-native-yamap-plus";
 
 import AppButton from "../../components/ui/AppButton";
 import AppCard from "../../components/ui/AppCard";
@@ -48,6 +49,33 @@ type SelectedPoint = {
   longitude: number;
 };
 
+const DEFAULT_POINT: SelectedPoint = {
+  latitude: 45.03547,
+  longitude: 38.975313,
+};
+
+const YANDEX_MAPKIT_API_KEY = process.env.EXPO_PUBLIC_YANDEX_MAPKIT_API_KEY;
+
+let isYandexMapInitialized = false;
+
+function initYandexMap() {
+  if (!YANDEX_MAPKIT_API_KEY || isYandexMapInitialized) {
+    return;
+  }
+
+  const YamapModule = YaMap as any;
+
+  if (typeof YamapModule.init === "function") {
+    YamapModule.init(YANDEX_MAPKIT_API_KEY);
+  }
+
+  if (typeof YamapModule.setLocale === "function") {
+    YamapModule.setLocale("ru_RU").catch(() => null);
+  }
+
+  isYandexMapInitialized = true;
+}
+
 function parseNumberParam(value?: string) {
   if (!value) {
     return null;
@@ -83,7 +111,24 @@ function buildAddressLabel(
   return "";
 }
 
+function getPointFromCameraEvent(event: any): SelectedPoint | null {
+  const payload = event?.nativeEvent ?? event;
+  const point = payload?.point ?? payload?.target ?? payload;
+
+  const latitude = Number(point?.lat ?? point?.latitude);
+  const longitude = Number(point?.lon ?? point?.longitude);
+
+  if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) {
+    return null;
+  }
+
+  return { latitude, longitude };
+}
+
 export default function OrderMapScreen() {
+  initYandexMap();
+
+  const mapRef = useRef<any>(null);
   const router = useRouter();
   const params = useLocalSearchParams<MapParams>();
   const { colors } = useAppTheme();
@@ -128,10 +173,12 @@ export default function OrderMapScreen() {
             latitude: initialLatitude,
             longitude: initialLongitude,
           }
-          : null;
+          : DEFAULT_POINT;
 
+  const [mapCenterPoint, setMapCenterPoint] =
+      useState<SelectedPoint>(initialPoint);
   const [selectedPoint, setSelectedPoint] = useState<SelectedPoint | null>(
-      initialPoint
+      initialLatitude !== null && initialLongitude !== null ? initialPoint : null
   );
   const [resolvedAddress, setResolvedAddress] = useState(initialAddress);
   const [apartment, setApartment] = useState(initialApartment);
@@ -141,7 +188,7 @@ export default function OrderMapScreen() {
   const [addressLabel, setAddressLabel] = useState(initialAddressLabel);
   const [comment, setComment] = useState(initialComment);
 
-  const [isLoadingLocation, setIsLoadingLocation] = useState(!initialPoint);
+  const [isLoadingLocation, setIsLoadingLocation] = useState(false);
   const [isResolvingAddress, setIsResolvingAddress] = useState(false);
   const [errorText, setErrorText] = useState<string | null>(null);
 
@@ -179,11 +226,26 @@ export default function OrderMapScreen() {
       console.error("Reverse geocode error:", error);
       setResolvedAddress(buildAddressLabel(null, point));
       setErrorText(
-          "Не удалось точно определить адрес. Используем выбранные координаты."
+          "Не удалось точно определить адрес. Можно использовать выбранные координаты."
       );
     } finally {
       setIsResolvingAddress(false);
     }
+  }, []);
+
+  const moveMapToPoint = useCallback((point: SelectedPoint) => {
+    setMapCenterPoint(point);
+
+    mapRef.current?.setCenter?.(
+        {
+          lat: point.latitude,
+          lon: point.longitude,
+        },
+        16,
+        0,
+        0,
+        0
+    );
   }, []);
 
   const moveToCurrentLocation = useCallback(async () => {
@@ -195,7 +257,7 @@ export default function OrderMapScreen() {
 
       if (permission.status !== "granted") {
         setErrorText(
-            "Нет доступа к геолокации. Разреши доступ к местоположению, чтобы оформить заказ."
+            "Нет доступа к геолокации. Разреши доступ к местоположению или выбери точку на карте."
         );
         return;
       }
@@ -210,6 +272,7 @@ export default function OrderMapScreen() {
       };
 
       setSelectedPoint(nextPoint);
+      moveMapToPoint(nextPoint);
       await resolveAddressByCoords(nextPoint);
     } catch (error) {
       console.error("Current location error:", error);
@@ -217,26 +280,37 @@ export default function OrderMapScreen() {
     } finally {
       setIsLoadingLocation(false);
     }
-  }, [resolveAddressByCoords]);
+  }, [moveMapToPoint, resolveAddressByCoords]);
 
   useEffect(() => {
-    if (!initialPoint) {
-      moveToCurrentLocation();
+    if (selectedPoint && !initialAddress) {
+      resolveAddressByCoords(selectedPoint);
       return;
     }
 
-    if (!initialAddress) {
-      resolveAddressByCoords(initialPoint);
-    } else {
-      setIsLoadingLocation(false);
+    if (!selectedPoint) {
+      moveToCurrentLocation();
     }
-  }, [initialAddress, initialPoint, moveToCurrentLocation, resolveAddressByCoords]);
+  }, [initialAddress, moveToCurrentLocation, resolveAddressByCoords, selectedPoint]);
+
+  const handleCameraPositionChangeEnd = useCallback((event: any) => {
+    const nextPoint = getPointFromCameraEvent(event);
+
+    if (nextPoint) {
+      setMapCenterPoint(nextPoint);
+    }
+  }, []);
+
+  const handlePickCenterPoint = useCallback(async () => {
+    setSelectedPoint(mapCenterPoint);
+    await resolveAddressByCoords(mapCenterPoint);
+  }, [mapCenterPoint, resolveAddressByCoords]);
 
   const handleConfirmAddress = useCallback(() => {
     if (!selectedPoint || !resolvedAddress.trim()) {
       Alert.alert(
           "Адрес не выбран",
-          "Нажми «Использовать моё местоположение», чтобы определить адрес."
+          "Перемести карту на нужную точку и нажми «Подтвердить точку»."
       );
       return;
     }
@@ -290,11 +364,11 @@ export default function OrderMapScreen() {
 
   const selectedCoordsText = selectedPoint
       ? `${selectedPoint.latitude.toFixed(6)}, ${selectedPoint.longitude.toFixed(6)}`
-      : "Координаты пока не определены";
+      : `${mapCenterPoint.latitude.toFixed(6)}, ${mapCenterPoint.longitude.toFixed(6)}`;
 
   return (
       <>
-        <Stack.Screen options={{ title: "Адрес" }} />
+        <Stack.Screen options={{ title: "Адрес на карте" }} />
 
         <AppScreen>
           <KeyboardAvoidingView
@@ -308,45 +382,101 @@ export default function OrderMapScreen() {
             >
               <ScreenSection>
                 <ScreenHeader
-                    title="Укажи адрес"
-                    subtitle="Для стабильного APK временно используем определение адреса по геолокации без карты."
+                    title="Выбери адрес на карте"
+                    subtitle="Перемести карту так, чтобы метка была на нужной точке, затем подтверди адрес."
                 />
+
+                {!YANDEX_MAPKIT_API_KEY ? (
+                    <ErrorCard
+                        title="Не указан ключ Яндекс.Карт"
+                        description="Добавь EXPO_PUBLIC_YANDEX_MAPKIT_API_KEY в .env и EAS Environment Variables."
+                    />
+                ) : null}
 
                 {errorText ? (
                     <ErrorCard
-                        title="Не удалось определить адрес"
+                        title="Есть проблема с адресом"
                         description={errorText}
                         actionLabel="Попробовать ещё раз"
                         onAction={moveToCurrentLocation}
                     />
                 ) : null}
 
-                <AppCard>
-                  <SectionTitle>Местоположение</SectionTitle>
+                <AppCard style={styles.mapCard}>
+                  <View style={styles.mapHeaderRow}>
+                    <SectionTitle>Карта</SectionTitle>
+                  </View>
 
-                  {isLoadingLocation || isResolvingAddress ? (
-                      <View style={styles.loadingRow}>
+                  <View style={styles.mapWrap}>
+                    {YANDEX_MAPKIT_API_KEY ? (
+                        <YaMap
+                            ref={mapRef}
+                            style={styles.map}
+                            initialRegion={{
+                              lat: mapCenterPoint.latitude,
+                              lon: mapCenterPoint.longitude,
+                              zoom: 16,
+                            }}
+                            showUserPosition
+                            followUser={false}
+                            nightMode
+                            onCameraPositionChangeEnd={handleCameraPositionChangeEnd}
+                        />
+                    ) : (
+                        <View style={styles.mapFallback}>
+                          <Text style={styles.mapFallbackText}>
+                            Яндекс.Карта недоступна без API-ключа.
+                          </Text>
+                        </View>
+                    )}
+
+                    <View pointerEvents="none" style={styles.pinWrap}>
+                      <View style={styles.centerPinOuter}>
+                        <View style={styles.centerPinInner} />
+                      </View>
+                    </View>
+
+                    {isLoadingLocation ? (
+                        <View style={styles.mapOverlay}>
+                          <ActivityIndicator size="large" color={colors.primary} />
+                          <Text style={styles.mapOverlayText}>
+                            Определяем местоположение...
+                          </Text>
+                        </View>
+                    ) : null}
+                  </View>
+
+                  <View style={styles.cardButtons}>
+                    <AppButton
+                        title="Моё местоположение"
+                        variant="secondary"
+                        onPress={moveToCurrentLocation}
+                        disabled={isLoadingLocation || isResolvingAddress}
+                    />
+                    <AppButton
+                        title="Подтвердить точку"
+                        onPress={handlePickCenterPoint}
+                        disabled={isLoadingLocation || isResolvingAddress}
+                    />
+                  </View>
+                </AppCard>
+
+                <AppCard>
+                  <SectionTitle>Выбранный адрес</SectionTitle>
+
+                  {isResolvingAddress ? (
+                      <View style={styles.resolvingRow}>
                         <ActivityIndicator size="small" color={colors.primary} />
-                        <Text style={styles.loadingText}>
-                          Определяем адрес и координаты...
-                        </Text>
+                        <Text style={styles.resolvingText}>Определяем адрес...</Text>
                       </View>
                   ) : (
                       <>
                         <Text style={styles.addressText}>
-                          {resolvedAddress || "Адрес пока не определён"}
+                          {resolvedAddress || "Пока адрес не подтверждён"}
                         </Text>
                         <Text style={styles.coordsText}>{selectedCoordsText}</Text>
                       </>
                   )}
-
-                  <View style={styles.cardButtons}>
-                    <AppButton
-                        title="Использовать моё местоположение"
-                        onPress={moveToCurrentLocation}
-                        disabled={isLoadingLocation || isResolvingAddress}
-                    />
-                  </View>
                 </AppCard>
 
                 <AppCard>
@@ -446,12 +576,75 @@ function createStyles(colors: ReturnType<typeof useAppTheme>["colors"]) {
     content: {
       paddingBottom: spacing.xl,
     },
-    loadingRow: {
+    mapCard: {
+      gap: spacing.md,
+    },
+    mapHeaderRow: {
+      marginBottom: -spacing.sm,
+    },
+    mapWrap: {
+      height: 340,
+      borderRadius: radii.lg,
+      overflow: "hidden",
+      backgroundColor: colors.surfaceSecondary,
+    },
+    map: {
+      width: "100%",
+      height: "100%",
+    },
+    mapFallback: {
+      flex: 1,
+      alignItems: "center",
+      justifyContent: "center",
+      padding: spacing.lg,
+    },
+    mapFallbackText: {
+      fontSize: typography.body,
+      color: colors.textSecondary,
+      textAlign: "center",
+    },
+    pinWrap: {
+      ...StyleSheet.absoluteFillObject,
+      alignItems: "center",
+      justifyContent: "center",
+    },
+    centerPinOuter: {
+      width: 26,
+      height: 26,
+      borderRadius: 999,
+      backgroundColor: colors.white,
+      borderWidth: 2,
+      borderColor: colors.primary,
+      alignItems: "center",
+      justifyContent: "center",
+      marginBottom: 24,
+    },
+    centerPinInner: {
+      width: 10,
+      height: 10,
+      borderRadius: 999,
+      backgroundColor: colors.primary,
+    },
+    mapOverlay: {
+      ...StyleSheet.absoluteFillObject,
+      alignItems: "center",
+      justifyContent: "center",
+      gap: spacing.sm,
+      backgroundColor: colors.overlay,
+    },
+    mapOverlayText: {
+      fontSize: typography.body,
+      color: colors.textSecondary,
+    },
+    cardButtons: {
+      gap: spacing.md,
+    },
+    resolvingRow: {
       flexDirection: "row",
       alignItems: "center",
       gap: spacing.sm,
     },
-    loadingText: {
+    resolvingText: {
       fontSize: typography.body,
       color: colors.textSecondary,
     },
@@ -465,10 +658,6 @@ function createStyles(colors: ReturnType<typeof useAppTheme>["colors"]) {
       marginTop: spacing.sm,
       fontSize: typography.bodySmall,
       color: colors.textSecondary,
-    },
-    cardButtons: {
-      marginTop: spacing.lg,
-      gap: spacing.md,
     },
     formGroup: {
       marginBottom: spacing.md,
