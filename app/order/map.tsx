@@ -12,7 +12,7 @@ import {
 } from "react-native";
 import { Stack, useLocalSearchParams, useRouter } from "expo-router";
 import * as Location from "expo-location";
-import YaMap from "react-native-yamap-plus";
+import { Yamap, YamapInstance } from "react-native-yamap-plus";
 
 import AppButton from "../../components/ui/AppButton";
 import AppCard from "../../components/ui/AppCard";
@@ -58,19 +58,20 @@ const YANDEX_MAPKIT_API_KEY = process.env.EXPO_PUBLIC_YANDEX_MAPKIT_API_KEY;
 
 let isYandexMapInitialized = false;
 
+const YandexMapView = Yamap as any;
+const YandexMapInstance = YamapInstance as any;
+
 function initYandexMap() {
   if (!YANDEX_MAPKIT_API_KEY || isYandexMapInitialized) {
     return;
   }
 
-  const YamapModule = YaMap as any;
-
-  if (typeof YamapModule.init === "function") {
-    YamapModule.init(YANDEX_MAPKIT_API_KEY);
+  if (typeof YandexMapInstance.init === "function") {
+    YandexMapInstance.init(YANDEX_MAPKIT_API_KEY);
   }
 
-  if (typeof YamapModule.setLocale === "function") {
-    YamapModule.setLocale("ru_RU").catch(() => null);
+  if (typeof YandexMapInstance.setLocale === "function") {
+    YandexMapInstance.setLocale("ru_RU").catch(() => null);
   }
 
   isYandexMapInitialized = true;
@@ -113,7 +114,7 @@ function buildAddressLabel(
 
 function getPointFromCameraEvent(event: any): SelectedPoint | null {
   const payload = event?.nativeEvent ?? event;
-  const point = payload?.point ?? payload?.target ?? payload;
+  const point = payload?.point ?? payload?.target ?? payload?.position ?? payload;
 
   const latitude = Number(point?.lat ?? point?.latitude);
   const longitude = Number(point?.lon ?? point?.longitude);
@@ -236,16 +237,18 @@ export default function OrderMapScreen() {
   const moveMapToPoint = useCallback((point: SelectedPoint) => {
     setMapCenterPoint(point);
 
-    mapRef.current?.setCenter?.(
-        {
-          lat: point.latitude,
-          lon: point.longitude,
-        },
-        16,
-        0,
-        0,
-        0
-    );
+    if (typeof mapRef.current?.setCenter === "function") {
+      mapRef.current.setCenter(
+          {
+            lat: point.latitude,
+            lon: point.longitude,
+          },
+          16,
+          0,
+          0,
+          0
+      );
+    }
   }, []);
 
   const moveToCurrentLocation = useCallback(async () => {
@@ -409,7 +412,7 @@ export default function OrderMapScreen() {
 
                   <View style={styles.mapWrap}>
                     {YANDEX_MAPKIT_API_KEY ? (
-                        <YaMap
+                        <YandexMapView
                             ref={mapRef}
                             style={styles.map}
                             initialRegion={{
@@ -419,7 +422,7 @@ export default function OrderMapScreen() {
                             }}
                             showUserPosition
                             followUser={false}
-                            nightMode
+                            nightMode={false}
                             onCameraPositionChangeEnd={handleCameraPositionChangeEnd}
                         />
                     ) : (
