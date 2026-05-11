@@ -27,6 +27,7 @@ import { useAppTheme } from "../../providers/AppThemeProvider";
 type PaymentReturnParams = {
   orderId?: string;
   result?: string;
+  message?: string;
 };
 
 const PAYMENT_CHECK_ATTEMPTS = 6;
@@ -39,7 +40,13 @@ function delay(ms: number) {
 }
 
 function isFinalPaymentStatus(status: PaymentStatus) {
-  return ["failed", "cancelled", "refunded", "amount_mismatch"].includes(status);
+  return [
+    "not_started",
+    "failed",
+    "cancelled",
+    "refunded",
+    "amount_mismatch",
+  ].includes(status);
 }
 
 export default function PaymentReturnScreen() {
@@ -50,6 +57,8 @@ export default function PaymentReturnScreen() {
 
   const orderId = typeof params.orderId === "string" ? params.orderId : "";
   const result = typeof params.result === "string" ? params.result : "";
+  const initialMessage =
+    typeof params.message === "string" ? params.message : "";
 
   const [status, setStatus] = useState<PaymentStatus | null>(null);
   const [errorText, setErrorText] = useState<string | null>(null);
@@ -151,7 +160,9 @@ export default function PaymentReturnScreen() {
   }, [isChecking, isRetrying, orderId, router]);
 
   const title =
-    result === "fail"
+    result === "init_error"
+      ? "Заказ создан"
+      : result === "fail"
       ? "Платёж не прошёл"
       : isChecking
         ? "Проверяем оплату"
@@ -171,6 +182,9 @@ export default function PaymentReturnScreen() {
         <Text style={styles.subtitle}>
           {errorText
             ? errorText
+            : result === "init_error" && status === "not_started"
+              ? initialMessage ||
+                "Оплата пока не началась. Можно повторить открытие платежной формы."
             : status
               ? getPaymentStatusLabel(status)
               : "Мы сверяем статус с Т-Банком."}

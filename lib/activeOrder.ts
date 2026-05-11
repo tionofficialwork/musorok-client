@@ -31,6 +31,8 @@ export type StoredActiveOrder = {
   package_price?: number | null;
   apartment?: string | null;
   entrance?: string | null;
+  floor?: string | null;
+  intercom?: string | null;
   comment?: string | null;
   leave_at_door?: boolean | null;
   phone?: string | null;
@@ -76,6 +78,8 @@ function normalizeOrder(input: unknown): StoredActiveOrder | null {
       typeof raw.package_price === "number" ? raw.package_price : null,
     apartment: typeof raw.apartment === "string" ? raw.apartment : null,
     entrance: typeof raw.entrance === "string" ? raw.entrance : null,
+    floor: typeof raw.floor === "string" ? raw.floor : null,
+    intercom: typeof raw.intercom === "string" ? raw.intercom : null,
     comment: typeof raw.comment === "string" ? raw.comment : null,
     leave_at_door:
       typeof raw.leave_at_door === "boolean" ? raw.leave_at_door : null,

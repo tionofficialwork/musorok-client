@@ -208,7 +208,7 @@ export default function NotificationsScreen() {
   );
 }
 
-function createStyles(colors: any) {
+function createStyles(colors: ReturnType<typeof useAppTheme>["colors"]) {
   return StyleSheet.create({
     safeArea: {
       flex: 1,

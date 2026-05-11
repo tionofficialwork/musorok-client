@@ -6,7 +6,7 @@ const API_OWNER_KEY = "musorok_api_owner_key_v1";
 const REQUEST_TIMEOUT_MS = 20000;
 let secureStoreAvailability: Promise<boolean> | null = null;
 
-const apiBaseUrl = process.env.EXPO_PUBLIC_API_URL;
+const apiBaseUrl = process.env.EXPO_PUBLIC_API_URL?.replace(/\/+$/, "");
 
 if (!apiBaseUrl) {
   throw new Error("EXPO_PUBLIC_API_URL is missing");

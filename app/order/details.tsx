@@ -1,18 +1,22 @@
 import {
+  useCallback,
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from "react";
 import {
   ActivityIndicator,
   Alert,
   KeyboardAvoidingView,
+  type NativeSyntheticEvent,
   Platform,
   ScrollView,
   StyleSheet,
   Switch,
   Text,
   TextInput,
+  type TextInputKeyPressEventData,
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
@@ -82,6 +86,7 @@ type ProfileRow = {
 };
 
 const TIP_PRESETS = [0, 50, 100, 150, 200];
+const MAX_TIP_RUBLES = 1000;
 function getPaymentMethodLabel(method: PaymentMethod) {
   return method === "sbp" ? "СБП" : "Карта";
 }
@@ -184,6 +189,10 @@ export default function OrderDetailsScreen() {
   const params = useLocalSearchParams<DetailsParams>();
   const { colors } = useAppTheme();
   const styles = useMemo(() => createStyles(colors), [colors]);
+  const skipNextPhoneChangeRef = useRef(false);
+  const phoneBackspaceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
+      null
+  );
 
   const packageId =
       typeof params.packageId === "string" ? params.packageId : "";
@@ -355,16 +364,58 @@ export default function OrderDetailsScreen() {
 
   const handleManualTipChange = (value: string) => {
     const digits = value.replace(/\D/g, "").slice(0, 5);
-    setTip(digits.length > 0 ? Number(digits) : 0);
+    const nextTip = digits.length > 0 ? Number(digits) : 0;
+    setTip(Math.min(nextTip, MAX_TIP_RUBLES));
   };
 
   const phoneInputValue = useMemo(() => formatRussianPhoneInput(phone), [phone]);
   const normalizedPhone = useMemo(() => sanitizeRussianPhoneInput(phone), [phone]);
   const isPhoneValid = isValidRussianPhone(normalizedPhone);
 
+  useEffect(() => {
+    return () => {
+      if (phoneBackspaceTimerRef.current) {
+        clearTimeout(phoneBackspaceTimerRef.current);
+      }
+    };
+  }, []);
+
   const handlePhoneChange = (value: string) => {
+    if (skipNextPhoneChangeRef.current) {
+      skipNextPhoneChangeRef.current = false;
+      return;
+    }
+
     setPhone(sanitizeRussianPhoneInput(value));
   };
+
+  const handlePhoneKeyPress = useCallback(
+      (event: NativeSyntheticEvent<TextInputKeyPressEventData>) => {
+        if (event.nativeEvent.key !== "Backspace") {
+          return;
+        }
+
+        const nationalDigits = normalizedPhone.replace(/\D/g, "").slice(1);
+
+        if (!nationalDigits) {
+          return;
+        }
+
+        skipNextPhoneChangeRef.current = true;
+
+        if (phoneBackspaceTimerRef.current) {
+          clearTimeout(phoneBackspaceTimerRef.current);
+        }
+
+        phoneBackspaceTimerRef.current = setTimeout(() => {
+          skipNextPhoneChangeRef.current = false;
+          phoneBackspaceTimerRef.current = null;
+        }, 120);
+
+        setPhone(sanitizeRussianPhoneInput(nationalDigits.slice(0, -1)));
+      },
+      [normalizedPhone]
+  );
 
   const handleOpenMap = async () => {
     if (loading) {
@@ -533,11 +584,16 @@ export default function OrderDetailsScreen() {
                     <TextInput
                         value={phoneInputValue}
                         onChangeText={handlePhoneChange}
+                        onKeyPress={handlePhoneKeyPress}
                         placeholder="+7 (999) 123-45-67"
                         placeholderTextColor={colors.textMuted}
                         keyboardType="phone-pad"
                         textContentType="telephoneNumber"
                         editable={!loading}
+                        selection={{
+                          start: phoneInputValue.length,
+                          end: phoneInputValue.length,
+                        }}
                         style={styles.inputLikeBox}
                     />
                     <Text style={styles.helperText}>

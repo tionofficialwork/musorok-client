@@ -1028,12 +1028,6 @@ app.get("/addresses", requireOwnerKey, asyncRoute(async (req, res) => {
 app.post("/addresses", requireOwnerKey, asyncRoute(async (req, res) => {
   const body = req.body || {};
 
-  if (body.is_primary === true) {
-    await query("update user_addresses set is_primary = false where owner_key = $1", [
-      req.ownerKey,
-    ]);
-  }
-
   const result = await query(
     `insert into user_addresses (
        owner_key, label, street, apartment, entrance, floor, comment,
@@ -1054,18 +1048,22 @@ app.post("/addresses", requireOwnerKey, asyncRoute(async (req, res) => {
       body.longitude ?? null,
     ]
   );
+  const address = result.rows[0];
 
-  res.status(201).json({ address: result.rows[0] });
+  if (address && body.is_primary === true) {
+    await query(
+      `update user_addresses
+       set is_primary = false
+       where owner_key = $1 and id <> $2`,
+      [req.ownerKey, address.id]
+    );
+  }
+
+  res.status(201).json({ address });
 }));
 
 app.patch("/addresses/:id", requireOwnerKey, asyncRoute(async (req, res) => {
   const body = req.body || {};
-
-  if (body.is_primary === true) {
-    await query("update user_addresses set is_primary = false where owner_key = $1", [
-      req.ownerKey,
-    ]);
-  }
 
   const result = await query(
     `update user_addresses
@@ -1099,6 +1097,15 @@ app.patch("/addresses/:id", requireOwnerKey, asyncRoute(async (req, res) => {
   if (!result.rows[0]) {
     res.status(404).json({ error: "Address not found." });
     return;
+  }
+
+  if (body.is_primary === true) {
+    await query(
+      `update user_addresses
+       set is_primary = false
+       where owner_key = $1 and id <> $2`,
+      [req.ownerKey, result.rows[0].id]
+    );
   }
 
   res.json({ address: result.rows[0] });

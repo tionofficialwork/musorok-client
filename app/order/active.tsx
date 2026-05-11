@@ -58,6 +58,8 @@ type OrderRow = {
   package_price: number | null;
   apartment: string | null;
   entrance: string | null;
+  floor: string | null;
+  intercom: string | null;
   comment: string | null;
   leave_at_door: boolean | null;
   phone: string | null;
@@ -462,7 +464,10 @@ export default function ActiveOrderScreen() {
                                 compact
                                 styles={styles}
                             />
-                            {order.apartment || order.entrance ? (
+                            {order.apartment ||
+                            order.entrance ||
+                            order.floor ||
+                            order.intercom ? (
                                 <>
                                   <Divider styles={styles} />
                                   <InfoRow
@@ -470,6 +475,10 @@ export default function ActiveOrderScreen() {
                                       value={[
                                         order.apartment ? `кв. ${order.apartment}` : "",
                                         order.entrance ? `подъезд ${order.entrance}` : "",
+                                        order.floor ? `этаж ${order.floor}` : "",
+                                        order.intercom
+                                            ? `домофон ${order.intercom}`
+                                            : "",
                                       ]
                                           .filter(Boolean)
                                           .join(", ")}
@@ -667,6 +676,8 @@ function mapStoredOrderToOrderRow(order: StoredActiveOrder): OrderRow | null {
     package_price: order.package_price ?? null,
     apartment: order.apartment ?? null,
     entrance: order.entrance ?? null,
+    floor: order.floor ?? null,
+    intercom: order.intercom ?? null,
     comment: order.comment ?? null,
     leave_at_door: order.leave_at_door ?? null,
     phone: order.phone ?? null,
@@ -697,6 +708,8 @@ function normalizeOrderRow(value: any): OrderRow | null {
     package_price: value.package_price ?? null,
     apartment: value.apartment ?? null,
     entrance: value.entrance ?? null,
+    floor: value.floor ?? null,
+    intercom: value.intercom ?? null,
     comment: value.comment ?? null,
     leave_at_door: value.leave_at_door ?? null,
     phone: value.phone ?? null,

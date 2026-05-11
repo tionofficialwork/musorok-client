@@ -92,7 +92,7 @@ async function sendAuthCodeSms(phone, code) {
 
   return {
     ...result,
-    code: authSmsDebugCodeEnabled ? code : undefined,
+    code: authSmsDebugCodeEnabled && result.mode === "local" ? code : undefined,
   };
 }
 

@@ -195,7 +195,24 @@ export default function OrderConfirmScreen() {
         call_required: shouldCall,
       });
       const orderId = String(createdOrder.id);
-      const checkedPayment = await openOrderPaymentSession(orderId);
+      let checkedPayment: Awaited<ReturnType<typeof openOrderPaymentSession>>;
+
+      try {
+        checkedPayment = await openOrderPaymentSession(orderId);
+      } catch (paymentError: any) {
+        router.replace({
+          pathname: "/order/payment-return" as never,
+          params: {
+            orderId,
+            result: "init_error",
+            message:
+                typeof paymentError?.message === "string"
+                    ? paymentError.message
+                    : "Не удалось открыть оплату.",
+          },
+        });
+        return;
+      }
 
       if (!isPaymentSuccessful(checkedPayment)) {
         router.replace({

@@ -1,4 +1,5 @@
 const { Pool } = require("pg");
+const fs = require("fs");
 
 const requiredEnv = [
   "YANDEX_POSTGRES_HOST",
@@ -14,9 +15,19 @@ for (const key of requiredEnv) {
   }
 }
 
-const postgresCaCert = process.env.YANDEX_POSTGRES_CA_CERT
-  ? process.env.YANDEX_POSTGRES_CA_CERT.replace(/\\n/g, "\n")
-  : undefined;
+function readPostgresCaCert() {
+  if (process.env.YANDEX_POSTGRES_CA_CERT) {
+    return process.env.YANDEX_POSTGRES_CA_CERT.replace(/\\n/g, "\n");
+  }
+
+  if (process.env.YANDEX_POSTGRES_CA_CERT_PATH) {
+    return fs.readFileSync(process.env.YANDEX_POSTGRES_CA_CERT_PATH, "utf8");
+  }
+
+  return undefined;
+}
+
+const postgresCaCert = readPostgresCaCert();
 const rejectUnauthorized =
   process.env.YANDEX_POSTGRES_SSL_REJECT_UNAUTHORIZED !== "false";
 const connectionTimeoutMillis = Number(
