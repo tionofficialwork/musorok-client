@@ -8,23 +8,21 @@ import {
 import {
   Keyboard,
   KeyboardAvoidingView,
-  type NativeSyntheticEvent,
   Platform,
   Pressable,
   ScrollView,
   StyleSheet,
   Text,
   TextInput,
-  type TextInputKeyPressEventData,
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Stack, useLocalSearchParams, useRouter } from "expo-router";
 import AppLogo from "../../components/ui/AppLogo";
+import RussianPhoneInput from "../../components/ui/RussianPhoneInput";
 import { spacing, typography } from "../../lib/theme";
 import {
   type AuthFlowMode,
-  formatRussianPhoneInput,
   getAuthSession,
   isValidRussianPhone,
   normalizePhoneInput,
@@ -49,10 +47,6 @@ export default function AuthPhoneScreen() {
   const params = useLocalSearchParams<{ resetPhone?: string }>();
   const styles = useMemo(() => createStyles(), []);
   const scrollRef = useRef<ScrollView>(null);
-  const skipNextPhoneChangeRef = useRef(false);
-  const phoneBackspaceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
-    null
-  );
 
   const [flowMode, setFlowMode] = useState<AuthFlowMode>("login");
   const [phoneDigits, setPhoneDigits] = useState("");
@@ -66,10 +60,6 @@ export default function AuthPhoneScreen() {
     () => normalizePhoneInput(`+7${phoneDigits}`),
     [phoneDigits]
   );
-  const phoneInputValue = useMemo(
-    () => formatRussianPhoneInput(`+7${phoneDigits}`),
-    [phoneDigits]
-  );
   const passwordError = useMemo(() => validatePassword(password), [password]);
   const isPasswordReady =
     flowMode === "login" ? password.length > 0 : !passwordError;
@@ -78,43 +68,10 @@ export default function AuthPhoneScreen() {
     isPasswordReady &&
     (flowMode === "login" || password === passwordRepeat);
 
-  const handlePhoneChange = useCallback((value: string) => {
-    if (skipNextPhoneChangeRef.current) {
-      skipNextPhoneChangeRef.current = false;
-      setErrorText(null);
-      return;
-    }
-
-    const digits = value.replace(/\D/g, "");
-    const nationalDigits =
-      digits.startsWith("7") || digits.startsWith("8") ? digits.slice(1) : digits;
-
-    setPhoneDigits(nationalDigits.slice(0, 10));
+  const handlePhoneDigitsChange = useCallback((digits: string) => {
+    setPhoneDigits(digits);
     setErrorText(null);
   }, []);
-
-  const handlePhoneKeyPress = useCallback(
-    (event: NativeSyntheticEvent<TextInputKeyPressEventData>) => {
-      if (event.nativeEvent.key !== "Backspace" || !phoneDigits) {
-        return;
-      }
-
-      skipNextPhoneChangeRef.current = true;
-
-      if (phoneBackspaceTimerRef.current) {
-        clearTimeout(phoneBackspaceTimerRef.current);
-      }
-
-      phoneBackspaceTimerRef.current = setTimeout(() => {
-        skipNextPhoneChangeRef.current = false;
-        phoneBackspaceTimerRef.current = null;
-      }, 120);
-
-      setPhoneDigits((current) => current.slice(0, -1));
-      setErrorText(null);
-    },
-    [phoneDigits]
-  );
 
   const scrollToFormPosition = useCallback((y: number) => {
     requestAnimationFrame(() => {
@@ -129,14 +86,6 @@ export default function AuthPhoneScreen() {
   const scrollToRepeatPasswordField = useCallback(() => {
     scrollToFormPosition(140);
   }, [scrollToFormPosition]);
-
-  useEffect(() => {
-    return () => {
-      if (phoneBackspaceTimerRef.current) {
-        clearTimeout(phoneBackspaceTimerRef.current);
-      }
-    };
-  }, []);
 
   useEffect(() => {
     if (params.resetPhone === "1") {
@@ -293,20 +242,13 @@ export default function AuthPhoneScreen() {
             </View>
 
             <Text style={styles.inputLabel}>Номер телефона</Text>
-            <TextInput
-              value={phoneInputValue}
-              onChangeText={handlePhoneChange}
-              onKeyPress={handlePhoneKeyPress}
-              placeholder="+7 (999) 123-45-67"
-              placeholderTextColor={authColors.textMuted}
-              keyboardType="phone-pad"
-              autoCapitalize="none"
-              autoCorrect={false}
-              selection={{
-                start: phoneInputValue.length,
-                end: phoneInputValue.length,
-              }}
-              style={styles.input}
+            <RussianPhoneInput
+              digits={phoneDigits}
+              onChangeDigits={handlePhoneDigitsChange}
+              containerStyle={styles.phoneInput}
+              focusedContainerStyle={styles.phoneInputFocused}
+              textStyle={styles.phoneInputText}
+              placeholderTextStyle={styles.phoneInputPlaceholder}
             />
 
             <Text style={styles.inputLabel}>Пароль</Text>
@@ -507,6 +449,27 @@ function createStyles() {
       fontSize: 20,
       fontWeight: "500",
       textAlign: "center",
+    },
+    phoneInput: {
+      minHeight: 58,
+      borderWidth: 2,
+      borderColor: authColors.text,
+      borderRadius: 20,
+      backgroundColor: authColors.surface,
+      paddingHorizontal: 18,
+    },
+    phoneInputFocused: {
+      backgroundColor: "#FFFDF5",
+    },
+    phoneInputText: {
+      color: authColors.text,
+      fontFamily,
+      fontSize: 20,
+      fontWeight: "500",
+      textAlign: "center",
+    },
+    phoneInputPlaceholder: {
+      color: authColors.textMuted,
     },
     helperText: {
       marginTop: -4,

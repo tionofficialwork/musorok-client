@@ -1,22 +1,18 @@
 import {
-  useCallback,
   useEffect,
   useMemo,
-  useRef,
   useState,
 } from "react";
 import {
   ActivityIndicator,
   Alert,
   KeyboardAvoidingView,
-  type NativeSyntheticEvent,
   Platform,
   ScrollView,
   StyleSheet,
   Switch,
   Text,
   TextInput,
-  type TextInputKeyPressEventData,
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
@@ -24,6 +20,9 @@ import { Stack, useLocalSearchParams, useRouter } from "expo-router";
 
 import AppButton from "../../components/ui/AppButton";
 import AppCard from "../../components/ui/AppCard";
+import RussianPhoneInput, {
+  getRussianPhoneNationalDigits,
+} from "../../components/ui/RussianPhoneInput";
 import ScreenSection from "../../components/ui/ScreenSection";
 import {
   getPaymentPreferences,
@@ -189,10 +188,6 @@ export default function OrderDetailsScreen() {
   const params = useLocalSearchParams<DetailsParams>();
   const { colors } = useAppTheme();
   const styles = useMemo(() => createStyles(colors), [colors]);
-  const skipNextPhoneChangeRef = useRef(false);
-  const phoneBackspaceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
-      null
-  );
 
   const packageId =
       typeof params.packageId === "string" ? params.packageId : "";
@@ -368,54 +363,16 @@ export default function OrderDetailsScreen() {
     setTip(Math.min(nextTip, MAX_TIP_RUBLES));
   };
 
-  const phoneInputValue = useMemo(() => formatRussianPhoneInput(phone), [phone]);
+  const phoneDigits = useMemo(
+      () => getRussianPhoneNationalDigits(phone),
+      [phone]
+  );
   const normalizedPhone = useMemo(() => sanitizeRussianPhoneInput(phone), [phone]);
   const isPhoneValid = isValidRussianPhone(normalizedPhone);
 
-  useEffect(() => {
-    return () => {
-      if (phoneBackspaceTimerRef.current) {
-        clearTimeout(phoneBackspaceTimerRef.current);
-      }
-    };
-  }, []);
-
-  const handlePhoneChange = (value: string) => {
-    if (skipNextPhoneChangeRef.current) {
-      skipNextPhoneChangeRef.current = false;
-      return;
-    }
-
-    setPhone(sanitizeRussianPhoneInput(value));
+  const handlePhoneDigitsChange = (digits: string) => {
+    setPhone(`+7${digits}`);
   };
-
-  const handlePhoneKeyPress = useCallback(
-      (event: NativeSyntheticEvent<TextInputKeyPressEventData>) => {
-        if (event.nativeEvent.key !== "Backspace") {
-          return;
-        }
-
-        const nationalDigits = normalizedPhone.replace(/\D/g, "").slice(1);
-
-        if (!nationalDigits) {
-          return;
-        }
-
-        skipNextPhoneChangeRef.current = true;
-
-        if (phoneBackspaceTimerRef.current) {
-          clearTimeout(phoneBackspaceTimerRef.current);
-        }
-
-        phoneBackspaceTimerRef.current = setTimeout(() => {
-          skipNextPhoneChangeRef.current = false;
-          phoneBackspaceTimerRef.current = null;
-        }, 120);
-
-        setPhone(sanitizeRussianPhoneInput(nationalDigits.slice(0, -1)));
-      },
-      [normalizedPhone]
-  );
 
   const handleOpenMap = async () => {
     if (loading) {
@@ -581,20 +538,14 @@ export default function OrderDetailsScreen() {
                 <AppCard>
                   <View style={styles.formGroup}>
                     <Text style={styles.label}>Телефон для связи</Text>
-                    <TextInput
-                        value={phoneInputValue}
-                        onChangeText={handlePhoneChange}
-                        onKeyPress={handlePhoneKeyPress}
-                        placeholder="+7 (999) 123-45-67"
-                        placeholderTextColor={colors.textMuted}
-                        keyboardType="phone-pad"
-                        textContentType="telephoneNumber"
+                    <RussianPhoneInput
+                        digits={phoneDigits}
+                        onChangeDigits={handlePhoneDigitsChange}
                         editable={!loading}
-                        selection={{
-                          start: phoneInputValue.length,
-                          end: phoneInputValue.length,
-                        }}
-                        style={styles.inputLikeBox}
+                        containerStyle={styles.phoneInputBox}
+                        focusedContainerStyle={styles.phoneInputBoxFocused}
+                        textStyle={styles.phoneInputText}
+                        placeholderTextStyle={styles.phoneInputPlaceholder}
                     />
                     <Text style={styles.helperText}>
                       В заказ уйдёт:{" "}
@@ -900,7 +851,7 @@ function createStyles(colors: ReturnType<typeof useAppTheme>["colors"]) {
       fontSize: typography.caption,
       color: colors.textMuted,
     },
-    inputLikeBox: {
+    phoneInputBox: {
       minHeight: 52,
       borderWidth: 1,
       borderColor: colors.border,
@@ -908,10 +859,19 @@ function createStyles(colors: ReturnType<typeof useAppTheme>["colors"]) {
       paddingHorizontal: spacing.md,
       paddingVertical: 12,
       backgroundColor: colors.surfaceSecondary,
+    },
+    phoneInputBoxFocused: {
+      borderColor: colors.primary,
+    },
+    phoneInputText: {
       fontSize: typography.body,
       lineHeight: 22,
       fontWeight: "700",
       color: colors.text,
+      textAlign: "left",
+    },
+    phoneInputPlaceholder: {
+      color: colors.textMuted,
     },
     contactDivider: {
       height: 1,
