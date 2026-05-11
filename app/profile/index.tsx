@@ -1,19 +1,22 @@
-import { useCallback, useMemo, useState } from "react";
+import {
+  useCallback,
+  useMemo,
+  useState,
+} from "react";
 import {
   ActivityIndicator,
-  Alert,
   Pressable,
-  SafeAreaView,
   ScrollView,
   StyleSheet,
   Text,
   View,
 } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 import { Stack, useFocusEffect, useRouter } from "expo-router";
+import AppButton from "../../components/ui/AppButton";
 import AppCard from "../../components/ui/AppCard";
 import ScreenSection from "../../components/ui/ScreenSection";
-import { getProfileOwnerKey } from "../../lib/profileIdentity";
-import { supabase } from "../../lib/supabase";
+import { api } from "../../lib/api";
 import {
   radii,
   shadows,
@@ -28,7 +31,11 @@ type ActionItem = {
   title: string;
   subtitle: string;
   emoji: string;
-  href?: "/profile/account" | "/profile/addresses" | "/profile/payments";
+  href?:
+    | "/profile/account"
+    | "/profile/addresses"
+    | "/profile/payments"
+    | "/profile/notifications";
 };
 
 type ProfileSummary = {
@@ -69,28 +76,18 @@ export default function ProfileScreen() {
   const [summary, setSummary] = useState<ProfileSummary | null>(null);
   const [isLoadingSummary, setIsLoadingSummary] = useState(true);
 
-  const handleSoon = (title: string) => {
-    Alert.alert("Скоро будет", `${title} подключим дальше по roadmap`);
-  };
-
   const loadSummary = useCallback(async () => {
     try {
       setIsLoadingSummary(true);
 
-      const ownerKey = await getProfileOwnerKey();
-
-      const { data } = await supabase
-          .from("user_profiles")
-          .select("first_name, last_name, phone")
-          .eq("owner_key", ownerKey)
-          .maybeSingle();
+      const { profile } = await api.profile.get();
 
       setSummary(
-          data
+          profile
               ? {
-                first_name: data.first_name ?? null,
-                last_name: data.last_name ?? null,
-                phone: data.phone ?? null,
+                first_name: profile.first_name ?? null,
+                last_name: profile.last_name ?? null,
+                phone: profile.phone ?? null,
               }
               : null
       );
@@ -107,13 +104,6 @@ export default function ProfileScreen() {
 
   const mainItems: ActionItem[] = [
     {
-      id: "account",
-      title: "Мой аккаунт",
-      subtitle: "Имя, телефон и базовые данные профиля",
-      emoji: "👤",
-      href: "/profile/account",
-    },
-    {
       id: "addresses",
       title: "Мои адреса",
       subtitle: "Сохраненные адреса для быстрого заказа",
@@ -128,41 +118,18 @@ export default function ProfileScreen() {
       href: "/profile/payments",
     },
     {
-      id: "support",
-      title: "Поддержка",
-      subtitle: "Помощь и обратная связь",
-      emoji: "💬",
-    },
-  ];
-
-  const futureItems: ActionItem[] = [
-    {
       id: "notifications",
       title: "Уведомления",
       subtitle: "Push и напоминания",
       emoji: "🔔",
-    },
-    {
-      id: "favorites",
-      title: "Избранное",
-      subtitle: "Быстрые сценарии",
-      emoji: "⭐",
-    },
-    {
-      id: "subscription",
-      title: "Подписка",
-      subtitle: "Регулярный вынос мусора",
-      emoji: "♻️",
+      href: "/profile/notifications",
     },
   ];
 
   const handleItemPress = (item: ActionItem) => {
     if (item.href) {
       router.push(item.href);
-      return;
     }
-
-    handleSoon(item.title);
   };
 
   const fullName = [summary?.first_name, summary?.last_name]
@@ -188,14 +155,10 @@ export default function ProfileScreen() {
               </Text>
             </View>
 
-            <Text style={styles.title}>Ваш профиль</Text>
+            <Text style={styles.title}>Профиль</Text>
             <Text style={styles.subtitle}>
               Здесь находятся ваши данные, адреса и настройки сервиса
             </Text>
-          </AppCard>
-
-          <AppCard style={styles.summaryCard}>
-            <Text style={styles.summaryTitle}>Аккаунт</Text>
 
             {isLoadingSummary ? (
                 <View style={styles.summaryLoading}>
@@ -213,14 +176,41 @@ export default function ProfileScreen() {
                 </>
             ) : (
                 <Text style={styles.summaryMuted}>
-                  Профиль ещё не заполнен. Открой экран аккаунта и сохрани данные.
+                  Профиль ещё не заполнен. Добавьте имя и телефон для заказов.
                 </Text>
             )}
+
+            <View style={styles.profileAction}>
+              <AppButton
+                  title="Редактировать данные"
+                  variant="secondary"
+                  onPress={() => router.push("/profile/account")}
+              />
+            </View>
           </AppCard>
 
-          <ScreenSection title="Тема приложения">
+          <ScreenSection title="Основное">
+            {mainItems.map((item) => (
+                <Pressable
+                    key={item.id}
+                    onPress={() => handleItemPress(item)}
+                    style={({ pressed }) => [styles.card, pressed && styles.cardPressed]}
+                >
+                  <Text style={styles.emoji}>{item.emoji}</Text>
+
+                  <View style={styles.cardTextWrap}>
+                    <Text style={styles.cardTitle}>{item.title}</Text>
+                    <Text style={styles.cardSubtitle}>{item.subtitle}</Text>
+                  </View>
+
+                  <Text style={styles.chevron}>›</Text>
+                </Pressable>
+            ))}
+          </ScreenSection>
+
+          <ScreenSection title="Настройки">
             <AppCard style={styles.themeCard}>
-              <Text style={styles.themeCardTitle}>Внешний вид</Text>
+              <Text style={styles.themeCardTitle}>Тема приложения</Text>
               <Text style={styles.themeCardSubtitle}>
                 {themeMode === "system"
                     ? `Сейчас используется системный режим. ${resolvedThemeLabel}.`
@@ -278,43 +268,13 @@ export default function ProfileScreen() {
             </AppCard>
           </ScreenSection>
 
-          <ScreenSection title="Основное">
-            {mainItems.map((item) => (
-                <Pressable
-                    key={item.id}
-                    onPress={() => handleItemPress(item)}
-                    style={({ pressed }) => [styles.card, pressed && styles.cardPressed]}
-                >
-                  <Text style={styles.emoji}>{item.emoji}</Text>
-
-                  <View style={styles.cardTextWrap}>
-                    <Text style={styles.cardTitle}>{item.title}</Text>
-                    <Text style={styles.cardSubtitle}>{item.subtitle}</Text>
-                  </View>
-
-                  <Text style={styles.chevron}>›</Text>
-                </Pressable>
-            ))}
-          </ScreenSection>
-
-          <ScreenSection title="Скоро" style={styles.lastSection}>
-            {futureItems.map((item) => (
-                <Pressable
-                    key={item.id}
-                    onPress={() => handleItemPress(item)}
-                    style={({ pressed }) => [styles.card, pressed && styles.cardPressed]}
-                >
-                  <Text style={styles.emoji}>{item.emoji}</Text>
-
-                  <View style={styles.cardTextWrap}>
-                    <Text style={styles.cardTitle}>{item.title}</Text>
-                    <Text style={styles.cardSubtitle}>{item.subtitle}</Text>
-                  </View>
-
-                  <Text style={styles.chevron}>›</Text>
-                </Pressable>
-            ))}
-          </ScreenSection>
+          <View style={styles.homeAction}>
+            <AppButton
+                title="В главное меню"
+                variant="secondary"
+                onPress={() => router.replace("/")}
+            />
+          </View>
         </ScrollView>
       </SafeAreaView>
   );
@@ -360,18 +320,7 @@ function createStyles(colors: ReturnType<typeof useAppTheme>["colors"]) {
       textAlign: "center",
       marginTop: 6,
       lineHeight: 20,
-    },
-    summaryCard: {
-      marginBottom: spacing.lg,
-      ...shadows.card,
-    },
-    summaryTitle: {
-      fontSize: typography.bodySmall,
-      fontWeight: "700",
-      color: colors.textSecondary,
-      marginBottom: spacing.sm,
-      textTransform: "uppercase",
-      letterSpacing: 0.4,
+      marginBottom: spacing.md,
     },
     summaryLoading: {
       flexDirection: "row",
@@ -392,6 +341,11 @@ function createStyles(colors: ReturnType<typeof useAppTheme>["colors"]) {
       fontSize: typography.bodySmall,
       lineHeight: 20,
       color: colors.textSecondary,
+      textAlign: "center",
+    },
+    profileAction: {
+      alignSelf: "stretch",
+      marginTop: spacing.md,
     },
     themeCard: {
       ...shadows.card,
@@ -507,6 +461,9 @@ function createStyles(colors: ReturnType<typeof useAppTheme>["colors"]) {
     },
     lastSection: {
       marginBottom: 0,
+    },
+    homeAction: {
+      marginTop: spacing.sm,
     },
   });
 }

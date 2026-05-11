@@ -1,24 +1,27 @@
-import { useMemo, useState } from "react";
+import {
+  useMemo,
+  useState,
+} from "react";
 import {
   ActivityIndicator,
   Alert,
-  Pressable,
-  SafeAreaView,
   ScrollView,
   StyleSheet,
   Text,
   View,
 } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 import { Stack, useLocalSearchParams, useRouter } from "expo-router";
 import AppButton from "../../components/ui/AppButton";
 import AppCard from "../../components/ui/AppCard";
 import ScreenSection from "../../components/ui/ScreenSection";
+import { cleanAddressForDisplay } from "../../lib/addressDisplay";
 import createOrder from "../../lib/createOrder";
+import { openOrderPaymentSession } from "../../lib/orderPaymentFlow";
+import { isPaymentSuccessful } from "../../lib/payments";
+import type { PaymentMethod } from "../../lib/paymentPreferences";
 import { radii, spacing, typography } from "../../lib/theme";
 import { useAppTheme } from "../../providers/AppThemeProvider";
-
-type PaymentMethod = "card";
-type TipOption = 0 | 50 | 100 | 150 | 200;
 
 type ConfirmParams = {
   packageId?: string;
@@ -41,18 +44,14 @@ type ConfirmParams = {
   longitude?: string;
 };
 
-const TIP_OPTIONS: TipOption[] = [0, 50, 100, 150, 200];
+function getPaymentMethodLabel(method: PaymentMethod) {
+  return method === "sbp" ? "СБП" : "Карта";
+}
 
-function parseTip(value: string | undefined): TipOption {
+function parseTip(value: string | undefined) {
   const parsed = Number(value);
 
-  if (
-      parsed === 0 ||
-      parsed === 50 ||
-      parsed === 100 ||
-      parsed === 150 ||
-      parsed === 200
-  ) {
+  if (Number.isFinite(parsed) && parsed >= 0) {
     return parsed;
   }
 
@@ -97,13 +96,25 @@ export default function OrderConfirmScreen() {
       typeof params.price === "string" ? params.price : "0"
   );
 
-  const address = typeof params.address === "string" ? params.address : "";
+  const address =
+      typeof params.address === "string" ? cleanAddressForDisplay(params.address) : "";
   const apartment = typeof params.apartment === "string" ? params.apartment : "";
   const entrance = typeof params.entrance === "string" ? params.entrance : "";
   const floor = typeof params.floor === "string" ? params.floor : "";
   const intercom = typeof params.intercom === "string" ? params.intercom : "";
   const addressLabel =
-      typeof params.addressLabel === "string" ? params.addressLabel : "";
+      typeof params.addressLabel === "string"
+          ? cleanAddressForDisplay(params.addressLabel)
+          : "";
+  const effectiveAddressLabel = useMemo(() => {
+    if (!addressLabel) {
+      return "";
+    }
+
+    return addressLabel.toLowerCase() === address.toLowerCase()
+        ? ""
+        : addressLabel;
+  }, [address, addressLabel]);
   const comment = typeof params.comment === "string" ? params.comment : "";
   const phone = typeof params.phone === "string" ? params.phone : "";
 
@@ -119,12 +130,10 @@ export default function OrderConfirmScreen() {
   const shouldCall =
       typeof params.shouldCall === "string" ? params.shouldCall === "true" : true;
 
-  const [paymentMethod] = useState<PaymentMethod>("card");
-  const [tip, setTip] = useState<TipOption>(
-      useMemo(
-          () => parseTip(typeof params.tip === "string" ? params.tip : undefined),
-          [params.tip]
-      )
+  const paymentMethod: PaymentMethod = params.paymentMethod === "sbp" ? "sbp" : "card";
+  const tip = useMemo(
+      () => parseTip(typeof params.tip === "string" ? params.tip : undefined),
+      [params.tip]
   );
   const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -138,14 +147,6 @@ export default function OrderConfirmScreen() {
       intercom,
     });
   }, [apartment, entrance, floor, intercom]);
-
-  const coordsText = useMemo(() => {
-    if (latitude === null || longitude === null) {
-      return "";
-    }
-
-    return `${latitude.toFixed(6)}, ${longitude.toFixed(6)}`;
-  }, [latitude, longitude]);
 
   const handleCreateOrder = async () => {
     if (isSubmitting) {
@@ -162,8 +163,8 @@ export default function OrderConfirmScreen() {
 
     if (latitude === null || longitude === null) {
       Alert.alert(
-          "Не хватает координат",
-          "Адрес должен быть выбран на карте. Вернись назад и подтверди точку."
+          "Адрес не подтверждён",
+          "Вернись назад и подтверди адрес на карте."
       );
       return;
     }
@@ -181,7 +182,7 @@ export default function OrderConfirmScreen() {
         entrance,
         floor,
         intercom,
-        address_label: addressLabel,
+        address_label: effectiveAddressLabel,
         latitude,
         longitude,
         comment,
@@ -193,16 +194,30 @@ export default function OrderConfirmScreen() {
         total,
         call_required: shouldCall,
       });
+      const orderId = String(createdOrder.id);
+      const checkedPayment = await openOrderPaymentSession(orderId);
+
+      if (!isPaymentSuccessful(checkedPayment)) {
+        router.replace({
+          pathname: "/order/payment-return" as never,
+          params: {
+            orderId,
+            result: checkedPayment.status === "failed" ? "fail" : "pending",
+          },
+        });
+        return;
+      }
 
       router.replace({
         pathname: "/order/success",
         params: {
-          orderId: String(createdOrder.id ?? ""),
-          packageName,
-          price: String(packagePrice),
-          tip: String(tip),
-          total: String(total),
-          address,
+          orderId,
+          packageName: createdOrder.package_label ?? packageName,
+          price: String(createdOrder.package_price ?? packagePrice),
+          tip: String(createdOrder.tip ?? tip),
+          total: String(createdOrder.total ?? total),
+          address: createdOrder.address ?? address,
+          paymentStatus: checkedPayment.status,
         },
       });
     } catch (error: any) {
@@ -232,7 +247,7 @@ export default function OrderConfirmScreen() {
                 <Text style={styles.eyebrow}>Шаг 3 из 3</Text>
                 <Text style={styles.title}>Подтверди заказ</Text>
                 <Text style={styles.subtitle}>
-                  Проверь итоговые данные и при желании оставь чаевые курьеру.
+                  Проверь итоговые данные перед созданием заказа.
                 </Text>
               </View>
 
@@ -246,21 +261,27 @@ export default function OrderConfirmScreen() {
                     <Text style={styles.summaryValue}>{packageName}</Text>
                   </View>
 
-                  {addressLabel ? (
-                      <>
-                        <View style={styles.divider} />
-                        <View style={styles.summaryRow}>
-                          <Text style={styles.summaryLabel}>Название адреса</Text>
-                          <Text style={styles.summaryValueRight}>{addressLabel}</Text>
-                        </View>
-                      </>
-                  ) : null}
-
                   <View style={styles.divider} />
 
                   <View style={styles.summaryRow}>
                     <Text style={styles.summaryLabel}>Адрес</Text>
-                    <Text style={styles.summaryValueRight}>{address}</Text>
+                    <View style={styles.addressValueBlock}>
+                      {effectiveAddressLabel ? (
+                          <Text style={styles.summaryValueRight}>
+                            {effectiveAddressLabel}
+                          </Text>
+                      ) : null}
+                      <Text
+                          style={[
+                            styles.summaryValueRight,
+                            effectiveAddressLabel
+                                ? styles.addressValueSecondary
+                                : undefined,
+                          ]}
+                      >
+                        {address}
+                      </Text>
+                    </View>
                   </View>
 
                   {addressDetails ? (
@@ -270,17 +291,6 @@ export default function OrderConfirmScreen() {
                         <View style={styles.summaryRow}>
                           <Text style={styles.summaryLabel}>Детали адреса</Text>
                           <Text style={styles.summaryValueRight}>{addressDetails}</Text>
-                        </View>
-                      </>
-                  ) : null}
-
-                  {coordsText ? (
-                      <>
-                        <View style={styles.divider} />
-
-                        <View style={styles.summaryRow}>
-                          <Text style={styles.summaryLabel}>Координаты</Text>
-                          <Text style={styles.summaryValueRight}>{coordsText}</Text>
                         </View>
                       </>
                   ) : null}
@@ -311,7 +321,7 @@ export default function OrderConfirmScreen() {
               >
                 <AppCard>
                   <View style={styles.summaryRow}>
-                    <Text style={styles.summaryLabel}>Оставить у двери</Text>
+                    <Text style={styles.summaryLabel}>Забрать у двери</Text>
                     <Text style={styles.summaryValue}>
                       {leaveAtDoor ? "Да" : "Нет"}
                     </Text>
@@ -328,32 +338,17 @@ export default function OrderConfirmScreen() {
                 </AppCard>
               </ScreenSection>
 
-              <ScreenSection
-                  title="Оплата"
-                  subtitle="Для новых заказов доступна только оплата картой"
-              >
+              <ScreenSection title="Оплата">
                 <AppCard>
                   <View style={styles.paymentMethodCard}>
-                    <Text style={styles.paymentMethodTitle}>Карта</Text>
+                    <Text style={styles.paymentMethodTitle}>
+                      {getPaymentMethodLabel(paymentMethod)}
+                    </Text>
                     <Text style={styles.paymentMethodSubtitle}>
                       Способ оплаты уже зафиксирован и будет передан при создании заказа.
                     </Text>
                   </View>
                 </AppCard>
-              </ScreenSection>
-
-              <ScreenSection title="Чаевые курьеру" subtitle="Необязательно">
-                <View style={styles.tipWrap}>
-                  {TIP_OPTIONS.map((value) => (
-                      <TipChip
-                          key={value}
-                          label={value === 0 ? "Без чаевых" : `+${value} ₽`}
-                          active={tip === value}
-                          onPress={() => setTip(value)}
-                          styles={styles}
-                      />
-                  ))}
-                </View>
               </ScreenSection>
 
               <ScreenSection
@@ -370,7 +365,9 @@ export default function OrderConfirmScreen() {
 
                   <View style={styles.priceRow}>
                     <Text style={styles.summaryLabel}>Способ оплаты</Text>
-                    <Text style={styles.summaryValue}>Карта</Text>
+                    <Text style={styles.summaryValue}>
+                      {getPaymentMethodLabel(paymentMethod)}
+                    </Text>
                   </View>
 
                   <View style={styles.divider} />
@@ -394,6 +391,12 @@ export default function OrderConfirmScreen() {
                   onPress={handleCreateOrder}
                   disabled={isSubmitting}
               />
+              <AppButton
+                  title="Назад"
+                  variant="secondary"
+                  onPress={() => router.back()}
+                  disabled={isSubmitting}
+              />
             </View>
 
             {isSubmitting ? (
@@ -404,30 +407,6 @@ export default function OrderConfirmScreen() {
           </View>
         </SafeAreaView>
       </>
-  );
-}
-
-type TipChipProps = {
-  label: string;
-  active: boolean;
-  onPress: () => void;
-  styles: ReturnType<typeof createStyles>;
-};
-
-function TipChip({ label, active, onPress, styles }: TipChipProps) {
-  return (
-      <Pressable
-          onPress={onPress}
-          style={({ pressed }) => [
-            styles.tipChip,
-            active ? styles.tipChipActive : undefined,
-            pressed ? styles.pressed : undefined,
-          ]}
-      >
-        <Text style={[styles.tipChipText, active ? styles.tipChipTextActive : undefined]}>
-          {label}
-        </Text>
-      </Pressable>
   );
 }
 
@@ -486,6 +465,7 @@ function createStyles(colors: ReturnType<typeof useAppTheme>["colors"]) {
     },
     summaryLabel: {
       flex: 1,
+      minWidth: 0,
       fontSize: typography.body,
       color: colors.textMuted,
     },
@@ -496,10 +476,23 @@ function createStyles(colors: ReturnType<typeof useAppTheme>["colors"]) {
     },
     summaryValueRight: {
       flex: 1,
+      minWidth: 0,
+      flexShrink: 1,
       textAlign: "right",
       fontSize: typography.body,
+      lineHeight: 22,
       fontWeight: "700",
       color: colors.text,
+    },
+    addressValueBlock: {
+      flex: 1,
+      minWidth: 0,
+      gap: 4,
+      alignItems: "flex-end",
+    },
+    addressValueSecondary: {
+      color: colors.textMuted,
+      fontWeight: "500",
     },
     divider: {
       height: 1,
@@ -540,35 +533,6 @@ function createStyles(colors: ReturnType<typeof useAppTheme>["colors"]) {
       lineHeight: 21,
       color: colors.text,
     },
-    tipWrap: {
-      flexDirection: "row",
-      flexWrap: "wrap",
-      gap: spacing.sm,
-    },
-    tipChip: {
-      minHeight: 44,
-      paddingHorizontal: spacing.md,
-      paddingVertical: spacing.sm,
-      borderRadius: 999,
-      borderWidth: 1,
-      borderColor: colors.border,
-      backgroundColor: colors.surface,
-      alignItems: "center",
-      justifyContent: "center",
-    },
-    tipChipActive: {
-      borderColor: colors.primary,
-      backgroundColor: colors.primarySoft,
-    },
-    tipChipText: {
-      fontSize: typography.body,
-      fontWeight: "600",
-      color: colors.text,
-    },
-    tipChipTextActive: {
-      color: colors.primary,
-      fontWeight: "700",
-    },
     totalBox: {
       marginTop: spacing.md,
       paddingTop: spacing.md,
@@ -595,6 +559,7 @@ function createStyles(colors: ReturnType<typeof useAppTheme>["colors"]) {
       borderTopWidth: 1,
       borderTopColor: colors.border,
       backgroundColor: colors.background,
+      gap: spacing.sm,
     },
     loadingOverlay: {
       ...StyleSheet.absoluteFillObject,

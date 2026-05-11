@@ -1,11 +1,15 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+} from "react";
 import {
   ActivityIndicator,
   Alert,
   KeyboardAvoidingView,
   Platform,
   Pressable,
-  SafeAreaView,
   ScrollView,
   StyleSheet,
   Switch,
@@ -13,11 +17,14 @@ import {
   TextInput,
   View,
 } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 import { Stack, useLocalSearchParams, useRouter } from "expo-router";
-import { supabase } from "../../lib/supabase";
-import { getAddressesOwnerKey } from "../../lib/addressIdentity";
+import { api } from "../../lib/api";
+import { cleanAddressForDisplay } from "../../lib/addressDisplay";
+import { useAppTheme } from "../../providers/AppThemeProvider";
 
-type AddressType = "home" | "work" | "other";
+type AddressType = string;
+const DEFAULT_ADDRESS_TYPES = ["Дом", "Работа", "Другое"];
 
 type AddressRow = {
   id: string;
@@ -30,37 +37,19 @@ type AddressRow = {
   is_primary: boolean;
 };
 
-function getTypeByLabel(label: string | null): AddressType {
-  if (label === "Дом") {
-    return "home";
-  }
-
-  if (label === "Работа") {
-    return "work";
-  }
-
-  return "other";
-}
-
-function getLabelByType(addressType: AddressType) {
-  if (addressType === "home") {
-    return "Дом";
-  }
-
-  if (addressType === "work") {
-    return "Работа";
-  }
-
-  return "Другое";
-}
-
 export default function EditAddressScreen() {
   const router = useRouter();
   const params = useLocalSearchParams<{ id?: string }>();
+  const { colors } = useAppTheme();
+  const styles = useMemo(() => createStyles(colors), [colors]);
 
   const addressId = typeof params.id === "string" ? params.id : "";
 
-  const [addressType, setAddressType] = useState<AddressType>("home");
+  const [addressType, setAddressType] = useState<AddressType>(
+    DEFAULT_ADDRESS_TYPES[0]
+  );
+  const [customAddressTypes, setCustomAddressTypes] = useState<string[]>([]);
+  const [newAddressType, setNewAddressType] = useState("");
   const [street, setStreet] = useState("");
   const [apartment, setApartment] = useState("");
   const [entrance, setEntrance] = useState("");
@@ -76,6 +65,30 @@ export default function EditAddressScreen() {
     return street.trim().length >= 5 && addressId.length > 0;
   }, [street, addressId]);
 
+  const addressTypes = useMemo(
+    () => [...DEFAULT_ADDRESS_TYPES, ...customAddressTypes],
+    [customAddressTypes]
+  );
+
+  const handleAddAddressType = () => {
+    const nextType = newAddressType.trim();
+
+    if (!nextType) {
+      return;
+    }
+
+    const exists = addressTypes.some(
+      (type) => type.toLowerCase() === nextType.toLowerCase()
+    );
+
+    if (!exists) {
+      setCustomAddressTypes((current) => [...current, nextType]);
+    }
+
+    setAddressType(nextType);
+    setNewAddressType("");
+  };
+
   const loadAddress = useCallback(async () => {
     if (!addressId) {
       setIsLoading(false);
@@ -87,18 +100,8 @@ export default function EditAddressScreen() {
     try {
       setIsLoading(true);
 
-      const ownerKey = await getAddressesOwnerKey();
-
-      const { data, error } = await supabase
-        .from("user_addresses")
-        .select("id, label, street, apartment, entrance, floor, comment, is_primary")
-        .eq("id", addressId)
-        .eq("owner_key", ownerKey)
-        .maybeSingle();
-
-      if (error) {
-        throw error;
-      }
+      const { addresses } = await api.addresses.list();
+      const data = addresses.find((item) => item.id === addressId);
 
       if (!data) {
         Alert.alert("Ошибка", "Адрес не найден.");
@@ -108,8 +111,14 @@ export default function EditAddressScreen() {
 
       const item = data as AddressRow;
 
-      setAddressType(getTypeByLabel(item.label));
-      setStreet(item.street ?? "");
+      const nextLabel = item.label || DEFAULT_ADDRESS_TYPES[0];
+      setAddressType(nextLabel);
+      if (!DEFAULT_ADDRESS_TYPES.includes(nextLabel)) {
+        setCustomAddressTypes((current) =>
+          current.includes(nextLabel) ? current : [...current, nextLabel]
+        );
+      }
+      setStreet(cleanAddressForDisplay(item.street));
       setApartment(item.apartment ?? "");
       setEntrance(item.entrance ?? "");
       setFloor(item.floor ?? "");
@@ -138,39 +147,15 @@ export default function EditAddressScreen() {
     try {
       setIsSaving(true);
 
-      const ownerKey = await getAddressesOwnerKey();
-
-      if (isPrimary && !isExistingPrimary) {
-        const { error: resetError } = await supabase
-          .from("user_addresses")
-          .update({ is_primary: false })
-          .eq("owner_key", ownerKey)
-          .eq("is_primary", true);
-
-        if (resetError) {
-          throw resetError;
-        }
-      }
-
-      const payload = {
-        label: getLabelByType(addressType),
-        street: street.trim(),
+      await api.addresses.update(addressId, {
+        label: addressType,
+        street: cleanAddressForDisplay(street),
         apartment: apartment.trim() || null,
         entrance: entrance.trim() || null,
         floor: floor.trim() || null,
         comment: comment.trim() || null,
         is_primary: isPrimary,
-      };
-
-      const { error } = await supabase
-        .from("user_addresses")
-        .update(payload)
-        .eq("id", addressId)
-        .eq("owner_key", ownerKey);
-
-      if (error) {
-        throw error;
-      }
+      });
 
       router.replace("/profile/addresses");
     } catch (error) {
@@ -201,7 +186,7 @@ export default function EditAddressScreen() {
             <ActivityIndicator size="large" color={colors.primary} />
             <Text style={styles.centerTitle}>Загружаем адрес</Text>
             <Text style={styles.centerText}>
-              Подтягиваем данные сохранённого адреса из Supabase.
+              Подтягиваем данные сохранённого адреса.
             </Text>
           </View>
         ) : (
@@ -212,7 +197,6 @@ export default function EditAddressScreen() {
               keyboardShouldPersistTaps="handled"
             >
               <View style={styles.heroCard}>
-                <Text style={styles.eyebrow}>Профиль</Text>
                 <Text style={styles.title}>Редактировать адрес</Text>
                 <Text style={styles.description}>
                   Измени тип адреса, детали и комментарий для курьера.
@@ -223,55 +207,49 @@ export default function EditAddressScreen() {
                 <Text style={styles.sectionTitle}>Тип адреса</Text>
 
                 <View style={styles.chipsRow}>
-                  <Pressable
-                    onPress={() => setAddressType("home")}
-                    style={[
-                      styles.chip,
-                      addressType === "home" && styles.chipActive,
-                    ]}
-                  >
-                    <Text
-                      style={[
-                        styles.chipText,
-                        addressType === "home" && styles.chipTextActive,
-                      ]}
-                    >
-                      Дом
-                    </Text>
-                  </Pressable>
+                  {addressTypes.map((type) => {
+                    const isSelected = addressType === type;
+
+                    return (
+                      <Pressable
+                        key={type}
+                        onPress={() => setAddressType(type)}
+                        style={[styles.chip, isSelected && styles.chipActive]}
+                      >
+                        <Text
+                          style={[
+                            styles.chipText,
+                            isSelected && styles.chipTextActive,
+                          ]}
+                        >
+                          {type}
+                        </Text>
+                      </Pressable>
+                    );
+                  })}
+                </View>
+
+                <View style={styles.addTypeRow}>
+                  <TextInput
+                    value={newAddressType}
+                    onChangeText={setNewAddressType}
+                    placeholder="Например: Дача"
+                    placeholderTextColor={colors.textMuted}
+                    style={[styles.input, styles.addTypeInput]}
+                  />
 
                   <Pressable
-                    onPress={() => setAddressType("work")}
-                    style={[
-                      styles.chip,
-                      addressType === "work" && styles.chipActive,
+                    onPress={handleAddAddressType}
+                    disabled={!newAddressType.trim()}
+                    style={({ pressed }) => [
+                      styles.addTypeButton,
+                      !newAddressType.trim() && styles.addTypeButtonDisabled,
+                      pressed &&
+                        Boolean(newAddressType.trim()) &&
+                        styles.addTypeButtonPressed,
                     ]}
                   >
-                    <Text
-                      style={[
-                        styles.chipText,
-                        addressType === "work" && styles.chipTextActive,
-                      ]}
-                    >
-                      Работа
-                    </Text>
-                  </Pressable>
-
-                  <Pressable
-                    onPress={() => setAddressType("other")}
-                    style={[
-                      styles.chip,
-                      addressType === "other" && styles.chipActive,
-                    ]}
-                  >
-                    <Text
-                      style={[
-                        styles.chipText,
-                        addressType === "other" && styles.chipTextActive,
-                      ]}
-                    >
-                      Другое
-                    </Text>
+                    <Text style={styles.addTypeButtonText}>Добавить</Text>
                   </Pressable>
                 </View>
               </View>
@@ -284,45 +262,45 @@ export default function EditAddressScreen() {
                   <TextInput
                     value={street}
                     onChangeText={setStreet}
-                    placeholder="Например: ул. Ленина, 12"
-                    placeholderTextColor="#98A2B3"
+                    placeholder="Например: Петра Метальникова, 40"
+                    placeholderTextColor={colors.textMuted}
                     style={styles.input}
                   />
                 </View>
 
                 <View style={styles.row}>
-                  <View style={[styles.fieldGroup, styles.halfField]}>
-                    <Text style={styles.label}>Квартира</Text>
-                    <TextInput
-                      value={apartment}
-                      onChangeText={setApartment}
-                      placeholder="24"
-                      placeholderTextColor="#98A2B3"
-                      style={styles.input}
-                    />
-                  </View>
-
-                  <View style={[styles.fieldGroup, styles.halfField]}>
+                  <View style={[styles.fieldGroup, styles.thirdField]}>
                     <Text style={styles.label}>Подъезд</Text>
                     <TextInput
                       value={entrance}
                       onChangeText={setEntrance}
                       placeholder="2"
-                      placeholderTextColor="#98A2B3"
+                      placeholderTextColor={colors.textMuted}
                       style={styles.input}
                     />
                   </View>
-                </View>
 
-                <View style={styles.fieldGroup}>
-                  <Text style={styles.label}>Этаж</Text>
-                  <TextInput
-                    value={floor}
-                    onChangeText={setFloor}
-                    placeholder="5"
-                    placeholderTextColor="#98A2B3"
-                    style={styles.input}
-                  />
+                  <View style={[styles.fieldGroup, styles.thirdField]}>
+                    <Text style={styles.label}>Этаж</Text>
+                    <TextInput
+                      value={floor}
+                      onChangeText={setFloor}
+                      placeholder="5"
+                      placeholderTextColor={colors.textMuted}
+                      style={styles.input}
+                    />
+                  </View>
+
+                  <View style={[styles.fieldGroup, styles.thirdField]}>
+                    <Text style={styles.label}>Квартира</Text>
+                    <TextInput
+                      value={apartment}
+                      onChangeText={setApartment}
+                      placeholder="24"
+                      placeholderTextColor={colors.textMuted}
+                      style={styles.input}
+                    />
+                  </View>
                 </View>
 
                 <View style={styles.fieldGroup}>
@@ -331,7 +309,7 @@ export default function EditAddressScreen() {
                     value={comment}
                     onChangeText={setComment}
                     placeholder="Например: домофон не работает"
-                    placeholderTextColor="#98A2B3"
+                    placeholderTextColor={colors.textMuted}
                     style={[styles.input, styles.textArea]}
                     multiline
                     textAlignVertical="top"
@@ -351,8 +329,8 @@ export default function EditAddressScreen() {
                   <Switch
                     value={isPrimary}
                     onValueChange={setIsPrimary}
-                    trackColor={{ false: "#D0D5DD", true: "#F8B4AE" }}
-                    thumbColor={isPrimary ? "#E9281D" : "#FFFFFF"}
+                    trackColor={{ false: colors.border, true: colors.primary }}
+                    thumbColor={isPrimary ? colors.white : colors.surface}
                   />
                 </View>
               </View>
@@ -395,17 +373,8 @@ export default function EditAddressScreen() {
   );
 }
 
-const colors = {
-  background: "#F6F7FB",
-  surface: "#FFFFFF",
-  border: "#E7ECF3",
-  text: "#16181D",
-  textSecondary: "#667085",
-  primary: "#E9281D",
-  primarySoft: "#FFF1F0",
-};
-
-const styles = StyleSheet.create({
+const createStyles = (colors: ReturnType<typeof useAppTheme>["colors"]) =>
+  StyleSheet.create({
   safeArea: {
     flex: 1,
     backgroundColor: colors.background,
@@ -416,7 +385,7 @@ const styles = StyleSheet.create({
   },
   content: {
     padding: 16,
-    paddingBottom: 160,
+    paddingBottom: 210,
   },
   centerState: {
     flex: 1,
@@ -445,14 +414,6 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: colors.border,
     marginBottom: 16,
-  },
-  eyebrow: {
-    fontSize: 12,
-    fontWeight: "700",
-    color: colors.primary,
-    marginBottom: 8,
-    textTransform: "uppercase",
-    letterSpacing: 0.6,
   },
   title: {
     fontSize: 28,
@@ -491,7 +452,7 @@ const styles = StyleSheet.create({
     borderRadius: 999,
     borderWidth: 1,
     borderColor: colors.border,
-    backgroundColor: "#F8FAFC",
+    backgroundColor: colors.surfaceSecondary,
     alignItems: "center",
     justifyContent: "center",
   },
@@ -507,6 +468,33 @@ const styles = StyleSheet.create({
   chipTextActive: {
     color: colors.primary,
   },
+  addTypeRow: {
+    flexDirection: "row",
+    gap: 10,
+    marginTop: 14,
+  },
+  addTypeInput: {
+    flex: 1,
+  },
+  addTypeButton: {
+    minHeight: 54,
+    paddingHorizontal: 16,
+    borderRadius: 16,
+    backgroundColor: colors.primary,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  addTypeButtonDisabled: {
+    opacity: 0.45,
+  },
+  addTypeButtonPressed: {
+    opacity: 0.9,
+  },
+  addTypeButtonText: {
+    fontSize: 14,
+    fontWeight: "800",
+    color: colors.white,
+  },
   fieldGroup: {
     marginBottom: 14,
   },
@@ -521,9 +509,11 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     borderWidth: 1,
     borderColor: colors.border,
-    backgroundColor: "#FCFCFD",
+    backgroundColor: colors.surfaceSecondary,
     paddingHorizontal: 16,
+    paddingVertical: 12,
     fontSize: 15,
+    lineHeight: 20,
     color: colors.text,
   },
   textArea: {
@@ -533,10 +523,13 @@ const styles = StyleSheet.create({
   },
   row: {
     flexDirection: "row",
+    flexWrap: "wrap",
     gap: 12,
   },
-  halfField: {
+  thirdField: {
     flex: 1,
+    flexBasis: "30%",
+    minWidth: 88,
   },
   switchRow: {
     flexDirection: "row",
@@ -568,7 +561,7 @@ const styles = StyleSheet.create({
     borderTopColor: colors.border,
     paddingHorizontal: 16,
     paddingTop: 14,
-    paddingBottom: 18,
+    paddingBottom: 30,
     gap: 10,
   },
   primaryButton: {
@@ -587,7 +580,7 @@ const styles = StyleSheet.create({
   primaryButtonText: {
     fontSize: 16,
     fontWeight: "800",
-    color: "#FFFFFF",
+    color: colors.white,
   },
   secondaryButton: {
     height: 52,

@@ -1,11 +1,15 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+} from "react";
 import {
   ActivityIndicator,
   Alert,
   KeyboardAvoidingView,
   Platform,
   Pressable,
-  SafeAreaView,
   ScrollView,
   StyleSheet,
   Switch,
@@ -13,13 +17,21 @@ import {
   TextInput,
   View,
 } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 import { Stack, useRouter } from "expo-router";
-import { supabase } from "../../lib/supabase";
-import { getProfileOwnerKey } from "../../lib/profileIdentity";
-import { clearAuthSession } from "../../lib/auth";
+import { api } from "../../lib/api";
+import {
+  clearAuthSession,
+  isValidRussianPhone,
+  normalizePhoneInput,
+  sanitizeRussianPhoneInput,
+} from "../../lib/auth";
+import { useAppTheme } from "../../providers/AppThemeProvider";
 
 export default function ProfileAccountScreen() {
   const router = useRouter();
+  const { colors } = useAppTheme();
+  const styles = useMemo(() => createStyles(colors), [colors]);
 
   const [firstName, setFirstName] = useState("");
   const [lastName, setLastName] = useState("");
@@ -32,7 +44,7 @@ export default function ProfileAccountScreen() {
   const [errorText, setErrorText] = useState<string | null>(null);
 
   const isFormValid = useMemo(() => {
-    return firstName.trim().length >= 2 && phone.trim().length >= 6;
+    return firstName.trim().length >= 2 && isValidRussianPhone(phone);
   }, [firstName, phone]);
 
   const isBusy = isSaving || isSigningOut;
@@ -42,23 +54,13 @@ export default function ProfileAccountScreen() {
       setIsLoading(true);
       setErrorText(null);
 
-      const ownerKey = await getProfileOwnerKey();
+      const { profile } = await api.profile.get();
 
-      const { data, error } = await supabase
-        .from("user_profiles")
-        .select("first_name, last_name, phone, call_allowed")
-        .eq("owner_key", ownerKey)
-        .maybeSingle();
-
-      if (error) {
-        throw error;
-      }
-
-      if (data) {
-        setFirstName(data.first_name ?? "");
-        setLastName(data.last_name ?? "");
-        setPhone(data.phone ?? "+7");
-        setCallAllowed(data.call_allowed ?? true);
+      if (profile) {
+        setFirstName(profile.first_name ?? "");
+        setLastName(profile.last_name ?? "");
+        setPhone(sanitizeRussianPhoneInput(profile.phone ?? "+7"));
+        setCallAllowed(profile.call_allowed ?? true);
       }
     } catch (error: any) {
       const message =
@@ -85,26 +87,14 @@ export default function ProfileAccountScreen() {
       setIsSaving(true);
       setErrorText(null);
 
-      const ownerKey = await getProfileOwnerKey();
-
-      const payload = {
-        owner_key: ownerKey,
+      await api.profile.save({
         first_name: firstName.trim(),
         last_name: lastName.trim() || null,
-        phone: phone.trim(),
+        phone: normalizePhoneInput(phone),
         call_allowed: callAllowed,
-        updated_at: new Date().toISOString(),
-      };
+      });
 
-      const { error } = await supabase
-        .from("user_profiles")
-        .upsert(payload, { onConflict: "owner_key" });
-
-      if (error) {
-        throw error;
-      }
-
-      Alert.alert("Готово", "Данные аккаунта сохранены.");
+      Alert.alert("Готово", "Данные профиля сохранены.");
       router.back();
     } catch (error: any) {
       const message =
@@ -161,7 +151,7 @@ export default function ProfileAccountScreen() {
     <SafeAreaView style={styles.safeArea}>
       <Stack.Screen
         options={{
-          title: "Мой аккаунт",
+          title: "Редактирование профиля",
           headerShadowVisible: false,
         }}
       />
@@ -175,7 +165,7 @@ export default function ProfileAccountScreen() {
             <ActivityIndicator size="large" color={colors.primary} />
             <Text style={styles.centerTitle}>Загружаем профиль</Text>
             <Text style={styles.centerText}>
-              Подтягиваем сохранённые данные аккаунта из Supabase.
+              Подтягиваем сохранённые данные профиля.
             </Text>
           </View>
         ) : (
@@ -185,15 +175,6 @@ export default function ProfileAccountScreen() {
               showsVerticalScrollIndicator={false}
               keyboardShouldPersistTaps="handled"
             >
-              <View style={styles.heroCard}>
-                <Text style={styles.eyebrow}>Профиль</Text>
-                <Text style={styles.title}>Данные аккаунта</Text>
-                <Text style={styles.description}>
-                  Здесь хранится базовая информация пользователя для заказов,
-                  связи и персональных настроек.
-                </Text>
-              </View>
-
               {errorText ? (
                 <View style={styles.errorCard}>
                   <Text style={styles.errorTitle}>Проблема с загрузкой</Text>
@@ -202,7 +183,7 @@ export default function ProfileAccountScreen() {
               ) : null}
 
               <View style={styles.sectionCard}>
-                <Text style={styles.sectionTitle}>Основная информация</Text>
+                <Text style={styles.title}>Данные профиля</Text>
 
                 <View style={styles.fieldGroup}>
                   <Text style={styles.label}>Имя</Text>
@@ -210,7 +191,7 @@ export default function ProfileAccountScreen() {
                     value={firstName}
                     onChangeText={setFirstName}
                     placeholder="Например: Артём"
-                    placeholderTextColor="#98A2B3"
+                    placeholderTextColor={colors.textMuted}
                     style={styles.input}
                     editable={!isBusy}
                   />
@@ -222,7 +203,7 @@ export default function ProfileAccountScreen() {
                     value={lastName}
                     onChangeText={setLastName}
                     placeholder="Например: Иванов"
-                    placeholderTextColor="#98A2B3"
+                    placeholderTextColor={colors.textMuted}
                     style={styles.input}
                     editable={!isBusy}
                   />
@@ -232,12 +213,15 @@ export default function ProfileAccountScreen() {
                   <Text style={styles.label}>Телефон</Text>
                   <TextInput
                     value={phone}
-                    onChangeText={setPhone}
+                    onChangeText={(value) =>
+                      setPhone(sanitizeRussianPhoneInput(value))
+                    }
                     placeholder="+7 999 123-45-67"
-                    placeholderTextColor="#98A2B3"
-                    style={styles.input}
+                    placeholderTextColor={colors.textMuted}
+                    style={[styles.input, styles.phoneInput, styles.inputReadonly]}
                     keyboardType="phone-pad"
-                    editable={!isBusy}
+                    editable={false}
+                    selectTextOnFocus={false}
                   />
                 </View>
               </View>
@@ -254,8 +238,8 @@ export default function ProfileAccountScreen() {
                   <Switch
                     value={callAllowed}
                     onValueChange={setCallAllowed}
-                    trackColor={{ false: "#D0D5DD", true: "#F8B4AE" }}
-                    thumbColor={callAllowed ? "#E9281D" : "#FFFFFF"}
+                    trackColor={{ false: colors.border, true: colors.primary }}
+                    thumbColor={callAllowed ? colors.primary : colors.white}
                     disabled={isBusy}
                   />
                 </View>
@@ -265,7 +249,6 @@ export default function ProfileAccountScreen() {
                 <Text style={styles.sectionTitle}>Сессия</Text>
                 <Text style={styles.sessionText}>
                   Можно безопасно завершить текущую сессию и снова пройти вход.
-                  Это полезно для проверки auth flow во время разработки.
                 </Text>
 
                 <Pressable
@@ -321,20 +304,8 @@ export default function ProfileAccountScreen() {
   );
 }
 
-const colors = {
-  background: "#F6F7FB",
-  surface: "#FFFFFF",
-  border: "#E7ECF3",
-  text: "#16181D",
-  textSecondary: "#667085",
-  primary: "#E9281D",
-  primarySoft: "#FFF1F0",
-  dangerSoft: "#FFF4F4",
-  dangerText: "#B42318",
-  danger: "#D92D20",
-};
-
-const styles = StyleSheet.create({
+function createStyles(colors: ReturnType<typeof useAppTheme>["colors"]) {
+  return StyleSheet.create({
   safeArea: {
     flex: 1,
     backgroundColor: colors.background,
@@ -345,7 +316,7 @@ const styles = StyleSheet.create({
   },
   content: {
     padding: 16,
-    paddingBottom: 220,
+    paddingBottom: 250,
   },
   centerState: {
     flex: 1,
@@ -367,22 +338,6 @@ const styles = StyleSheet.create({
     color: colors.textSecondary,
     textAlign: "center",
   },
-  heroCard: {
-    backgroundColor: colors.surface,
-    borderRadius: 24,
-    padding: 20,
-    borderWidth: 1,
-    borderColor: colors.border,
-    marginBottom: 16,
-  },
-  eyebrow: {
-    fontSize: 12,
-    fontWeight: "700",
-    color: colors.primary,
-    marginBottom: 8,
-    textTransform: "uppercase",
-    letterSpacing: 0.6,
-  },
   title: {
     fontSize: 28,
     lineHeight: 34,
@@ -390,29 +345,24 @@ const styles = StyleSheet.create({
     color: colors.text,
     marginBottom: 10,
   },
-  description: {
-    fontSize: 15,
-    lineHeight: 22,
-    color: colors.textSecondary,
-  },
   errorCard: {
-    backgroundColor: colors.dangerSoft,
+    backgroundColor: colors.errorBg,
     borderRadius: 22,
     padding: 18,
     borderWidth: 1,
-    borderColor: "#FDD4D0",
+    borderColor: colors.errorBorder,
     marginBottom: 16,
   },
   errorTitle: {
     fontSize: 17,
     fontWeight: "800",
-    color: colors.dangerText,
+    color: colors.errorTitle,
     marginBottom: 8,
   },
   errorText: {
     fontSize: 14,
     lineHeight: 20,
-    color: colors.dangerText,
+    color: colors.errorText,
   },
   sectionCard: {
     backgroundColor: colors.surface,
@@ -442,10 +392,16 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     borderWidth: 1,
     borderColor: colors.border,
-    backgroundColor: "#FCFCFD",
+    backgroundColor: colors.surfaceSecondary,
     paddingHorizontal: 16,
     fontSize: 15,
     color: colors.text,
+  },
+  inputReadonly: {
+    opacity: 0.72,
+  },
+  phoneInput: {
+    textAlign: "center",
   },
   switchRow: {
     flexDirection: "row",
@@ -476,9 +432,9 @@ const styles = StyleSheet.create({
   dangerButton: {
     minHeight: 52,
     borderRadius: 18,
-    backgroundColor: colors.dangerSoft,
+    backgroundColor: colors.errorBg,
     borderWidth: 1,
-    borderColor: "#FDC9C5",
+    borderColor: colors.errorBorder,
     alignItems: "center",
     justifyContent: "center",
     paddingHorizontal: 16,
@@ -492,7 +448,7 @@ const styles = StyleSheet.create({
   dangerButtonText: {
     fontSize: 15,
     fontWeight: "800",
-    color: colors.danger,
+    color: colors.errorText,
   },
   bottomBar: {
     position: "absolute",
@@ -504,7 +460,7 @@ const styles = StyleSheet.create({
     borderTopColor: colors.border,
     paddingHorizontal: 16,
     paddingTop: 14,
-    paddingBottom: 18,
+    paddingBottom: 30,
     gap: 10,
   },
   primaryButton: {
@@ -523,7 +479,7 @@ const styles = StyleSheet.create({
   primaryButtonText: {
     fontSize: 16,
     fontWeight: "800",
-    color: "#FFFFFF",
+    color: colors.white,
   },
   secondaryButton: {
     height: 52,
@@ -543,4 +499,5 @@ const styles = StyleSheet.create({
     fontWeight: "800",
     color: colors.primary,
   },
-});
+  });
+}

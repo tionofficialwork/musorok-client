@@ -12,7 +12,6 @@ import {
 } from "react-native";
 import { Stack, useLocalSearchParams, useRouter } from "expo-router";
 import * as Location from "expo-location";
-import { Yamap, YamapInstance } from "react-native-yamap-plus";
 
 import AppButton from "../../components/ui/AppButton";
 import AppCard from "../../components/ui/AppCard";
@@ -21,6 +20,14 @@ import ErrorCard from "../../components/ui/ErrorCard";
 import ScreenHeader from "../../components/ui/ScreenHeader";
 import ScreenSection from "../../components/ui/ScreenSection";
 import SectionTitle from "../../components/ui/SectionTitle";
+import {
+  initYandexMap,
+  YandexMapView,
+} from "../../components/maps/YandexMap";
+import {
+  buildStreetHouseAddress,
+  cleanAddressForDisplay,
+} from "../../lib/addressDisplay";
 import { radii, spacing, typography } from "../../lib/theme";
 import { useAppTheme } from "../../providers/AppThemeProvider";
 
@@ -37,6 +44,7 @@ type MapParams = {
   comment?: string;
   phone?: string;
   shouldCall?: string;
+  leaveAtDoor?: string;
   paymentMethod?: string;
   tip?: string;
   total?: string;
@@ -56,27 +64,6 @@ const DEFAULT_POINT: SelectedPoint = {
 
 const YANDEX_MAPKIT_API_KEY = process.env.EXPO_PUBLIC_YANDEX_MAPKIT_API_KEY;
 
-let isYandexMapInitialized = false;
-
-const YandexMapView = Yamap as any;
-const YandexMapInstance = YamapInstance as any;
-
-function initYandexMap() {
-  if (!YANDEX_MAPKIT_API_KEY || isYandexMapInitialized) {
-    return;
-  }
-
-  if (typeof YandexMapInstance.init === "function") {
-    YandexMapInstance.init(YANDEX_MAPKIT_API_KEY);
-  }
-
-  if (typeof YandexMapInstance.setLocale === "function") {
-    YandexMapInstance.setLocale("ru_RU").catch(() => null);
-  }
-
-  isYandexMapInitialized = true;
-}
-
 function parseNumberParam(value?: string) {
   if (!value) {
     return null;
@@ -91,22 +78,18 @@ function buildAddressLabel(
     fallbackPoint?: SelectedPoint | null
 ) {
   if (reverseResult) {
-    const line1 = [reverseResult.street, reverseResult.streetNumber]
-        .filter(Boolean)
-        .join(" ");
-    const line2 = [reverseResult.city, reverseResult.region]
-        .filter(Boolean)
-        .join(", ");
+    const address = buildStreetHouseAddress(
+      reverseResult.street,
+      reverseResult.streetNumber
+    );
 
-    const parts = [line1, line2].filter(Boolean);
-
-    if (parts.length > 0) {
-      return parts.join(", ");
+    if (address) {
+      return address;
     }
   }
 
   if (fallbackPoint) {
-    return `Координаты: ${fallbackPoint.latitude.toFixed(6)}, ${fallbackPoint.longitude.toFixed(6)}`;
+    return "";
   }
 
   return "";
@@ -127,7 +110,7 @@ function getPointFromCameraEvent(event: any): SelectedPoint | null {
 }
 
 export default function OrderMapScreen() {
-  initYandexMap();
+  initYandexMap(YANDEX_MAPKIT_API_KEY);
 
   const mapRef = useRef<any>(null);
   const router = useRouter();
@@ -142,13 +125,15 @@ export default function OrderMapScreen() {
   const phone = typeof params.phone === "string" ? params.phone : "";
   const shouldCall =
       typeof params.shouldCall === "string" ? params.shouldCall : "false";
+  const leaveAtDoor =
+      typeof params.leaveAtDoor === "string" ? params.leaveAtDoor : "false";
   const paymentMethod =
       typeof params.paymentMethod === "string" ? params.paymentMethod : "card";
   const tip = typeof params.tip === "string" ? params.tip : "0";
   const total = typeof params.total === "string" ? params.total : price;
 
   const initialAddress =
-      typeof params.address === "string" ? params.address : "";
+      typeof params.address === "string" ? cleanAddressForDisplay(params.address) : "";
   const initialApartment =
       typeof params.apartment === "string" ? params.apartment : "";
   const initialEntrance =
@@ -156,8 +141,14 @@ export default function OrderMapScreen() {
   const initialFloor = typeof params.floor === "string" ? params.floor : "";
   const initialIntercom =
       typeof params.intercom === "string" ? params.intercom : "";
+  const rawInitialAddressLabel =
+      typeof params.addressLabel === "string"
+          ? cleanAddressForDisplay(params.addressLabel)
+          : "";
   const initialAddressLabel =
-      typeof params.addressLabel === "string" ? params.addressLabel : "";
+      rawInitialAddressLabel.toLowerCase() === initialAddress.toLowerCase()
+          ? ""
+          : rawInitialAddressLabel;
   const initialComment =
       typeof params.comment === "string" ? params.comment : "";
 
@@ -193,9 +184,14 @@ export default function OrderMapScreen() {
   const [isResolvingAddress, setIsResolvingAddress] = useState(false);
   const [errorText, setErrorText] = useState<string | null>(null);
 
+  const selectedAddressDisplay = useMemo(
+      () => cleanAddressForDisplay(resolvedAddress),
+      [resolvedAddress]
+  );
+
   const canConfirm = useMemo(() => {
-    return Boolean(selectedPoint && resolvedAddress.trim());
-  }, [selectedPoint, resolvedAddress]);
+    return Boolean(selectedPoint && selectedAddressDisplay.trim());
+  }, [selectedPoint, selectedAddressDisplay]);
 
   const resolveAddressByCoords = useCallback(async (point: SelectedPoint) => {
     try {
@@ -207,27 +203,13 @@ export default function OrderMapScreen() {
         longitude: point.longitude,
       });
 
-      const address = buildAddressLabel(result?.[0], point);
+      const address = cleanAddressForDisplay(buildAddressLabel(result?.[0], point));
       setResolvedAddress(address);
-
-      const suggestedLabel =
-          typeof result?.[0]?.street === "string" &&
-          result[0].street.trim().length > 0
-              ? result[0].street.trim()
-              : "";
-
-      setAddressLabel((current) => {
-        if (current.trim().length > 0) {
-          return current;
-        }
-
-        return suggestedLabel;
-      });
     } catch (error) {
       console.error("Reverse geocode error:", error);
-      setResolvedAddress(buildAddressLabel(null, point));
+      setResolvedAddress("");
       setErrorText(
-          "Не удалось точно определить адрес. Можно использовать выбранные координаты."
+          "Не удалось точно определить адрес. Попробуй сдвинуть карту или ввести адрес вручную."
       );
     } finally {
       setIsResolvingAddress(false);
@@ -310,7 +292,14 @@ export default function OrderMapScreen() {
   }, [mapCenterPoint, resolveAddressByCoords]);
 
   const handleConfirmAddress = useCallback(() => {
-    if (!selectedPoint || !resolvedAddress.trim()) {
+    const cleanedAddress = cleanAddressForDisplay(resolvedAddress);
+    const cleanedAddressLabel = cleanAddressForDisplay(addressLabel);
+    const nextAddressLabel =
+        cleanedAddressLabel.toLowerCase() === cleanedAddress.toLowerCase()
+            ? ""
+            : cleanedAddressLabel;
+
+    if (!selectedPoint || !cleanedAddress.trim()) {
       Alert.alert(
           "Адрес не выбран",
           "Перемести карту на нужную точку и нажми «Подтвердить точку»."
@@ -329,15 +318,16 @@ export default function OrderMapScreen() {
         packageId,
         packageName,
         price,
-        address: resolvedAddress.trim(),
+        address: cleanedAddress,
         apartment: apartment.trim(),
         entrance: entrance.trim(),
         floor: floor.trim(),
         intercom: intercom.trim(),
-        addressLabel: addressLabel.trim(),
+        addressLabel: nextAddressLabel,
         comment: comment.trim(),
         phone,
         shouldCall,
+        leaveAtDoor,
         paymentMethod,
         tip,
         total,
@@ -361,19 +351,16 @@ export default function OrderMapScreen() {
     router,
     selectedPoint,
     shouldCall,
+    leaveAtDoor,
     tip,
     total,
   ]);
-
-  const selectedCoordsText = selectedPoint
-      ? `${selectedPoint.latitude.toFixed(6)}, ${selectedPoint.longitude.toFixed(6)}`
-      : `${mapCenterPoint.latitude.toFixed(6)}, ${mapCenterPoint.longitude.toFixed(6)}`;
 
   return (
       <>
         <Stack.Screen options={{ title: "Адрес на карте" }} />
 
-        <AppScreen>
+        <AppScreen scrollable={false}>
           <KeyboardAvoidingView
               style={styles.keyboard}
               behavior={Platform.OS === "ios" ? "padding" : undefined}
@@ -383,7 +370,7 @@ export default function OrderMapScreen() {
                 keyboardShouldPersistTaps="handled"
                 showsVerticalScrollIndicator={false}
             >
-              <ScreenSection>
+              <ScreenSection contentStyle={styles.sectionContent}>
                 <ScreenHeader
                     title="Выбери адрес на карте"
                     subtitle="Перемести карту так, чтобы метка была на нужной точке, затем подтверди адрес."
@@ -449,6 +436,23 @@ export default function OrderMapScreen() {
                     ) : null}
                   </View>
 
+                  <View style={styles.selectedAddressBox}>
+                    <SectionTitle>Выбранный адрес</SectionTitle>
+
+                    {isResolvingAddress ? (
+                        <View style={styles.resolvingRow}>
+                          <ActivityIndicator size="small" color={colors.primary} />
+                          <Text style={styles.resolvingText}>Определяем адрес...</Text>
+                        </View>
+                    ) : (
+                        <>
+                          <Text style={styles.addressText}>
+                            {selectedAddressDisplay || "Пока адрес не подтверждён"}
+                          </Text>
+                        </>
+                    )}
+                  </View>
+
                   <View style={styles.cardButtons}>
                     <AppButton
                         title="Моё местоположение"
@@ -465,28 +469,10 @@ export default function OrderMapScreen() {
                 </AppCard>
 
                 <AppCard>
-                  <SectionTitle>Выбранный адрес</SectionTitle>
-
-                  {isResolvingAddress ? (
-                      <View style={styles.resolvingRow}>
-                        <ActivityIndicator size="small" color={colors.primary} />
-                        <Text style={styles.resolvingText}>Определяем адрес...</Text>
-                      </View>
-                  ) : (
-                      <>
-                        <Text style={styles.addressText}>
-                          {resolvedAddress || "Пока адрес не подтверждён"}
-                        </Text>
-                        <Text style={styles.coordsText}>{selectedCoordsText}</Text>
-                      </>
-                  )}
-                </AppCard>
-
-                <AppCard>
                   <SectionTitle>Детали адреса</SectionTitle>
 
                   <View style={styles.formGroup}>
-                    <Text style={styles.label}>Название адреса</Text>
+                    <Text style={styles.label}>Короткое название</Text>
                     <TextInput
                         style={styles.input}
                         placeholder="Например: Дом, Работа"
@@ -494,6 +480,30 @@ export default function OrderMapScreen() {
                         value={addressLabel}
                         onChangeText={setAddressLabel}
                     />
+                  </View>
+
+                  <View style={styles.formRow}>
+                    <View style={styles.formCol}>
+                      <Text style={styles.label}>Подъезд</Text>
+                      <TextInput
+                          style={styles.input}
+                          placeholder="2"
+                          placeholderTextColor={colors.textSecondary}
+                          value={entrance}
+                          onChangeText={setEntrance}
+                      />
+                    </View>
+
+                    <View style={styles.formCol}>
+                      <Text style={styles.label}>Этаж</Text>
+                      <TextInput
+                          style={styles.input}
+                          placeholder="5"
+                          placeholderTextColor={colors.textSecondary}
+                          value={floor}
+                          onChangeText={setFloor}
+                      />
+                    </View>
                   </View>
 
                   <View style={styles.formGroup}>
@@ -505,30 +515,6 @@ export default function OrderMapScreen() {
                         value={apartment}
                         onChangeText={setApartment}
                     />
-                  </View>
-
-                  <View style={styles.formRow}>
-                    <View style={styles.formCol}>
-                      <Text style={styles.label}>Этаж</Text>
-                      <TextInput
-                          style={styles.input}
-                          placeholder="5"
-                          placeholderTextColor={colors.textSecondary}
-                          value={floor}
-                          onChangeText={setFloor}
-                      />
-                    </View>
-
-                    <View style={styles.formCol}>
-                      <Text style={styles.label}>Подъезд</Text>
-                      <TextInput
-                          style={styles.input}
-                          placeholder="2"
-                          placeholderTextColor={colors.textSecondary}
-                          value={entrance}
-                          onChangeText={setEntrance}
-                      />
-                    </View>
                   </View>
 
                   <View style={styles.formGroup}>
@@ -556,15 +542,21 @@ export default function OrderMapScreen() {
                   </View>
                 </AppCard>
 
-                <View style={styles.footerButtons}>
-                  <AppButton
-                      title="Продолжить"
-                      onPress={handleConfirmAddress}
-                      disabled={!canConfirm}
-                  />
-                </View>
               </ScreenSection>
             </ScrollView>
+
+            <View style={styles.footer}>
+              <AppButton
+                  title="Продолжить"
+                  onPress={handleConfirmAddress}
+                  disabled={!canConfirm}
+              />
+              <AppButton
+                  title="Назад"
+                  variant="secondary"
+                  onPress={() => router.back()}
+              />
+            </View>
           </KeyboardAvoidingView>
         </AppScreen>
       </>
@@ -577,7 +569,12 @@ function createStyles(colors: ReturnType<typeof useAppTheme>["colors"]) {
       flex: 1,
     },
     content: {
-      paddingBottom: spacing.xl,
+      paddingHorizontal: spacing.lg,
+      paddingTop: spacing.lg,
+      paddingBottom: spacing.xxl,
+    },
+    sectionContent: {
+      gap: spacing.md,
     },
     mapCard: {
       gap: spacing.md,
@@ -642,6 +639,12 @@ function createStyles(colors: ReturnType<typeof useAppTheme>["colors"]) {
     cardButtons: {
       gap: spacing.md,
     },
+    selectedAddressBox: {
+      borderRadius: radii.lg,
+      backgroundColor: colors.surfaceSecondary,
+      padding: spacing.md,
+      gap: spacing.xs,
+    },
     resolvingRow: {
       flexDirection: "row",
       alignItems: "center",
@@ -652,15 +655,11 @@ function createStyles(colors: ReturnType<typeof useAppTheme>["colors"]) {
       color: colors.textSecondary,
     },
     addressText: {
+      flexShrink: 1,
       fontSize: typography.body,
       lineHeight: 22,
       color: colors.text,
       fontWeight: "700",
-    },
-    coordsText: {
-      marginTop: spacing.sm,
-      fontSize: typography.bodySmall,
-      color: colors.textSecondary,
     },
     formGroup: {
       marginBottom: spacing.md,
@@ -670,11 +669,13 @@ function createStyles(colors: ReturnType<typeof useAppTheme>["colors"]) {
     },
     formRow: {
       flexDirection: "row",
+      flexWrap: "wrap",
       gap: spacing.md,
       marginBottom: spacing.md,
     },
     formCol: {
       flex: 1,
+      minWidth: 120,
     },
     label: {
       marginBottom: spacing.sm,
@@ -688,16 +689,23 @@ function createStyles(colors: ReturnType<typeof useAppTheme>["colors"]) {
       borderColor: colors.border,
       borderRadius: radii.lg,
       paddingHorizontal: spacing.md,
-      paddingVertical: spacing.md,
+      paddingVertical: 12,
       fontSize: typography.body,
+      lineHeight: 22,
       color: colors.text,
       backgroundColor: colors.surfaceSecondary,
     },
     textarea: {
       minHeight: 110,
     },
-    footerButtons: {
-      marginTop: spacing.md,
+    footer: {
+      paddingHorizontal: spacing.lg,
+      paddingTop: spacing.md,
+      paddingBottom: spacing.lg,
+      borderTopWidth: 1,
+      borderTopColor: colors.border,
+      backgroundColor: colors.background,
+      gap: spacing.sm,
     },
   });
 }

@@ -36,11 +36,8 @@ export default function AppButton({
   const { colors } = useAppTheme();
   const isDisabled = disabled || loading;
 
-  const primaryPressedColor =
-      colors.primary === "#E9281D" ? "#D11F15" : "#E03C31";
-
-  const dangerColor = "#DC2626";
-  const dangerPressedColor = "#B91C1C";
+  const dangerColor = colors.errorText;
+  const dangerPressedColor = colors.errorBorder;
 
   const secondaryPressedColor = colors.surfaceSecondary;
   const ghostPressedColor = colors.surfaceSecondary;
@@ -81,7 +78,7 @@ export default function AppButton({
             pressed &&
             !isDisabled &&
             variant === "primary" && {
-              backgroundColor: primaryPressedColor,
+              opacity: 0.9,
             },
             pressed &&
             !isDisabled &&
@@ -112,7 +109,10 @@ export default function AppButton({
                     color: buttonTextColor,
                   },
                   isDisabled && {
-                    color: colors.textMuted,
+                    color:
+                      variant === "primary" || variant === "danger"
+                        ? colors.white
+                        : colors.textMuted,
                   },
                   textStyle,
                 ]}

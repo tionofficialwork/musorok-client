@@ -1,10 +1,16 @@
-import { useMemo, useState } from "react";
 import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
+import {
+  ActivityIndicator,
   Alert,
   KeyboardAvoidingView,
   Platform,
   Pressable,
-  SafeAreaView,
   ScrollView,
   StyleSheet,
   Switch,
@@ -12,28 +18,84 @@ import {
   TextInput,
   View,
 } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 import { Stack, useRouter } from "expo-router";
-import { supabase } from "../../lib/supabase";
-import { getAddressesOwnerKey } from "../../lib/addressIdentity";
+import * as Location from "expo-location";
+import {
+  initYandexMap,
+  YandexMapView,
+} from "../../components/maps/YandexMap";
+import { api } from "../../lib/api";
+import {
+  buildStreetHouseAddress,
+  cleanAddressForDisplay,
+} from "../../lib/addressDisplay";
+import { useAppTheme } from "../../providers/AppThemeProvider";
 
-type AddressType = "home" | "work" | "other";
+type AddressType = string;
+type SelectedPoint = {
+  latitude: number;
+  longitude: number;
+};
 
-function getLabelByType(addressType: AddressType) {
-  if (addressType === "home") {
-    return "Дом";
+const DEFAULT_ADDRESS_TYPES = ["Дом", "Работа", "Другое"];
+
+const DEFAULT_POINT: SelectedPoint = {
+  latitude: 45.03547,
+  longitude: 38.975313,
+};
+
+const YANDEX_MAPKIT_API_KEY = process.env.EXPO_PUBLIC_YANDEX_MAPKIT_API_KEY;
+
+function buildStreetHouseLabel(
+  reverseResult?: Location.LocationGeocodedAddress | null,
+  fallbackPoint?: SelectedPoint | null
+) {
+  if (reverseResult) {
+    const streetHouse = buildStreetHouseAddress(
+      reverseResult.street,
+      reverseResult.streetNumber
+    );
+
+    if (streetHouse) {
+      return streetHouse;
+    }
   }
 
-  if (addressType === "work") {
-    return "Работа";
+  if (fallbackPoint) {
+    return "";
   }
 
-  return "Другое";
+  return "";
+}
+
+function getPointFromCameraEvent(event: any): SelectedPoint | null {
+  const payload = event?.nativeEvent ?? event;
+  const point = payload?.point ?? payload?.target ?? payload?.position ?? payload;
+
+  const latitude = Number(point?.lat ?? point?.latitude);
+  const longitude = Number(point?.lon ?? point?.longitude);
+
+  if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) {
+    return null;
+  }
+
+  return { latitude, longitude };
 }
 
 export default function NewAddressScreen() {
-  const router = useRouter();
+  initYandexMap(YANDEX_MAPKIT_API_KEY);
 
-  const [addressType, setAddressType] = useState<AddressType>("home");
+  const mapRef = useRef<any>(null);
+  const router = useRouter();
+  const { colors } = useAppTheme();
+  const styles = useMemo(() => createStyles(colors), [colors]);
+
+  const [addressType, setAddressType] = useState<AddressType>(
+    DEFAULT_ADDRESS_TYPES[0]
+  );
+  const [customAddressTypes, setCustomAddressTypes] = useState<string[]>([]);
+  const [newAddressType, setNewAddressType] = useState("");
   const [street, setStreet] = useState("");
   const [apartment, setApartment] = useState("");
   const [entrance, setEntrance] = useState("");
@@ -41,10 +103,129 @@ export default function NewAddressScreen() {
   const [comment, setComment] = useState("");
   const [isPrimary, setIsPrimary] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+  const [mapCenterPoint, setMapCenterPoint] =
+    useState<SelectedPoint>(DEFAULT_POINT);
+  const [selectedPoint, setSelectedPoint] = useState<SelectedPoint | null>(null);
+  const [isLoadingLocation, setIsLoadingLocation] = useState(false);
+  const [isResolvingAddress, setIsResolvingAddress] = useState(false);
+  const [mapErrorText, setMapErrorText] = useState<string | null>(null);
 
   const isFormValid = useMemo(() => {
     return street.trim().length >= 5;
   }, [street]);
+
+  const addressTypes = useMemo(
+    () => [...DEFAULT_ADDRESS_TYPES, ...customAddressTypes],
+    [customAddressTypes]
+  );
+
+  const resolveAddressByCoords = useCallback(async (point: SelectedPoint) => {
+    try {
+      setIsResolvingAddress(true);
+      setMapErrorText(null);
+
+      const result = await Location.reverseGeocodeAsync({
+        latitude: point.latitude,
+        longitude: point.longitude,
+      });
+
+      setStreet(buildStreetHouseLabel(result?.[0], point));
+    } catch (error) {
+      console.error("Reverse geocode error:", error);
+      setMapErrorText(
+        "Не удалось точно определить адрес. Попробуй сдвинуть карту или введи улицу и дом вручную."
+      );
+    } finally {
+      setIsResolvingAddress(false);
+    }
+  }, []);
+
+  const moveMapToPoint = useCallback((point: SelectedPoint) => {
+    setMapCenterPoint(point);
+
+    if (typeof mapRef.current?.setCenter === "function") {
+      mapRef.current.setCenter(
+        {
+          lat: point.latitude,
+          lon: point.longitude,
+        },
+        16,
+        0,
+        0,
+        0
+      );
+    }
+  }, []);
+
+  const moveToCurrentLocation = useCallback(async () => {
+    try {
+      setIsLoadingLocation(true);
+      setMapErrorText(null);
+
+      const permission = await Location.requestForegroundPermissionsAsync();
+
+      if (permission.status !== "granted") {
+        setMapErrorText(
+          "Нет доступа к геолокации. Разреши доступ или выбери точку на карте."
+        );
+        return;
+      }
+
+      const position = await Location.getCurrentPositionAsync({
+        accuracy: Location.Accuracy.Balanced,
+      });
+
+      const nextPoint = {
+        latitude: position.coords.latitude,
+        longitude: position.coords.longitude,
+      };
+
+      setSelectedPoint(nextPoint);
+      moveMapToPoint(nextPoint);
+      await resolveAddressByCoords(nextPoint);
+    } catch (error) {
+      console.error("Current location error:", error);
+      setMapErrorText("Не удалось получить текущее местоположение.");
+    } finally {
+      setIsLoadingLocation(false);
+    }
+  }, [moveMapToPoint, resolveAddressByCoords]);
+
+  useEffect(() => {
+    moveToCurrentLocation();
+  }, [moveToCurrentLocation]);
+
+  const handleCameraPositionChangeEnd = useCallback((event: any) => {
+    const nextPoint = getPointFromCameraEvent(event);
+
+    if (nextPoint) {
+      setMapCenterPoint(nextPoint);
+    }
+  }, []);
+
+  const handlePickCenterPoint = useCallback(async () => {
+    setSelectedPoint(mapCenterPoint);
+    await resolveAddressByCoords(mapCenterPoint);
+  }, [mapCenterPoint, resolveAddressByCoords]);
+
+  const handleAddAddressType = () => {
+    const trimmedType = newAddressType.trim();
+
+    if (!trimmedType) {
+      return;
+    }
+
+    const typeExists = addressTypes.some(
+      (type) => type.toLowerCase() === trimmedType.toLowerCase()
+    );
+
+    if (!typeExists) {
+      setCustomAddressTypes((current) => [...current, trimmedType]);
+    }
+
+    setAddressType(trimmedType);
+    setNewAddressType("");
+  };
 
   const handleSave = async () => {
     if (!isFormValid || isSaving) {
@@ -54,36 +235,17 @@ export default function NewAddressScreen() {
     try {
       setIsSaving(true);
 
-      const ownerKey = await getAddressesOwnerKey();
-
-      if (isPrimary) {
-        const { error: resetError } = await supabase
-          .from("user_addresses")
-          .update({ is_primary: false })
-          .eq("owner_key", ownerKey)
-          .eq("is_primary", true);
-
-        if (resetError) {
-          throw resetError;
-        }
-      }
-
-      const payload = {
-        owner_key: ownerKey,
-        label: getLabelByType(addressType),
-        street: street.trim(),
+      await api.addresses.create({
+        label: addressType,
+        street: cleanAddressForDisplay(street),
         apartment: apartment.trim() || null,
         entrance: entrance.trim() || null,
         floor: floor.trim() || null,
         comment: comment.trim() || null,
         is_primary: isPrimary,
-      };
-
-      const { error } = await supabase.from("user_addresses").insert(payload);
-
-      if (error) {
-        throw error;
-      }
+        latitude: selectedPoint?.latitude ?? null,
+        longitude: selectedPoint?.longitude ?? null,
+      });
 
       router.replace("/profile/addresses");
     } catch (error) {
@@ -115,7 +277,6 @@ export default function NewAddressScreen() {
           keyboardShouldPersistTaps="handled"
         >
           <View style={styles.heroCard}>
-            <Text style={styles.eyebrow}>Профиль</Text>
             <Text style={styles.title}>Добавить адрес</Text>
             <Text style={styles.description}>
               Сохрани новый адрес для будущих заказов и быстрого выбора.
@@ -126,55 +287,51 @@ export default function NewAddressScreen() {
             <Text style={styles.sectionTitle}>Тип адреса</Text>
 
             <View style={styles.chipsRow}>
-              <Pressable
-                onPress={() => setAddressType("home")}
-                style={[
-                  styles.chip,
-                  addressType === "home" && styles.chipActive,
-                ]}
-              >
-                <Text
-                  style={[
-                    styles.chipText,
-                    addressType === "home" && styles.chipTextActive,
-                  ]}
-                >
-                  Дом
-                </Text>
-              </Pressable>
+              {addressTypes.map((type) => {
+                const isSelected = addressType === type;
+
+                return (
+                  <Pressable
+                    key={type}
+                    onPress={() => setAddressType(type)}
+                    style={[styles.chip, isSelected && styles.chipActive]}
+                  >
+                    <Text
+                      style={[
+                        styles.chipText,
+                        isSelected && styles.chipTextActive,
+                      ]}
+                    >
+                      {type}
+                    </Text>
+                  </Pressable>
+                );
+              })}
+            </View>
+
+            <View style={styles.addTypeRow}>
+              <TextInput
+                value={newAddressType}
+                onChangeText={setNewAddressType}
+                placeholder="Например: Дача"
+                placeholderTextColor={colors.textMuted}
+                style={[styles.input, styles.addTypeInput]}
+                returnKeyType="done"
+                onSubmitEditing={handleAddAddressType}
+              />
 
               <Pressable
-                onPress={() => setAddressType("work")}
-                style={[
-                  styles.chip,
-                  addressType === "work" && styles.chipActive,
+                onPress={handleAddAddressType}
+                disabled={!newAddressType.trim()}
+                style={({ pressed }) => [
+                  styles.addTypeButton,
+                  !newAddressType.trim() && styles.addTypeButtonDisabled,
+                  pressed && newAddressType.trim()
+                    ? styles.addTypeButtonPressed
+                    : undefined,
                 ]}
               >
-                <Text
-                  style={[
-                    styles.chipText,
-                    addressType === "work" && styles.chipTextActive,
-                  ]}
-                >
-                  Работа
-                </Text>
-              </Pressable>
-
-              <Pressable
-                onPress={() => setAddressType("other")}
-                style={[
-                  styles.chip,
-                  addressType === "other" && styles.chipActive,
-                ]}
-              >
-                <Text
-                  style={[
-                    styles.chipText,
-                    addressType === "other" && styles.chipTextActive,
-                  ]}
-                >
-                  Другое
-                </Text>
+                <Text style={styles.addTypeButtonText}>Добавить</Text>
               </Pressable>
             </View>
           </View>
@@ -182,13 +339,92 @@ export default function NewAddressScreen() {
           <View style={styles.sectionCard}>
             <Text style={styles.sectionTitle}>Адрес</Text>
 
+            <View style={styles.mapWrap}>
+              {YANDEX_MAPKIT_API_KEY ? (
+                <YandexMapView
+                  ref={mapRef}
+                  style={styles.map}
+                  initialRegion={{
+                    lat: mapCenterPoint.latitude,
+                    lon: mapCenterPoint.longitude,
+                    zoom: 16,
+                  }}
+                  showUserPosition
+                  followUser={false}
+                  nightMode={false}
+                  onCameraPositionChangeEnd={handleCameraPositionChangeEnd}
+                />
+              ) : (
+                <View style={styles.mapFallback}>
+                  <Text style={styles.mapFallbackText}>
+                    Яндекс.Карта недоступна без API-ключа.
+                  </Text>
+                </View>
+              )}
+
+              <View pointerEvents="none" style={styles.pinWrap}>
+                <View style={styles.centerPinOuter}>
+                  <View style={styles.centerPinInner} />
+                </View>
+              </View>
+
+              {isLoadingLocation ? (
+                <View style={styles.mapOverlay}>
+                  <ActivityIndicator size="large" color={colors.primary} />
+                  <Text style={styles.mapOverlayText}>
+                    Определяем местоположение...
+                  </Text>
+                </View>
+              ) : null}
+            </View>
+
+            <View style={styles.mapActions}>
+              <Pressable
+                onPress={moveToCurrentLocation}
+                disabled={isLoadingLocation || isResolvingAddress}
+                style={({ pressed }) => [
+                  styles.secondaryButton,
+                  (isLoadingLocation || isResolvingAddress) &&
+                    styles.secondaryButtonDisabled,
+                  pressed &&
+                    !isLoadingLocation &&
+                    !isResolvingAddress &&
+                    styles.secondaryButtonPressed,
+                ]}
+              >
+                <Text style={styles.secondaryButtonText}>Моё местоположение</Text>
+              </Pressable>
+
+              <Pressable
+                onPress={handlePickCenterPoint}
+                disabled={isLoadingLocation || isResolvingAddress}
+                style={({ pressed }) => [
+                  styles.primaryButton,
+                  (isLoadingLocation || isResolvingAddress) &&
+                    styles.primaryButtonDisabled,
+                  pressed &&
+                    !isLoadingLocation &&
+                    !isResolvingAddress &&
+                    styles.primaryButtonPressed,
+                ]}
+              >
+                <Text style={styles.primaryButtonText}>
+                  {isResolvingAddress ? "Определяем..." : "Подтвердить точку"}
+                </Text>
+              </Pressable>
+            </View>
+
+            {mapErrorText ? (
+              <Text style={styles.mapErrorText}>{mapErrorText}</Text>
+            ) : null}
+
             <View style={styles.fieldGroup}>
               <Text style={styles.label}>Улица, дом</Text>
               <TextInput
                 value={street}
                 onChangeText={setStreet}
-                placeholder="Например: ул. Ленина, 12"
-                placeholderTextColor="#98A2B3"
+                placeholder="Например: Петра Метальникова, 40"
+                placeholderTextColor={colors.textMuted}
                 style={styles.input}
               />
             </View>
@@ -200,7 +436,7 @@ export default function NewAddressScreen() {
                   value={apartment}
                   onChangeText={setApartment}
                   placeholder="24"
-                  placeholderTextColor="#98A2B3"
+                  placeholderTextColor={colors.textMuted}
                   style={styles.input}
                 />
               </View>
@@ -211,7 +447,7 @@ export default function NewAddressScreen() {
                   value={entrance}
                   onChangeText={setEntrance}
                   placeholder="2"
-                  placeholderTextColor="#98A2B3"
+                  placeholderTextColor={colors.textMuted}
                   style={styles.input}
                 />
               </View>
@@ -223,7 +459,7 @@ export default function NewAddressScreen() {
                 value={floor}
                 onChangeText={setFloor}
                 placeholder="5"
-                placeholderTextColor="#98A2B3"
+                placeholderTextColor={colors.textMuted}
                 style={styles.input}
               />
             </View>
@@ -234,7 +470,7 @@ export default function NewAddressScreen() {
                 value={comment}
                 onChangeText={setComment}
                 placeholder="Например: домофон не работает"
-                placeholderTextColor="#98A2B3"
+                placeholderTextColor={colors.textMuted}
                 style={[styles.input, styles.textArea]}
                 multiline
                 textAlignVertical="top"
@@ -254,8 +490,8 @@ export default function NewAddressScreen() {
               <Switch
                 value={isPrimary}
                 onValueChange={setIsPrimary}
-                trackColor={{ false: "#D0D5DD", true: "#F8B4AE" }}
-                thumbColor={isPrimary ? "#E9281D" : "#FFFFFF"}
+                trackColor={{ false: colors.border, true: colors.primary }}
+                thumbColor={isPrimary ? colors.primary : colors.white}
               />
             </View>
           </View>
@@ -293,17 +529,8 @@ export default function NewAddressScreen() {
   );
 }
 
-const colors = {
-  background: "#F6F7FB",
-  surface: "#FFFFFF",
-  border: "#E7ECF3",
-  text: "#16181D",
-  textSecondary: "#667085",
-  primary: "#E9281D",
-  primarySoft: "#FFF1F0",
-};
-
-const styles = StyleSheet.create({
+function createStyles(colors: ReturnType<typeof useAppTheme>["colors"]) {
+  return StyleSheet.create({
   safeArea: {
     flex: 1,
     backgroundColor: colors.background,
@@ -314,7 +541,7 @@ const styles = StyleSheet.create({
   },
   content: {
     padding: 16,
-    paddingBottom: 160,
+    paddingBottom: 210,
   },
   heroCard: {
     backgroundColor: colors.surface,
@@ -323,14 +550,6 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: colors.border,
     marginBottom: 16,
-  },
-  eyebrow: {
-    fontSize: 12,
-    fontWeight: "700",
-    color: colors.primary,
-    marginBottom: 8,
-    textTransform: "uppercase",
-    letterSpacing: 0.6,
   },
   title: {
     fontSize: 28,
@@ -358,6 +577,72 @@ const styles = StyleSheet.create({
     color: colors.text,
     marginBottom: 14,
   },
+  mapWrap: {
+    height: 300,
+    borderRadius: 18,
+    overflow: "hidden",
+    backgroundColor: colors.surfaceSecondary,
+    marginBottom: 12,
+  },
+  map: {
+    width: "100%",
+    height: "100%",
+  },
+  mapFallback: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    padding: 16,
+  },
+  mapFallbackText: {
+    fontSize: 15,
+    lineHeight: 21,
+    color: colors.textSecondary,
+    textAlign: "center",
+  },
+  pinWrap: {
+    ...StyleSheet.absoluteFillObject,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  centerPinOuter: {
+    width: 26,
+    height: 26,
+    borderRadius: 999,
+    backgroundColor: colors.white,
+    borderWidth: 2,
+    borderColor: colors.primary,
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 24,
+  },
+  centerPinInner: {
+    width: 10,
+    height: 10,
+    borderRadius: 999,
+    backgroundColor: colors.primary,
+  },
+  mapOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    backgroundColor: colors.overlay,
+  },
+  mapOverlayText: {
+    fontSize: 15,
+    color: colors.textSecondary,
+  },
+  mapActions: {
+    gap: 10,
+    marginBottom: 12,
+  },
+  mapErrorText: {
+    fontSize: 13,
+    lineHeight: 18,
+    color: colors.errorText,
+    marginBottom: 8,
+  },
   chipsRow: {
     flexDirection: "row",
     gap: 10,
@@ -369,7 +654,7 @@ const styles = StyleSheet.create({
     borderRadius: 999,
     borderWidth: 1,
     borderColor: colors.border,
-    backgroundColor: "#F8FAFC",
+    backgroundColor: colors.surfaceSecondary,
     alignItems: "center",
     justifyContent: "center",
   },
@@ -385,6 +670,34 @@ const styles = StyleSheet.create({
   chipTextActive: {
     color: colors.primary,
   },
+  addTypeRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    marginTop: 12,
+  },
+  addTypeInput: {
+    flex: 1,
+  },
+  addTypeButton: {
+    minHeight: 54,
+    borderRadius: 16,
+    backgroundColor: colors.primary,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 14,
+  },
+  addTypeButtonDisabled: {
+    opacity: 0.45,
+  },
+  addTypeButtonPressed: {
+    opacity: 0.9,
+  },
+  addTypeButtonText: {
+    fontSize: 14,
+    fontWeight: "800",
+    color: colors.white,
+  },
   fieldGroup: {
     marginBottom: 14,
   },
@@ -399,9 +712,11 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     borderWidth: 1,
     borderColor: colors.border,
-    backgroundColor: "#FCFCFD",
+    backgroundColor: colors.surfaceSecondary,
     paddingHorizontal: 16,
+    paddingVertical: 12,
     fontSize: 15,
+    lineHeight: 20,
     color: colors.text,
   },
   textArea: {
@@ -411,10 +726,12 @@ const styles = StyleSheet.create({
   },
   row: {
     flexDirection: "row",
+    flexWrap: "wrap",
     gap: 12,
   },
   halfField: {
     flex: 1,
+    minWidth: 120,
   },
   switchRow: {
     flexDirection: "row",
@@ -446,7 +763,7 @@ const styles = StyleSheet.create({
     borderTopColor: colors.border,
     paddingHorizontal: 16,
     paddingTop: 14,
-    paddingBottom: 18,
+    paddingBottom: 30,
     gap: 10,
   },
   primaryButton: {
@@ -465,7 +782,7 @@ const styles = StyleSheet.create({
   primaryButtonText: {
     fontSize: 16,
     fontWeight: "800",
-    color: "#FFFFFF",
+    color: colors.white,
   },
   secondaryButton: {
     height: 52,
@@ -485,4 +802,5 @@ const styles = StyleSheet.create({
     fontWeight: "800",
     color: colors.primary,
   },
-});
+  });
+}

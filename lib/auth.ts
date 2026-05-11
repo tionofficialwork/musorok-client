@@ -1,5 +1,14 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { supabase } from "./supabase";
+import {
+  api,
+  type AuthChallengeResponse,
+  clearApiSession,
+  getApiOwnerKey,
+  getApiToken,
+  setApiSession,
+} from "./api";
+import { clearActiveOrder } from "./activeOrder";
+import { deleteOrderPushTokenIfPossible } from "./orderNotifications";
 
 export type AuthSession = {
   phone: string;
@@ -7,20 +16,14 @@ export type AuthSession = {
   verifiedAt: string;
 };
 
+export type AuthFlowMode = "login" | "register";
+
 type DevAuthSession = AuthSession & {
-  mode: "dev";
+  mode?: "api" | "dev";
 };
 
-/**
- * ⚠️ ВРЕМЕННО ВКЛЮЧЕНО ДЛЯ MVP
- * Это позволяет APK работать без реального SMS
- * После подключения SMS нужно вернуть обратно
- */
-const DEV_PHONE_AUTH_BYPASS_ENABLED = true;
-
-const DEV_OTP_CODE = "1234";
-const DEV_AUTH_SESSION_KEY = "musorok_dev_auth_session_v1";
-const DEV_AUTH_PENDING_PHONE_KEY = "musorok_dev_auth_pending_phone_v1";
+const AUTH_SESSION_KEY = "musorok_auth_session_v1";
+const LEGACY_DEV_AUTH_SESSION_KEY = "musorok_dev_auth_session_v1";
 
 export function normalizePhoneInput(value: string) {
   const digits = value.replace(/\D/g, "");
@@ -44,6 +47,18 @@ export function normalizePhoneInput(value: string) {
   return value.trim();
 }
 
+export function sanitizeRussianPhoneInput(value: string) {
+  const trimmed = value.trim();
+  const digits = value.replace(/\D/g, "");
+  let nationalDigits = digits;
+
+  if (trimmed.startsWith("+7") || digits.startsWith("7") || digits.startsWith("8")) {
+    nationalDigits = digits.slice(1);
+  }
+
+  return `+7${nationalDigits.slice(0, 10)}`;
+}
+
 export function formatPhoneForDisplay(value: string) {
   const normalized = normalizePhoneInput(value);
   const digits = normalized.replace(/\D/g, "");
@@ -58,25 +73,53 @@ export function formatPhoneForDisplay(value: string) {
   )}-${digits.slice(9, 11)}`;
 }
 
+export function formatRussianPhoneInput(value: string) {
+  const sanitized = sanitizeRussianPhoneInput(value);
+  const nationalDigits = sanitized.replace(/\D/g, "").slice(1, 11);
+
+  if (!nationalDigits) {
+    return "+7";
+  }
+
+  const area = nationalDigits.slice(0, 3);
+  const first = nationalDigits.slice(3, 6);
+  const second = nationalDigits.slice(6, 8);
+  const third = nationalDigits.slice(8, 10);
+
+  let result = "+7";
+
+  if (area) {
+    result += ` (${area}`;
+  }
+
+  if (area.length === 3) {
+    result += ")";
+  }
+
+  if (first) {
+    result += ` ${first}`;
+  }
+
+  if (second) {
+    result += `-${second}`;
+  }
+
+  if (third) {
+    result += `-${third}`;
+  }
+
+  return result;
+}
+
 export function isValidRussianPhone(value: string) {
   const normalized = normalizePhoneInput(value);
   return /^\+7\d{10}$/.test(normalized);
 }
 
-export function isDevPhoneAuthBypassEnabled() {
-  return DEV_PHONE_AUTH_BYPASS_ENABLED;
-}
-
-export function getDevOtpCode() {
-  return DEV_OTP_CODE;
-}
-
 async function getStoredDevAuthSession(): Promise<DevAuthSession | null> {
-  if (!DEV_PHONE_AUTH_BYPASS_ENABLED) {
-    return null;
-  }
-
-  const raw = await AsyncStorage.getItem(DEV_AUTH_SESSION_KEY);
+  const raw =
+    (await AsyncStorage.getItem(AUTH_SESSION_KEY)) ??
+    (await AsyncStorage.getItem(LEGACY_DEV_AUTH_SESSION_KEY));
 
   if (!raw) {
     return null;
@@ -98,7 +141,7 @@ async function getStoredDevAuthSession(): Promise<DevAuthSession | null> {
       phone: normalizePhoneInput(parsed.phone),
       verified: true,
       verifiedAt: parsed.verifiedAt,
-      mode: "dev",
+      mode: "api",
     };
   } catch {
     return null;
@@ -110,108 +153,114 @@ async function setStoredDevAuthSession(phone: string): Promise<void> {
     phone: normalizePhoneInput(phone),
     verified: true,
     verifiedAt: new Date().toISOString(),
-    mode: "dev",
+    mode: "api",
   };
 
-  await AsyncStorage.setItem(DEV_AUTH_SESSION_KEY, JSON.stringify(payload));
+  await AsyncStorage.setItem(AUTH_SESSION_KEY, JSON.stringify(payload));
 }
 
 async function clearStoredDevAuthState(): Promise<void> {
   await AsyncStorage.multiRemove([
-    DEV_AUTH_SESSION_KEY,
-    DEV_AUTH_PENDING_PHONE_KEY,
+    AUTH_SESSION_KEY,
+    LEGACY_DEV_AUTH_SESSION_KEY,
+    "musorok_dev_auth_pending_phone_v1",
+    "musorok_dev_auth_pending_code_v1",
   ]);
-}
-
-async function setPendingDevPhone(phone: string): Promise<void> {
-  if (!DEV_PHONE_AUTH_BYPASS_ENABLED) {
-    return;
-  }
-
-  await AsyncStorage.setItem(
-      DEV_AUTH_PENDING_PHONE_KEY,
-      normalizePhoneInput(phone)
-  );
-}
-
-async function getPendingDevPhone(): Promise<string | null> {
-  if (!DEV_PHONE_AUTH_BYPASS_ENABLED) {
-    return null;
-  }
-
-  const value = await AsyncStorage.getItem(DEV_AUTH_PENDING_PHONE_KEY);
-
-  if (!value || !isValidRussianPhone(value)) {
-    return null;
-  }
-
-  return normalizePhoneInput(value);
 }
 
 export async function getAuthSession(): Promise<AuthSession | null> {
   const devSession = await getStoredDevAuthSession();
 
   if (devSession) {
+    const token = await getApiToken();
+
+    if (!token) {
+      await clearStoredDevAuthState();
+      return null;
+    }
+
     return devSession;
   }
 
-  const {
-    data: { session },
-    error,
-  } = await supabase.auth.getSession();
-
-  if (error || !session?.user) {
-    return null;
-  }
-
-  const phone =
-      typeof session.user.phone === "string" && session.user.phone.length > 0
-          ? normalizePhoneInput(session.user.phone)
-          : "";
-
-  if (!phone) {
-    return null;
-  }
-
-  return {
-    phone,
-    verified: true,
-    verifiedAt: new Date().toISOString(),
-  };
+  return null;
 }
 
 export async function clearAuthSession(): Promise<void> {
-  await clearStoredDevAuthState();
+  await deleteOrderPushTokenIfPossible().catch((error) => {
+    console.warn("Failed to delete push token on sign out", error);
+  });
 
-  const { error } = await supabase.auth.signOut();
-
-  if (error) {
-    throw new Error(error.message || "Не удалось выйти из аккаунта.");
-  }
+  await Promise.all([
+    clearStoredDevAuthState(),
+    clearActiveOrder(),
+    clearApiSession(),
+  ]);
 }
 
-export async function requestOtpCode(
-    phone: string
-): Promise<{ ok: true; mode: "dev" | "supabase" }> {
+export function validatePassword(value: string) {
+  if (value.length < 8) {
+    return "Пароль должен быть не короче 8 символов.";
+  }
+
+  if (!/[A-Za-zА-Яа-яЁё]/.test(value) || !/\d/.test(value)) {
+    return "Пароль должен содержать буквы и цифры.";
+  }
+
+  return null;
+}
+
+export async function startPasswordAuth(
+  phone: string,
+  password: string,
+  flowMode: AuthFlowMode
+): Promise<AuthChallengeResponse> {
   const normalized = normalizePhoneInput(phone);
 
   if (!isValidRussianPhone(normalized)) {
     throw new Error("Введите корректный номер телефона.");
   }
 
-  // 👉 ВСЕГДА dev режим (важно для APK)
-  await setPendingDevPhone(normalized);
+  if (flowMode === "register") {
+    const passwordError = validatePassword(password);
 
-  return {
-    ok: true,
-    mode: "dev",
-  };
+    if (passwordError) {
+      throw new Error(passwordError);
+    }
+  } else if (!password) {
+    throw new Error("Введите пароль.");
+  }
+
+  const result =
+    flowMode === "register"
+      ? await api.auth.register(normalized, password)
+      : await api.auth.login(normalized, password);
+
+  return result;
+}
+
+export async function resendOtpCode(
+    phone: string,
+    challengeId: string
+): Promise<AuthChallengeResponse> {
+  const normalized = normalizePhoneInput(phone);
+
+  if (!isValidRussianPhone(normalized)) {
+    throw new Error("Телефон указан некорректно.");
+  }
+
+  if (!challengeId) {
+    throw new Error("Запросите код заново.");
+  }
+
+  return api.auth.resendCode(challengeId);
 }
 
 export async function verifyOtpCode(
     phone: string,
-    code: string
-): Promise<{ ok: true; mode: "dev" | "supabase" }> {
+    code: string,
+    _flowMode: AuthFlowMode = "login",
+    challengeId = ""
+): Promise<{ ok: true; mode: "local" | "sms" }> {
   const normalized = normalizePhoneInput(phone);
   const trimmedCode = code.trim();
 
@@ -223,33 +272,55 @@ export async function verifyOtpCode(
     throw new Error("Введите код из 4–6 цифр.");
   }
 
-  const pendingPhone = await getPendingDevPhone();
-
-  if (!pendingPhone || pendingPhone !== normalized) {
-    throw new Error("Сначала запросите код заново.");
+  if (!challengeId) {
+    throw new Error("Запросите код заново.");
   }
 
-  if (trimmedCode !== DEV_OTP_CODE) {
-    throw new Error(`Неверный код. Используйте ${DEV_OTP_CODE}.`);
-  }
+  const result = await api.auth.verifyCode(challengeId, trimmedCode);
 
+  await setApiSession(result.token, result.ownerKey);
   await setStoredDevAuthSession(normalized);
-  await AsyncStorage.removeItem(DEV_AUTH_PENDING_PHONE_KEY);
 
   return {
     ok: true,
-    mode: "dev",
+    mode: "sms",
   };
+}
+
+export function getPhoneOwnerKey(phone: string) {
+  const digits = normalizePhoneInput(phone).replace(/\D/g, "");
+
+  if (!digits) {
+    return null;
+  }
+
+  return `phone_user_${digits}`;
+}
+
+export async function getStoredAuthOwnerKey(): Promise<string | null> {
+  const session = await getAuthSession();
+
+  if (!session?.phone) {
+    return null;
+  }
+
+  const apiOwnerKey = await getApiOwnerKey();
+
+  return apiOwnerKey ?? getPhoneOwnerKey(session.phone);
 }
 
 export default {
   normalizePhoneInput,
+  sanitizeRussianPhoneInput,
   formatPhoneForDisplay,
+  formatRussianPhoneInput,
   isValidRussianPhone,
-  isDevPhoneAuthBypassEnabled,
-  getDevOtpCode,
   getAuthSession,
   clearAuthSession,
-  requestOtpCode,
+  startPasswordAuth,
+  validatePassword,
+  resendOtpCode,
   verifyOtpCode,
+  getPhoneOwnerKey,
+  getStoredAuthOwnerKey,
 };

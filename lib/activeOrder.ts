@@ -1,4 +1,5 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import { cleanAddressForDisplay } from "./addressDisplay";
 import {
   ACTIVE_ORDER_STATUSES,
   INACTIVE_ORDER_STATUSES,
@@ -35,6 +36,8 @@ export type StoredActiveOrder = {
   phone?: string | null;
   should_call?: boolean | null;
   payment_method?: string | null;
+  payment_status?: string | null;
+  payment_id?: string | null;
   tip?: number | null;
   total?: number | null;
   courier_id?: string | null;
@@ -62,7 +65,10 @@ function normalizeOrder(input: unknown): StoredActiveOrder | null {
     id,
     created_at: typeof raw.created_at === "string" ? raw.created_at : null,
     status: typeof raw.status === "string" ? raw.status : null,
-    address: typeof raw.address === "string" ? raw.address : null,
+    address:
+      typeof raw.address === "string"
+        ? cleanAddressForDisplay(raw.address) || null
+        : null,
     package_id: typeof raw.package_id === "string" ? raw.package_id : null,
     package_label:
       typeof raw.package_label === "string" ? raw.package_label : null,
@@ -77,6 +83,9 @@ function normalizeOrder(input: unknown): StoredActiveOrder | null {
     should_call: typeof raw.should_call === "boolean" ? raw.should_call : null,
     payment_method:
       typeof raw.payment_method === "string" ? raw.payment_method : null,
+    payment_status:
+      typeof raw.payment_status === "string" ? raw.payment_status : null,
+    payment_id: typeof raw.payment_id === "string" ? raw.payment_id : null,
     tip: typeof raw.tip === "number" ? raw.tip : null,
     total: typeof raw.total === "number" ? raw.total : null,
     courier_id: typeof raw.courier_id === "string" ? raw.courier_id : null,

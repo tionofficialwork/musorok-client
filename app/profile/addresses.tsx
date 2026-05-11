@@ -1,17 +1,22 @@
-import { useCallback, useState } from "react";
+import {
+  useCallback,
+  useMemo,
+  useState,
+} from "react";
 import {
   ActivityIndicator,
   Alert,
   Pressable,
-  SafeAreaView,
   ScrollView,
   StyleSheet,
   Text,
   View,
 } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 import { Stack, useFocusEffect, useRouter } from "expo-router";
-import { supabase } from "../../lib/supabase";
-import { getAddressesOwnerKey } from "../../lib/addressIdentity";
+import { api } from "../../lib/api";
+import { cleanAddressForDisplay } from "../../lib/addressDisplay";
+import { useAppTheme } from "../../providers/AppThemeProvider";
 
 type UserAddress = {
   id: string;
@@ -38,6 +43,8 @@ function buildAddressMeta(item: UserAddress) {
 
 export default function ProfileAddressesScreen() {
   const router = useRouter();
+  const { colors } = useAppTheme();
+  const styles = useMemo(() => createStyles(colors), [colors]);
 
   const [addresses, setAddresses] = useState<UserAddress[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -55,20 +62,9 @@ export default function ProfileAddressesScreen() {
 
       setErrorText("");
 
-      const ownerKey = await getAddressesOwnerKey();
+      const { addresses } = await api.addresses.list();
 
-      const { data, error } = await supabase
-        .from("user_addresses")
-        .select("*")
-        .eq("owner_key", ownerKey)
-        .order("is_primary", { ascending: false })
-        .order("created_at", { ascending: false });
-
-      if (error) {
-        throw error;
-      }
-
-      setAddresses((data ?? []) as UserAddress[]);
+      setAddresses((addresses ?? []) as UserAddress[]);
     } catch (error) {
       const message =
         error instanceof Error ? error.message : "Не удалось загрузить адреса";
@@ -101,27 +97,7 @@ export default function ProfileAddressesScreen() {
   const handleSetPrimary = async (addressId: string) => {
     try {
       setBusyAddressId(addressId);
-      const ownerKey = await getAddressesOwnerKey();
-
-      const { error: resetError } = await supabase
-        .from("user_addresses")
-        .update({ is_primary: false })
-        .eq("owner_key", ownerKey)
-        .eq("is_primary", true);
-
-      if (resetError) {
-        throw resetError;
-      }
-
-      const { error: setError } = await supabase
-        .from("user_addresses")
-        .update({ is_primary: true })
-        .eq("id", addressId)
-        .eq("owner_key", ownerKey);
-
-      if (setError) {
-        throw setError;
-      }
+      await api.addresses.update(addressId, { is_primary: true });
 
       await loadAddresses(true);
     } catch (error) {
@@ -154,17 +130,7 @@ export default function ProfileAddressesScreen() {
   const handleDeleteAddress = async (addressId: string) => {
     try {
       setBusyAddressId(addressId);
-      const ownerKey = await getAddressesOwnerKey();
-
-      const { error } = await supabase
-        .from("user_addresses")
-        .delete()
-        .eq("id", addressId)
-        .eq("owner_key", ownerKey);
-
-      if (error) {
-        throw error;
-      }
+      await api.addresses.delete(addressId);
 
       await loadAddresses(true);
     } catch (error) {
@@ -192,17 +158,12 @@ export default function ProfileAddressesScreen() {
           showsVerticalScrollIndicator={false}
         >
           <View style={styles.heroCard}>
-            <Text style={styles.eyebrow}>Профиль</Text>
             <Text style={styles.title}>Сохраненные адреса</Text>
-            <Text style={styles.description}>
-              Здесь хранятся адреса из Supabase. Теперь можно редактировать,
-              выбирать основной адрес и удалять лишние.
-            </Text>
           </View>
 
           {isLoading ? (
             <View style={styles.stateCard}>
-              <ActivityIndicator size="small" color="#E9281D" />
+              <ActivityIndicator size="small" color={colors.primary} />
               <Text style={styles.stateText}>Загружаем адреса...</Text>
             </View>
           ) : null}
@@ -253,7 +214,9 @@ export default function ProfileAddressesScreen() {
                       </View>
                     </View>
 
-                    <Text style={styles.addressStreet}>{item.street}</Text>
+                    <Text style={styles.addressStreet}>
+                      {cleanAddressForDisplay(item.street)}
+                    </Text>
                     <Text style={styles.addressMeta}>{buildAddressMeta(item)}</Text>
 
                     {item.comment ? (
@@ -337,7 +300,7 @@ export default function ProfileAddressesScreen() {
 
           {isRefreshing ? (
             <View style={styles.refreshRow}>
-              <ActivityIndicator size="small" color="#E9281D" />
+              <ActivityIndicator size="small" color={colors.primary} />
               <Text style={styles.refreshText}>Обновляем...</Text>
             </View>
           ) : null}
@@ -369,19 +332,8 @@ export default function ProfileAddressesScreen() {
   );
 }
 
-const colors = {
-  background: "#F6F7FB",
-  surface: "#FFFFFF",
-  border: "#E7ECF3",
-  text: "#16181D",
-  textSecondary: "#667085",
-  primary: "#E9281D",
-  primarySoft: "#FFF1F0",
-  dangerSoft: "#FFF4F4",
-  dangerText: "#B42318",
-};
-
-const styles = StyleSheet.create({
+const createStyles = (colors: ReturnType<typeof useAppTheme>["colors"]) =>
+  StyleSheet.create({
   safeArea: {
     flex: 1,
     backgroundColor: colors.background,
@@ -392,7 +344,7 @@ const styles = StyleSheet.create({
   },
   content: {
     padding: 16,
-    paddingBottom: 150,
+    paddingBottom: 190,
   },
   heroCard: {
     backgroundColor: colors.surface,
@@ -402,25 +354,12 @@ const styles = StyleSheet.create({
     borderColor: colors.border,
     marginBottom: 16,
   },
-  eyebrow: {
-    fontSize: 12,
-    fontWeight: "700",
-    color: colors.primary,
-    marginBottom: 8,
-    textTransform: "uppercase",
-    letterSpacing: 0.6,
-  },
   title: {
     fontSize: 28,
     lineHeight: 34,
     fontWeight: "800",
     color: colors.text,
     marginBottom: 10,
-  },
-  description: {
-    fontSize: 15,
-    lineHeight: 22,
-    color: colors.textSecondary,
   },
   stateCard: {
     backgroundColor: colors.surface,
@@ -437,23 +376,23 @@ const styles = StyleSheet.create({
     color: colors.textSecondary,
   },
   errorCard: {
-    backgroundColor: colors.dangerSoft,
+    backgroundColor: colors.errorBg,
     borderRadius: 22,
     padding: 18,
     borderWidth: 1,
-    borderColor: "#FDD4D0",
+    borderColor: colors.errorBorder,
     marginBottom: 16,
   },
   errorTitle: {
     fontSize: 17,
     fontWeight: "800",
-    color: colors.dangerText,
+    color: colors.errorTitle,
     marginBottom: 8,
   },
   errorText: {
     fontSize: 14,
     lineHeight: 20,
-    color: colors.dangerText,
+    color: colors.errorText,
     marginBottom: 12,
   },
   emptyCard: {
@@ -517,8 +456,10 @@ const styles = StyleSheet.create({
     color: colors.primary,
   },
   addressStreet: {
+    flexShrink: 1,
     fontSize: 15,
     lineHeight: 21,
+    fontWeight: "700",
     color: colors.text,
     marginBottom: 6,
   },
@@ -556,12 +497,12 @@ const styles = StyleSheet.create({
   dangerActionButton: {
     minHeight: 46,
     borderRadius: 16,
-    backgroundColor: colors.dangerSoft,
+    backgroundColor: colors.errorBg,
     alignItems: "center",
     justifyContent: "center",
     paddingHorizontal: 14,
     borderWidth: 1,
-    borderColor: "#FDD4D0",
+    borderColor: colors.errorBorder,
   },
   dangerActionButtonPressed: {
     opacity: 0.92,
@@ -569,7 +510,7 @@ const styles = StyleSheet.create({
   dangerActionButtonText: {
     fontSize: 14,
     fontWeight: "800",
-    color: colors.dangerText,
+    color: colors.errorText,
   },
   actionButtonDisabled: {
     opacity: 0.45,
@@ -577,7 +518,7 @@ const styles = StyleSheet.create({
   primaryHint: {
     minHeight: 46,
     borderRadius: 16,
-    backgroundColor: "#F8FAFC",
+    backgroundColor: colors.surfaceSecondary,
     alignItems: "center",
     justifyContent: "center",
     paddingHorizontal: 14,
@@ -603,7 +544,7 @@ const styles = StyleSheet.create({
   inlineButtonText: {
     fontSize: 14,
     fontWeight: "800",
-    color: "#FFFFFF",
+    color: colors.white,
   },
   secondaryInlineButton: {
     minHeight: 46,
@@ -640,7 +581,7 @@ const styles = StyleSheet.create({
     borderTopColor: colors.border,
     paddingHorizontal: 16,
     paddingTop: 14,
-    paddingBottom: 18,
+    paddingBottom: 30,
     gap: 10,
   },
   primaryButton: {
@@ -656,7 +597,7 @@ const styles = StyleSheet.create({
   primaryButtonText: {
     fontSize: 16,
     fontWeight: "800",
-    color: "#FFFFFF",
+    color: colors.white,
   },
   secondaryButton: {
     height: 52,

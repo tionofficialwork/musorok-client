@@ -1,43 +1,151 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
 import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
+import {
+  Keyboard,
   KeyboardAvoidingView,
+  type NativeSyntheticEvent,
   Platform,
-  SafeAreaView,
+  Pressable,
   ScrollView,
   StyleSheet,
   Text,
   TextInput,
+  type TextInputKeyPressEventData,
   View,
 } from "react-native";
-import { Stack, useRouter } from "expo-router";
-import AppButton from "../../components/ui/AppButton";
-import AppCard from "../../components/ui/AppCard";
-import ScreenSection from "../../components/ui/ScreenSection";
-import { radii, spacing, typography } from "../../lib/theme";
+import { SafeAreaView } from "react-native-safe-area-context";
+import { Stack, useLocalSearchParams, useRouter } from "expo-router";
+import AppLogo from "../../components/ui/AppLogo";
+import { spacing, typography } from "../../lib/theme";
 import {
-  formatPhoneForDisplay,
+  type AuthFlowMode,
+  formatRussianPhoneInput,
   getAuthSession,
-  getDevOtpCode,
-  isDevPhoneAuthBypassEnabled,
   isValidRussianPhone,
   normalizePhoneInput,
-  requestOtpCode,
+  startPasswordAuth,
+  validatePassword,
 } from "../../lib/auth";
-import { useAppTheme } from "../../providers/AppThemeProvider";
+
+const authColors = {
+  background: "#FFF2D6",
+  surface: "#FFF8E8",
+  surfaceSoft: "#F3E3BF",
+  text: "#2B2925",
+  textMuted: "#8C806A",
+  primary: "#93D19C",
+  primaryDark: "#355F3A",
+  border: "#E8D5AD",
+  error: "#B42318",
+};
 
 export default function AuthPhoneScreen() {
   const router = useRouter();
-  const { colors } = useAppTheme();
-  const styles = useMemo(() => createStyles(colors), [colors]);
+  const params = useLocalSearchParams<{ resetPhone?: string }>();
+  const styles = useMemo(() => createStyles(), []);
+  const scrollRef = useRef<ScrollView>(null);
+  const skipNextPhoneChangeRef = useRef(false);
+  const phoneBackspaceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
+    null
+  );
 
-  const [phone, setPhone] = useState("");
+  const [flowMode, setFlowMode] = useState<AuthFlowMode>("login");
+  const [phoneDigits, setPhoneDigits] = useState("");
+  const [password, setPassword] = useState("");
+  const [passwordRepeat, setPasswordRepeat] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isCheckingSession, setIsCheckingSession] = useState(true);
   const [errorText, setErrorText] = useState<string | null>(null);
 
-  const normalizedPhone = useMemo(() => normalizePhoneInput(phone), [phone]);
-  const canContinue = isValidRussianPhone(normalizedPhone);
-  const isDevBypassEnabled = isDevPhoneAuthBypassEnabled();
+  const normalizedPhone = useMemo(
+    () => normalizePhoneInput(`+7${phoneDigits}`),
+    [phoneDigits]
+  );
+  const phoneInputValue = useMemo(
+    () => formatRussianPhoneInput(`+7${phoneDigits}`),
+    [phoneDigits]
+  );
+  const passwordError = useMemo(() => validatePassword(password), [password]);
+  const isPasswordReady =
+    flowMode === "login" ? password.length > 0 : !passwordError;
+  const canContinue =
+    isValidRussianPhone(normalizedPhone) &&
+    isPasswordReady &&
+    (flowMode === "login" || password === passwordRepeat);
+
+  const handlePhoneChange = useCallback((value: string) => {
+    if (skipNextPhoneChangeRef.current) {
+      skipNextPhoneChangeRef.current = false;
+      setErrorText(null);
+      return;
+    }
+
+    const digits = value.replace(/\D/g, "");
+    const nationalDigits =
+      digits.startsWith("7") || digits.startsWith("8") ? digits.slice(1) : digits;
+
+    setPhoneDigits(nationalDigits.slice(0, 10));
+    setErrorText(null);
+  }, []);
+
+  const handlePhoneKeyPress = useCallback(
+    (event: NativeSyntheticEvent<TextInputKeyPressEventData>) => {
+      if (event.nativeEvent.key !== "Backspace" || !phoneDigits) {
+        return;
+      }
+
+      skipNextPhoneChangeRef.current = true;
+
+      if (phoneBackspaceTimerRef.current) {
+        clearTimeout(phoneBackspaceTimerRef.current);
+      }
+
+      phoneBackspaceTimerRef.current = setTimeout(() => {
+        skipNextPhoneChangeRef.current = false;
+        phoneBackspaceTimerRef.current = null;
+      }, 120);
+
+      setPhoneDigits((current) => current.slice(0, -1));
+      setErrorText(null);
+    },
+    [phoneDigits]
+  );
+
+  const scrollToFormPosition = useCallback((y: number) => {
+    requestAnimationFrame(() => {
+      scrollRef.current?.scrollTo({ y, animated: true });
+    });
+  }, []);
+
+  const scrollToPasswordField = useCallback(() => {
+    scrollToFormPosition(flowMode === "register" ? 80 : 32);
+  }, [flowMode, scrollToFormPosition]);
+
+  const scrollToRepeatPasswordField = useCallback(() => {
+    scrollToFormPosition(140);
+  }, [scrollToFormPosition]);
+
+  useEffect(() => {
+    return () => {
+      if (phoneBackspaceTimerRef.current) {
+        clearTimeout(phoneBackspaceTimerRef.current);
+      }
+    };
+  }, []);
+
+  useEffect(() => {
+    if (params.resetPhone === "1") {
+      setPhoneDigits("");
+      setPassword("");
+      setPasswordRepeat("");
+      setErrorText(null);
+    }
+  }, [params.resetPhone]);
 
   useEffect(() => {
     let isMounted = true;
@@ -77,249 +185,371 @@ export default function AuthPhoneScreen() {
     setErrorText(null);
 
     try {
-      await requestOtpCode(normalizedPhone);
+      if (flowMode === "register" && password !== passwordRepeat) {
+        throw new Error("Пароли не совпадают.");
+      }
+
+      const challenge = await startPasswordAuth(normalizedPhone, password, flowMode);
 
       router.push({
         pathname: "/auth/verify",
         params: {
           phone: normalizedPhone,
+          flowMode,
+          challengeId: challenge.challengeId,
+          ...(challenge.code ? { localCode: challenge.code } : {}),
         },
       });
     } catch (error) {
-      const message =
-          error instanceof Error ? error.message : "Не удалось отправить код.";
+      const fallback =
+        flowMode === "login"
+          ? "Не удалось войти. Проверьте номер и пароль."
+          : "Не удалось зарегистрироваться.";
+      const message = error instanceof Error ? error.message : fallback;
       setErrorText(message);
     } finally {
       setIsSubmitting(false);
     }
-  }, [isSubmitting, normalizedPhone, router]);
+  }, [flowMode, isSubmitting, normalizedPhone, password, passwordRepeat, router]);
 
   if (isCheckingSession) {
     return (
-        <SafeAreaView style={styles.safeArea}>
-          <Stack.Screen options={{ title: "Вход" }} />
-          <View style={styles.loadingState}>
-            <Text style={styles.loadingText}>Проверяем сессию...</Text>
-          </View>
-        </SafeAreaView>
+      <SafeAreaView style={styles.safeArea}>
+        <Stack.Screen options={{ title: "Вход" }} />
+        <View style={styles.loadingState}>
+          <Text style={styles.loadingText}>Проверяем сессию...</Text>
+        </View>
+      </SafeAreaView>
     );
   }
 
   return (
-      <SafeAreaView style={styles.safeArea}>
-        <Stack.Screen options={{ title: "Вход" }} />
+    <SafeAreaView style={styles.safeArea}>
+      <Stack.Screen options={{ title: "Вход", headerShown: false }} />
 
-        <KeyboardAvoidingView
-            behavior={Platform.OS === "ios" ? "padding" : undefined}
-            style={styles.flex}
+      <KeyboardAvoidingView
+        behavior={Platform.OS === "ios" ? "padding" : "height"}
+        keyboardVerticalOffset={Platform.OS === "ios" ? 16 : 0}
+        style={styles.flex}
+      >
+        <ScrollView
+          ref={scrollRef}
+          style={styles.scroll}
+          contentContainerStyle={[
+            styles.content,
+            flowMode === "register" && styles.contentRegister,
+          ]}
+          showsVerticalScrollIndicator={false}
+          keyboardShouldPersistTaps="handled"
+          keyboardDismissMode="on-drag"
         >
-          <ScrollView
-              style={styles.scroll}
-              contentContainerStyle={styles.content}
-              showsVerticalScrollIndicator={false}
-              keyboardShouldPersistTaps="handled"
-          >
-            <View style={styles.hero}>
-              <Text style={styles.badge}>
-                {isDevBypassEnabled ? "Dev auth mode" : "Auth foundation"}
-              </Text>
-              <Text style={styles.title}>Вход по номеру телефона</Text>
-              <Text style={styles.subtitle}>
-                {isDevBypassEnabled
-                    ? "Для разработки SMS не отправляется. После продолжения откроется экран ввода тестового кода."
-                    : "Это безопасная база для будущего реального OTP через Supabase."}
-              </Text>
+          <View style={styles.logoWrap}>
+            <AppLogo
+              size="lg"
+              color={authColors.text}
+              accentColor={authColors.primary}
+            />
+          </View>
+
+          <View style={styles.hero}>
+            <Text style={styles.title}>
+              {flowMode === "login" ? "Войдите в аккаунт" : "Создайте аккаунт"}
+            </Text>
+            <Text style={styles.subtitle}>
+              {flowMode === "login"
+                ? "Введите номер и пароль, чтобы открыть свой аккаунт."
+                : "Создайте пароль, мы сохраним его в защищённом виде."}
+            </Text>
+
+            <View style={styles.segment}>
+              {(["login", "register"] as const).map((mode) => {
+                const isActive = flowMode === mode;
+
+                return (
+                  <Pressable
+                    key={mode}
+                    onPress={() => {
+                      setFlowMode(mode);
+                      setErrorText(null);
+                      scrollRef.current?.scrollTo({ y: 0, animated: true });
+                    }}
+                    disabled={isSubmitting}
+                    style={[
+                      styles.segmentItem,
+                      isActive && styles.segmentItemActive,
+                    ]}
+                  >
+                    <Text
+                      style={[
+                        styles.segmentText,
+                        isActive && styles.segmentTextActive,
+                      ]}
+                    >
+                      {mode === "login" ? "Вход" : "Регистрация"}
+                    </Text>
+                  </Pressable>
+                );
+              })}
             </View>
 
-            <ScreenSection
-                title="Телефон"
-                subtitle="Укажи номер, на который дальше будем отправлять код"
-            >
-              <AppCard>
-                <Text style={styles.label}>Номер телефона</Text>
+            <Text style={styles.inputLabel}>Номер телефона</Text>
+            <TextInput
+              value={phoneInputValue}
+              onChangeText={handlePhoneChange}
+              onKeyPress={handlePhoneKeyPress}
+              placeholder="+7 (999) 123-45-67"
+              placeholderTextColor={authColors.textMuted}
+              keyboardType="phone-pad"
+              autoCapitalize="none"
+              autoCorrect={false}
+              selection={{
+                start: phoneInputValue.length,
+                end: phoneInputValue.length,
+              }}
+              style={styles.input}
+            />
 
+            <Text style={styles.inputLabel}>Пароль</Text>
+            <TextInput
+              value={password}
+              onChangeText={(value) => {
+                setPassword(value);
+                setErrorText(null);
+              }}
+              placeholder={flowMode === "login" ? "Введите пароль" : "Минимум 8 символов"}
+              placeholderTextColor={authColors.textMuted}
+              secureTextEntry
+              autoCapitalize="none"
+              autoCorrect={false}
+              returnKeyType={flowMode === "login" ? "done" : "next"}
+              onFocus={scrollToPasswordField}
+              onSubmitEditing={() => {
+                if (flowMode === "login") {
+                  Keyboard.dismiss();
+                }
+              }}
+              textContentType={flowMode === "login" ? "password" : "newPassword"}
+              style={styles.input}
+            />
+
+            {flowMode === "register" ? (
+              <>
+                <Text style={styles.inputLabel}>Повторите пароль</Text>
                 <TextInput
-                    value={phone}
-                    onChangeText={setPhone}
-                    placeholder="+7 999 123-45-67"
-                    placeholderTextColor={colors.textMuted}
-                    keyboardType="phone-pad"
-                    autoCapitalize="none"
-                    autoCorrect={false}
-                    style={styles.input}
+                  value={passwordRepeat}
+                  onChangeText={(value) => {
+                    setPasswordRepeat(value);
+                    setErrorText(null);
+                  }}
+                  placeholder="Ещё раз пароль"
+                  placeholderTextColor={authColors.textMuted}
+                  secureTextEntry
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                  returnKeyType="done"
+                  onFocus={scrollToRepeatPasswordField}
+                  onSubmitEditing={() => Keyboard.dismiss()}
+                  textContentType="newPassword"
+                  style={styles.input}
                 />
+              </>
+            ) : null}
 
-                <Text style={styles.helperText}>
-                  Нормализованный формат:{" "}
-                  {formatPhoneForDisplay(normalizedPhone || "+7")}
-                </Text>
+            {flowMode === "register" ? (
+              <Text style={styles.helperText}>
+                Пароль должен содержать минимум 8 символов, буквы и цифры.
+              </Text>
+            ) : null}
 
-                {isDevBypassEnabled ? (
-                    <View style={styles.devHintBox}>
-                      <Text style={styles.devHintTitle}>DEV MODE</Text>
-                      <Text style={styles.devHintText}>
-                        SMS пока не отправляется. На следующем экране используй код{" "}
-                        {getDevOtpCode()}.
-                      </Text>
-                    </View>
-                ) : null}
+            {errorText ? <Text style={styles.errorText}>{errorText}</Text> : null}
+          </View>
 
-                {errorText ? <Text style={styles.errorText}>{errorText}</Text> : null}
-              </AppCard>
-            </ScreenSection>
-
-            <ScreenSection
-                title="Что дальше"
-                subtitle="Следующим шагом откроется экран ввода кода"
+          <View style={styles.actions}>
+            <Pressable
+              onPress={handleSubmit}
+              disabled={isSubmitting || !canContinue}
+              style={({ pressed }) => [
+                styles.primaryButton,
+                (isSubmitting || !canContinue) && styles.primaryButtonDisabled,
+                pressed && canContinue && !isSubmitting
+                  ? styles.primaryButtonPressed
+                  : undefined,
+              ]}
             >
-              <AppCard>
-                <View style={styles.featureList}>
-                  <Text style={styles.featureItem}>• экран ввода OTP уже готов</Text>
-                  <Text style={styles.featureItem}>• логика пока mock-safe</Text>
-                  <Text style={styles.featureItem}>
-                    • дальше подключим реальный Supabase auth
-                  </Text>
-                  {isDevBypassEnabled ? (
-                      <Text style={styles.featureItem}>
-                        • для разработки код подтверждения: {getDevOtpCode()}
-                      </Text>
-                  ) : null}
-                </View>
-              </AppCard>
-            </ScreenSection>
-
-            <View style={styles.actions}>
-              <AppButton
-                  title={isSubmitting ? "Отправляем..." : "Получить код"}
-                  onPress={handleSubmit}
-                  disabled={isSubmitting || !canContinue}
-              />
-
-              <AppButton
-                  title="Назад"
-                  variant="secondary"
-                  onPress={() => router.replace("/")}
-                  disabled={isSubmitting}
-              />
-            </View>
-          </ScrollView>
-        </KeyboardAvoidingView>
-      </SafeAreaView>
+              <Text style={styles.primaryButtonText}>
+                {isSubmitting
+                  ? flowMode === "login"
+                    ? "Входим..."
+                    : "Создаём..."
+                  : flowMode === "login"
+                    ? "Войти"
+                    : "Зарегистрироваться"}
+                </Text>
+            </Pressable>
+          </View>
+        </ScrollView>
+      </KeyboardAvoidingView>
+    </SafeAreaView>
   );
 }
 
-function createStyles(colors: ReturnType<typeof useAppTheme>["colors"]) {
+function createStyles() {
+  const fontFamily = typography.fontFamily;
+
   return StyleSheet.create({
     flex: {
       flex: 1,
     },
     safeArea: {
       flex: 1,
-      backgroundColor: colors.background,
+      backgroundColor: authColors.background,
     },
     scroll: {
       flex: 1,
-      backgroundColor: colors.background,
+      backgroundColor: authColors.background,
     },
     content: {
-      paddingHorizontal: spacing.lg,
-      paddingTop: spacing.lg,
-      paddingBottom: spacing.xxl,
-      gap: spacing.lg,
+      flexGrow: 1,
+      paddingHorizontal: 26,
+      paddingTop: 18,
+      paddingBottom: 150,
+    },
+    contentRegister: {
+      paddingTop: 12,
+      paddingBottom: 220,
     },
     loadingState: {
       flex: 1,
       alignItems: "center",
       justifyContent: "center",
       paddingHorizontal: spacing.xl,
-      backgroundColor: colors.background,
+      backgroundColor: authColors.background,
     },
     loadingText: {
+      fontFamily,
       fontSize: typography.body,
-      color: colors.textMuted,
+      color: authColors.textMuted,
       textAlign: "center",
     },
-    hero: {
-      gap: spacing.sm,
-      paddingTop: spacing.sm,
+    logoWrap: {
+      alignItems: "center",
+      justifyContent: "center",
+      marginBottom: 20,
     },
-    badge: {
-      alignSelf: "flex-start",
-      paddingHorizontal: spacing.md,
-      paddingVertical: spacing.xs,
-      borderRadius: 999,
-      backgroundColor: colors.primarySoft,
-      color: colors.primary,
-      fontSize: typography.caption,
-      fontWeight: "800",
-      textTransform: "uppercase",
-      letterSpacing: 0.4,
+    hero: {
+      gap: 9,
+      alignItems: "stretch",
     },
     title: {
-      fontSize: typography.h1,
-      fontWeight: "800",
-      color: colors.text,
+      fontFamily,
+      fontSize: 25,
+      lineHeight: 31,
+      fontWeight: "700",
+      color: authColors.text,
+      textAlign: "center",
     },
     subtitle: {
-      fontSize: typography.body,
-      lineHeight: 22,
-      color: colors.textMuted,
+      maxWidth: 310,
+      alignSelf: "center",
+      marginBottom: 6,
+      fontFamily,
+      fontSize: 13,
+      lineHeight: 18,
+      fontWeight: "500",
+      color: authColors.textMuted,
+      textAlign: "center",
     },
-    label: {
-      fontSize: typography.body,
+    segment: {
+      height: 50,
+      flexDirection: "row",
+      borderRadius: 20,
+      backgroundColor: authColors.surfaceSoft,
+      padding: 4,
+      marginBottom: 8,
+    },
+    segmentItem: {
+      flex: 1,
+      alignItems: "center",
+      justifyContent: "center",
+      borderRadius: 16,
+    },
+    segmentItemActive: {
+      backgroundColor: authColors.surface,
+      borderWidth: 1,
+      borderColor: authColors.border,
+    },
+    segmentText: {
+      fontFamily,
+      fontSize: 16,
       fontWeight: "700",
-      color: colors.text,
-      marginBottom: spacing.sm,
+      color: authColors.textMuted,
+    },
+    segmentTextActive: {
+      fontWeight: "800",
+      color: authColors.text,
+    },
+    inputLabel: {
+      fontFamily,
+      fontSize: 13,
+      fontWeight: "800",
+      color: authColors.textMuted,
+      textAlign: "center",
     },
     input: {
-      borderWidth: 1,
-      borderColor: colors.border,
-      borderRadius: radii.lg,
-      backgroundColor: colors.surfaceSecondary,
-      paddingHorizontal: spacing.md,
-      paddingVertical: spacing.md,
-      color: colors.text,
-      fontSize: typography.body,
+      minHeight: 58,
+      borderWidth: 2,
+      borderColor: authColors.text,
+      borderRadius: 20,
+      backgroundColor: authColors.surface,
+      paddingHorizontal: 18,
+      color: authColors.text,
+      fontFamily,
+      fontSize: 20,
+      fontWeight: "500",
+      textAlign: "center",
     },
     helperText: {
-      marginTop: spacing.sm,
-      fontSize: typography.caption,
-      color: colors.textMuted,
-    },
-    devHintBox: {
-      marginTop: spacing.md,
-      borderRadius: radii.lg,
-      padding: spacing.md,
-      backgroundColor: colors.primarySoft,
-      gap: spacing.xs,
-    },
-    devHintTitle: {
-      fontSize: typography.caption,
-      fontWeight: "800",
-      color: colors.primary,
-      textTransform: "uppercase",
-      letterSpacing: 0.4,
-    },
-    devHintText: {
-      fontSize: typography.body,
-      lineHeight: 21,
-      color: colors.text,
+      marginTop: -4,
+      fontFamily,
+      fontSize: 13,
+      lineHeight: 18,
+      color: authColors.textMuted,
+      textAlign: "center",
     },
     errorText: {
-      marginTop: spacing.sm,
+      marginTop: -4,
+      fontFamily,
       fontSize: typography.body,
-      color: colors.errorText,
-    },
-    featureList: {
-      gap: spacing.sm,
-    },
-    featureItem: {
-      fontSize: typography.body,
-      lineHeight: 22,
-      color: colors.text,
+      color: authColors.error,
+      textAlign: "center",
     },
     actions: {
-      gap: spacing.md,
+      marginTop: 22,
+      gap: 14,
+    },
+    primaryButton: {
+      minHeight: 58,
+      borderRadius: 20,
+      backgroundColor: authColors.text,
+      alignItems: "center",
+      justifyContent: "center",
+      paddingHorizontal: 24,
+    },
+    primaryButtonDisabled: {
+      opacity: 0.45,
+    },
+    primaryButtonPressed: {
+      opacity: 0.9,
+    },
+    primaryButtonText: {
+      fontFamily,
+      fontSize: 18,
+      fontWeight: "800",
+      color: authColors.background,
+      textAlign: "center",
+    },
+    pressed: {
+      opacity: 0.7,
     },
   });
 }

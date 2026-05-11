@@ -1,15 +1,19 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  useCallback,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import {
   ActivityIndicator,
   Alert,
   RefreshControl,
-  SafeAreaView,
   ScrollView,
   StyleSheet,
   Text,
   View,
 } from "react-native";
-import { RealtimeChannel } from "@supabase/supabase-js";
+import { SafeAreaView } from "react-native-safe-area-context";
 import { Stack, useFocusEffect, useRouter } from "expo-router";
 import AppButton from "../../components/ui/AppButton";
 import AppCard from "../../components/ui/AppCard";
@@ -23,7 +27,6 @@ import {
   type StoredActiveOrder,
 } from "../../lib/activeOrder";
 import {
-  ACTIVE_ORDER_STATUSES,
   getActiveOrderProgressValue,
   getActiveOrderStatusDescription,
   getActiveOrderStatusMeta,
@@ -34,8 +37,14 @@ import {
   isCompletedActiveOrderTimelineStep,
   isCurrentActiveOrderTimelineStep,
 } from "../../lib/orderStatus";
-import { getOwnerKey } from "../../lib/profileOwner";
-import { supabase } from "../../lib/supabase";
+import { api } from "../../lib/api";
+import { cleanAddressForDisplay } from "../../lib/addressDisplay";
+import { notifyOrderStatusChanged } from "../../lib/orderNotifications";
+import { openOrderPaymentSession } from "../../lib/orderPaymentFlow";
+import {
+  canOpenPaymentForStatus,
+  isPaymentSuccessful,
+} from "../../lib/payments";
 import { radii, spacing, typography } from "../../lib/theme";
 import { useAppTheme } from "../../providers/AppThemeProvider";
 
@@ -54,6 +63,8 @@ type OrderRow = {
   phone: string | null;
   should_call: boolean | null;
   payment_method: string | null;
+  payment_status: string | null;
+  payment_id: string | null;
   tip: number | null;
   total: number | null;
   courier_id: string | null;
@@ -65,6 +76,12 @@ type InfoRowProps = {
   label: string;
   value: string;
   rightAligned?: boolean;
+  compact?: boolean;
+};
+
+type ObservedOrderSnapshot = {
+  id: string;
+  status: string | null;
 };
 
 export default function ActiveOrderScreen() {
@@ -72,25 +89,37 @@ export default function ActiveOrderScreen() {
   const { colors } = useAppTheme();
   const styles = useMemo(() => createStyles(colors), [colors]);
 
-  const realtimeChannelRef = useRef<RealtimeChannel | null>(null);
-  const hasHandledTerminalRef = useRef(false);
-
   const [order, setOrder] = useState<OrderRow | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [isOpeningPayment, setIsOpeningPayment] = useState(false);
   const [errorText, setErrorText] = useState<string | null>(null);
+  const pollTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const lastObservedOrderRef = useRef<ObservedOrderSnapshot | null>(null);
 
   const timelineSteps = useMemo(() => getActiveOrderTimelineSteps(), []);
   const statusLabel = getOrderStatusLabel(order?.status ?? null);
   const shortStatusLabel = getOrderStatusShortLabel(order?.status ?? null);
   const orderMeta = getActiveOrderStatusMeta(order?.status ?? null);
   const progressValue = getActiveOrderProgressValue(order?.status ?? null);
+  const canOpenPayment =
+    Boolean(order?.id) && canOpenPaymentForStatus(order?.payment_status);
 
   const applyStoredOrder = useCallback(async () => {
     const storedOrder = await getActiveOrder();
 
     if (storedOrder) {
-      setOrder(mapStoredOrderToOrderRow(storedOrder));
+      const mappedOrder = mapStoredOrderToOrderRow(storedOrder);
+
+      setOrder(mappedOrder);
+
+      if (mappedOrder) {
+        lastObservedOrderRef.current = {
+          id: String(mappedOrder.id),
+          status: mappedOrder.status,
+        };
+      }
+
       return true;
     }
 
@@ -98,42 +127,46 @@ export default function ActiveOrderScreen() {
   }, []);
 
   const loadActiveOrder = useCallback(
-      async (mode: "initial" | "refresh" = "initial") => {
+      async (mode: "initial" | "refresh" | "silent" = "initial") => {
         try {
           if (mode === "initial") {
             setIsLoading(true);
             await applyStoredOrder();
-          } else {
+          } else if (mode === "refresh") {
             setIsRefreshing(true);
           }
 
           setErrorText(null);
 
-          const ownerKey = await getOwnerKey();
-
-          const { data, error } = await supabase
-              .from("orders")
-              .select(
-                  "id, created_at, status, address, package_id, package_label, package_price, apartment, entrance, comment, leave_at_door, phone, should_call, payment_method, tip, total, courier_id, call_required, owner_key"
-              )
-              .eq("owner_key", ownerKey)
-              .in("status", [...ACTIVE_ORDER_STATUSES])
-              .order("created_at", { ascending: false })
-              .limit(1);
-
-          if (error) {
-            throw error;
-          }
-
-          const nextOrder =
-              Array.isArray(data) && data.length > 0 ? normalizeOrderRow(data[0]) : null;
+          const { order } = await api.orders.active();
+          const nextOrder = order ? normalizeOrderRow(order) : null;
+          const previousOrder = lastObservedOrderRef.current;
 
           setOrder(nextOrder);
 
           if (nextOrder) {
             await syncActiveOrder(nextOrder);
+
+            const nextSnapshot = {
+              id: String(nextOrder.id),
+              status: nextOrder.status,
+            };
+
+            if (
+              previousOrder &&
+              previousOrder.id === nextSnapshot.id &&
+              previousOrder.status &&
+              nextSnapshot.status &&
+              previousOrder.status !== nextSnapshot.status
+            ) {
+              await notifyOrderStatusChanged(nextOrder);
+            }
+
+            lastObservedOrderRef.current = nextSnapshot;
           } else {
+            await notifyMissingActiveOrderStatus(previousOrder);
             await clearActiveOrder();
+            lastObservedOrderRef.current = null;
           }
         } catch (error: any) {
           const hasStored = await applyStoredOrder();
@@ -154,123 +187,22 @@ export default function ActiveOrderScreen() {
       [applyStoredOrder]
   );
 
-  const handleTerminalOrder = useCallback(
-      async (status: string | null | undefined) => {
-        if (hasHandledTerminalRef.current) {
-          return;
-        }
-
-        hasHandledTerminalRef.current = true;
-
-        setOrder(null);
-        await clearActiveOrder();
-
-        const title = status === "cancelled" ? "Заказ отменён" : "Заказ завершён";
-        const message =
-            status === "cancelled"
-                ? "Этот заказ больше не активен. Переводим тебя в историю заказов."
-                : "Заказ успешно завершён. Переводим тебя в историю заказов.";
-
-        Alert.alert(title, message, [
-          {
-            text: "Открыть историю",
-            onPress: () => router.replace("/order/history"),
-          },
-        ]);
-      },
-      [router]
-  );
-
-  const handleRealtimeOrderUpdate = useCallback(
-      async (nextOrder: OrderRow | null) => {
-        if (!nextOrder || !isActiveOrderStatus(nextOrder.status ?? null)) {
-          await handleTerminalOrder(nextOrder?.status ?? null);
-          return;
-        }
-
-        hasHandledTerminalRef.current = false;
-        setOrder(nextOrder);
-        await syncActiveOrder(nextOrder);
-      },
-      [handleTerminalOrder]
-  );
-
   useFocusEffect(
       useCallback(() => {
-        hasHandledTerminalRef.current = false;
         loadActiveOrder("initial");
 
+        pollTimerRef.current = setInterval(() => {
+          loadActiveOrder("silent");
+        }, 15000);
+
         return () => {
-          if (realtimeChannelRef.current) {
-            supabase.removeChannel(realtimeChannelRef.current);
-            realtimeChannelRef.current = null;
+          if (pollTimerRef.current) {
+            clearInterval(pollTimerRef.current);
+            pollTimerRef.current = null;
           }
         };
       }, [loadActiveOrder])
   );
-
-  useEffect(() => {
-    if (!order?.id) {
-      if (realtimeChannelRef.current) {
-        supabase.removeChannel(realtimeChannelRef.current);
-        realtimeChannelRef.current = null;
-      }
-
-      return;
-    }
-
-    if (realtimeChannelRef.current) {
-      supabase.removeChannel(realtimeChannelRef.current);
-      realtimeChannelRef.current = null;
-    }
-
-    const orderId = String(order.id);
-    const channelName = `active-order:${orderId}`;
-
-    const channel = supabase
-        .channel(channelName)
-        .on(
-            "postgres_changes",
-            {
-              event: "UPDATE",
-              schema: "public",
-              table: "orders",
-              filter: `id=eq.${orderId}`,
-            },
-            async (payload) => {
-              const nextOrder = normalizeOrderRow(payload.new);
-              await handleRealtimeOrderUpdate(nextOrder);
-            }
-        )
-        .on(
-            "postgres_changes",
-            {
-              event: "DELETE",
-              schema: "public",
-              table: "orders",
-              filter: `id=eq.${orderId}`,
-            },
-            async () => {
-              await handleTerminalOrder("cancelled");
-            }
-        )
-        .subscribe((status) => {
-          if (status === "CHANNEL_ERROR") {
-            setErrorText(
-                "Realtime-подключение временно недоступно. Можно обновить заказ вручную."
-            );
-          }
-        });
-
-    realtimeChannelRef.current = channel;
-
-    return () => {
-      if (realtimeChannelRef.current) {
-        supabase.removeChannel(realtimeChannelRef.current);
-        realtimeChannelRef.current = null;
-      }
-    };
-  }, [order?.id, handleRealtimeOrderUpdate, handleTerminalOrder]);
 
   const handleRefresh = () => {
     loadActiveOrder("refresh");
@@ -278,6 +210,45 @@ export default function ActiveOrderScreen() {
 
   const handleCreateOrder = () => {
     router.push("/order/package");
+  };
+
+  const handleOpenPayment = async () => {
+    if (!order?.id || isOpeningPayment) {
+      return;
+    }
+
+    const orderId = String(order.id);
+
+    try {
+      setIsOpeningPayment(true);
+      setErrorText(null);
+
+      const checkedPayment = await openOrderPaymentSession(orderId);
+
+      await loadActiveOrder("refresh");
+
+      if (isPaymentSuccessful(checkedPayment)) {
+        Alert.alert("Оплата прошла", "Заказ оплачен.");
+        return;
+      }
+
+      router.replace({
+        pathname: "/order/payment-return" as never,
+        params: {
+          orderId,
+          result: checkedPayment.status === "failed" ? "fail" : "pending",
+        },
+      });
+    } catch (error) {
+      Alert.alert(
+        "Ошибка оплаты",
+        error instanceof Error
+          ? error.message
+          : "Не удалось открыть оплату."
+      );
+    } finally {
+      setIsOpeningPayment(false);
+    }
   };
 
   const handleOpenHistory = () => {
@@ -299,7 +270,7 @@ export default function ActiveOrderScreen() {
                   <ActivityIndicator size="large" color={colors.primary} />
                   <Text style={styles.centerTitle}>Загружаем активный заказ</Text>
                   <Text style={styles.centerText}>
-                    Проверяем локальные данные и обновляем заказ из Supabase.
+                    Проверяем сохранённые данные и обновляем заказ.
                   </Text>
                 </View>
             ) : (
@@ -373,7 +344,6 @@ export default function ActiveOrderScreen() {
 
                           <View style={styles.progressHeader}>
                             <Text style={styles.progressLabel}>Прогресс заказа</Text>
-                            <Text style={styles.progressValue}>{progressValue}%</Text>
                           </View>
 
                           <View style={styles.progressTrack}>
@@ -402,10 +372,7 @@ export default function ActiveOrderScreen() {
                             />
                         ) : null}
 
-                        <ScreenSection
-                            title="Этапы выполнения"
-                            subtitle="Путь заказа от создания до прибытия курьера"
-                        >
+                        <ScreenSection title="Этапы выполнения">
                           <AppCard>
                             <View style={styles.timeline}>
                               {timelineSteps.map((step, index) => {
@@ -490,8 +457,9 @@ export default function ActiveOrderScreen() {
                             <Divider styles={styles} />
                             <InfoRow
                                 label="Адрес"
-                                value={order.address || "Не указан"}
+                                value={cleanAddressForDisplay(order.address) || "Не указан"}
                                 rightAligned
+                                compact
                                 styles={styles}
                             />
                             {order.apartment || order.entrance ? (
@@ -524,12 +492,12 @@ export default function ActiveOrderScreen() {
                         order.should_call ||
                         order.call_required ? (
                             <ScreenSection
-                                title="Пожелания и параметры"
+                                title="Детали выполнения"
                                 subtitle="Как лучше выполнить этот заказ"
                             >
                               <AppCard>
                                 <InfoRow
-                                    label="Оставить у двери"
+                                    label="Забрать у двери"
                                     value={order.leave_at_door ? "Да" : "Нет"}
                                     styles={styles}
                                 />
@@ -567,6 +535,12 @@ export default function ActiveOrderScreen() {
                             />
                             <Divider styles={styles} />
                             <InfoRow
+                                label="Статус оплаты"
+                                value={formatPaymentStatus(order.payment_status)}
+                                styles={styles}
+                            />
+                            <Divider styles={styles} />
+                            <InfoRow
                                 label="Стоимость пакета"
                                 value={`${Number(order.package_price ?? 0)} ₽`}
                                 styles={styles}
@@ -587,11 +561,19 @@ export default function ActiveOrderScreen() {
                           </AppCard>
                         </ScreenSection>
 
-                        <ScreenSection
-                            title="Быстрые действия"
-                            subtitle="Навигация по связанным разделам"
-                        >
+                        <ScreenSection title="Быстрые действия">
                           <View style={styles.quickActions}>
+                            {canOpenPayment ? (
+                                <AppButton
+                                    title={
+                                      isOpeningPayment
+                                          ? "Открываем оплату..."
+                                          : "Оплатить заказ"
+                                    }
+                                    onPress={handleOpenPayment}
+                                    disabled={isOpeningPayment || isRefreshing}
+                                />
+                            ) : null}
                             <AppButton title="Обновить статус" onPress={handleRefresh} />
                             <AppButton
                                 title="История заказов"
@@ -599,7 +581,7 @@ export default function ActiveOrderScreen() {
                                 onPress={handleOpenHistory}
                             />
                             <AppButton
-                                title="На главную"
+                                title="В главное меню"
                                 variant="secondary"
                                 onPress={handleGoHome}
                             />
@@ -619,13 +601,18 @@ function InfoRow({
                    label,
                    value,
                    rightAligned = false,
+                   compact = false,
                    styles,
                  }: InfoRowProps & { styles: ReturnType<typeof createStyles> }) {
   return (
       <View style={styles.infoRow}>
         <Text style={styles.infoLabel}>{label}</Text>
         <Text
-            style={[styles.infoValue, rightAligned ? styles.infoValueRight : undefined]}
+            style={[
+              styles.infoValue,
+              rightAligned ? styles.infoValueRight : undefined,
+              compact ? styles.infoValueCompact : undefined,
+            ]}
         >
           {value}
         </Text>
@@ -635,6 +622,30 @@ function InfoRow({
 
 function Divider({ styles }: { styles: ReturnType<typeof createStyles> }) {
   return <View style={styles.divider} />;
+}
+
+async function notifyMissingActiveOrderStatus(
+  previousOrder: ObservedOrderSnapshot | null
+) {
+  if (!previousOrder?.id || !previousOrder.status) {
+    return;
+  }
+
+  try {
+    const { orders } = await api.orders.history();
+    const finishedOrder = (orders ?? [])
+      .map(normalizeOrderRow)
+      .find((candidate) => String(candidate?.id) === previousOrder.id);
+
+    if (
+      finishedOrder?.status &&
+      finishedOrder.status !== previousOrder.status
+    ) {
+      await notifyOrderStatusChanged(finishedOrder);
+    }
+  } catch (error) {
+    console.warn("Failed to check terminal order status", error);
+  }
 }
 
 function mapStoredOrderToOrderRow(order: StoredActiveOrder): OrderRow | null {
@@ -661,6 +672,8 @@ function mapStoredOrderToOrderRow(order: StoredActiveOrder): OrderRow | null {
     phone: order.phone ?? null,
     should_call: order.should_call ?? null,
     payment_method: order.payment_method ?? null,
+    payment_status: order.payment_status ?? null,
+    payment_id: order.payment_id ?? null,
     tip: order.tip ?? null,
     total: order.total ?? null,
     courier_id: order.courier_id ?? null,
@@ -689,6 +702,8 @@ function normalizeOrderRow(value: any): OrderRow | null {
     phone: value.phone ?? null,
     should_call: value.should_call ?? null,
     payment_method: value.payment_method ?? null,
+    payment_status: value.payment_status ?? null,
+    payment_id: value.payment_id ?? null,
     tip: value.tip ?? null,
     total: value.total ?? null,
     courier_id: value.courier_id ?? null,
@@ -703,10 +718,42 @@ function formatPaymentMethod(paymentMethod: string | null) {
   }
 
   if (paymentMethod === "card") {
-    return "Картой";
+    return "Карта";
+  }
+
+  if (paymentMethod === "sbp") {
+    return "СБП";
   }
 
   return "Не указан";
+}
+
+function formatPaymentStatus(paymentStatus: string | null) {
+  if (paymentStatus === "confirmed") {
+    return "Оплачено";
+  }
+
+  if (paymentStatus === "authorized") {
+    return "Оплата авторизована";
+  }
+
+  if (paymentStatus === "pending") {
+    return "Ожидает оплаты";
+  }
+
+  if (paymentStatus === "failed") {
+    return "Не прошла";
+  }
+
+  if (paymentStatus === "cancelled") {
+    return "Отменена";
+  }
+
+  if (paymentStatus === "amount_mismatch") {
+    return "Требует проверки";
+  }
+
+  return "Не начата";
 }
 
 function createStyles(colors: ReturnType<typeof useAppTheme>["colors"]) {
@@ -806,11 +853,6 @@ function createStyles(colors: ReturnType<typeof useAppTheme>["colors"]) {
       fontSize: typography.bodySmall,
       fontWeight: "700",
       color: colors.textSecondary,
-    },
-    progressValue: {
-      fontSize: typography.bodySmall,
-      fontWeight: "800",
-      color: colors.text,
     },
     progressTrack: {
       height: 10,
@@ -950,17 +992,26 @@ function createStyles(colors: ReturnType<typeof useAppTheme>["colors"]) {
     },
     infoLabel: {
       flex: 1,
+      minWidth: 0,
       fontSize: typography.body,
       color: colors.textMuted,
     },
     infoValue: {
+      minWidth: 0,
+      flexShrink: 1,
       fontSize: typography.body,
+      lineHeight: 22,
       fontWeight: "700",
       color: colors.text,
     },
     infoValueRight: {
       flex: 1,
       textAlign: "right",
+    },
+    infoValueCompact: {
+      fontSize: typography.bodySmall,
+      lineHeight: 18,
+      fontWeight: "600",
     },
     divider: {
       height: 1,

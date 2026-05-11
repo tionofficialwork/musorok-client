@@ -1,0 +1,14 @@
+.env
+.env.*
+.expo
+.git
+android
+ios
+node_modules
+npm-debug.log
+assets
+app
+components
+docs
+providers
+types

@@ -1,9 +1,26 @@
-import { useMemo } from "react";
-import { SafeAreaView, ScrollView, StyleSheet, Text, View } from "react-native";
-import { Stack, useLocalSearchParams, useRouter } from "expo-router";
+import {
+  useCallback,
+  useMemo,
+} from "react";
+import {
+  BackHandler,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
+} from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
+import {
+  Stack,
+  useFocusEffect,
+  useLocalSearchParams,
+  useRouter,
+} from "expo-router";
 import AppButton from "../../components/ui/AppButton";
 import AppCard from "../../components/ui/AppCard";
 import ScreenSection from "../../components/ui/ScreenSection";
+import { cleanAddressForDisplay } from "../../lib/addressDisplay";
+import { getPaymentStatusLabel } from "../../lib/payments";
 import { radii, spacing, typography } from "../../lib/theme";
 import { useAppTheme } from "../../providers/AppThemeProvider";
 
@@ -14,6 +31,7 @@ type SuccessParams = {
   tip?: string;
   total?: string;
   address?: string;
+  paymentStatus?: string;
 };
 
 export default function OrderSuccessScreen() {
@@ -24,12 +42,20 @@ export default function OrderSuccessScreen() {
 
   const orderId = typeof params.orderId === "string" ? params.orderId : "";
   const packageName =
-      typeof params.packageName === "string" ? params.packageName : "Выбранный пакет";
-  const price = typeof params.price === "string" ? params.price : "0";
-  const tip = typeof params.tip === "string" ? params.tip : "0";
-  const total = typeof params.total === "string" ? params.total : "0";
+      typeof params.packageName === "string" && params.packageName.trim()
+          ? params.packageName
+          : "";
+  const price =
+      typeof params.price === "string" && params.price.trim() ? params.price : "";
+  const tip = typeof params.tip === "string" && params.tip.trim() ? params.tip : "";
+  const total =
+      typeof params.total === "string" && params.total.trim() ? params.total : "";
   const address =
-      typeof params.address === "string" ? params.address : "Адрес не указан";
+      typeof params.address === "string"
+          ? cleanAddressForDisplay(params.address) || ""
+          : "";
+  const paymentStatus =
+      typeof params.paymentStatus === "string" ? params.paymentStatus : "";
 
   const handleOpenActiveOrder = () => {
     router.replace("/order/active");
@@ -39,9 +65,26 @@ export default function OrderSuccessScreen() {
     router.replace("/");
   };
 
+  useFocusEffect(
+      useCallback(() => {
+        const subscription = BackHandler.addEventListener(
+            "hardwareBackPress",
+            () => true
+        );
+
+        return () => subscription.remove();
+      }, [])
+  );
+
   return (
       <>
-        <Stack.Screen options={{ title: "Заказ создан", headerBackVisible: false }} />
+        <Stack.Screen
+            options={{
+              title: "Заказ создан",
+              headerBackVisible: false,
+              gestureEnabled: false,
+            }}
+        />
 
         <SafeAreaView style={styles.safeArea}>
           <View style={styles.container}>
@@ -57,10 +100,6 @@ export default function OrderSuccessScreen() {
 
                 <Text style={styles.eyebrow}>Заказ успешно создан</Text>
                 <Text style={styles.title}>Курьер скоро увидит заявку</Text>
-                <Text style={styles.subtitle}>
-                  Мы сохранили заказ и переведём тебя на экран активного заказа, где
-                  можно следить за статусом.
-                </Text>
               </View>
 
               <ScreenSection
@@ -79,43 +118,70 @@ export default function OrderSuccessScreen() {
                       </>
                   ) : null}
 
-                  <View style={styles.summaryRow}>
-                    <Text style={styles.summaryLabel}>Пакет</Text>
-                    <Text style={styles.summaryValueRight}>{packageName}</Text>
-                  </View>
+                  {packageName ? (
+                      <>
+                        <View style={styles.summaryRow}>
+                          <Text style={styles.summaryLabel}>Пакет</Text>
+                          <Text style={styles.summaryValueRight}>{packageName}</Text>
+                        </View>
 
-                  <View style={styles.divider} />
+                        <View style={styles.divider} />
+                      </>
+                  ) : null}
 
-                  <View style={styles.summaryRow}>
-                    <Text style={styles.summaryLabel}>Адрес</Text>
-                    <Text style={styles.summaryValueRight}>{address}</Text>
-                  </View>
+                  {address ? (
+                      <>
+                        <View style={styles.summaryRow}>
+                          <Text style={styles.summaryLabel}>Адрес</Text>
+                          <Text style={styles.summaryValueRight}>{address}</Text>
+                        </View>
 
-                  <View style={styles.divider} />
+                        <View style={styles.divider} />
+                      </>
+                  ) : null}
 
-                  <View style={styles.summaryRow}>
-                    <Text style={styles.summaryLabel}>Стоимость пакета</Text>
-                    <Text style={styles.summaryValue}>{price} ₽</Text>
-                  </View>
+                  {price ? (
+                      <>
+                        <View style={styles.summaryRow}>
+                          <Text style={styles.summaryLabel}>Стоимость пакета</Text>
+                          <Text style={styles.summaryValue}>{price} ₽</Text>
+                        </View>
 
-                  <View style={styles.divider} />
+                        <View style={styles.divider} />
+                      </>
+                  ) : null}
 
-                  <View style={styles.summaryRow}>
-                    <Text style={styles.summaryLabel}>Чаевые</Text>
-                    <Text style={styles.summaryValue}>{tip} ₽</Text>
-                  </View>
+                  {tip ? (
+                      <>
+                        <View style={styles.summaryRow}>
+                          <Text style={styles.summaryLabel}>Чаевые</Text>
+                          <Text style={styles.summaryValue}>{tip} ₽</Text>
+                        </View>
+                      </>
+                  ) : null}
 
-                  <View style={styles.totalBox}>
-                    <Text style={styles.totalLabel}>Итого</Text>
-                    <Text style={styles.totalValue}>{total} ₽</Text>
-                  </View>
+                  {total ? (
+                      <View style={styles.totalBox}>
+                        <Text style={styles.totalLabel}>Итого</Text>
+                        <Text style={styles.totalValue}>{total} ₽</Text>
+                      </View>
+                  ) : null}
+
+                  {paymentStatus ? (
+                      <>
+                        <View style={styles.divider} />
+                        <View style={styles.summaryRow}>
+                          <Text style={styles.summaryLabel}>Статус оплаты</Text>
+                          <Text style={styles.summaryValue}>
+                            {getPaymentStatusLabel(paymentStatus)}
+                          </Text>
+                        </View>
+                      </>
+                  ) : null}
                 </AppCard>
               </ScreenSection>
 
-              <ScreenSection
-                  title="Что дальше"
-                  subtitle="Следующие действия после создания заказа"
-              >
+              <ScreenSection title="Что дальше">
                 <AppCard>
                   <View style={styles.stepRow}>
                     <View style={styles.stepBadge}>
@@ -168,7 +234,7 @@ export default function OrderSuccessScreen() {
               />
               <View style={styles.footerSpacer} />
               <AppButton
-                  title="На главный экран"
+                  title="В главное меню"
                   onPress={handleGoHome}
                   variant="secondary"
               />
@@ -196,7 +262,7 @@ function createStyles(colors: ReturnType<typeof useAppTheme>["colors"]) {
     content: {
       paddingHorizontal: spacing.lg,
       paddingTop: spacing.lg,
-      paddingBottom: 148,
+      paddingBottom: 180,
       gap: spacing.lg,
     },
     heroCard: {
@@ -249,6 +315,7 @@ function createStyles(colors: ReturnType<typeof useAppTheme>["colors"]) {
     },
     summaryLabel: {
       flex: 1,
+      minWidth: 0,
       fontSize: typography.body,
       color: colors.textMuted,
     },
@@ -259,8 +326,11 @@ function createStyles(colors: ReturnType<typeof useAppTheme>["colors"]) {
     },
     summaryValueRight: {
       flex: 1,
+      minWidth: 0,
+      flexShrink: 1,
       textAlign: "right",
       fontSize: typography.body,
+      lineHeight: 22,
       fontWeight: "700",
       color: colors.text,
     },
@@ -332,7 +402,7 @@ function createStyles(colors: ReturnType<typeof useAppTheme>["colors"]) {
       bottom: 0,
       paddingHorizontal: spacing.lg,
       paddingTop: spacing.md,
-      paddingBottom: spacing.lg,
+      paddingBottom: 30,
       borderTopWidth: 1,
       borderTopColor: colors.border,
       backgroundColor: colors.background,

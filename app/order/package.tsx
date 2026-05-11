@@ -1,12 +1,15 @@
-import { useMemo, useState } from "react";
+import {
+  useMemo,
+  useState,
+} from "react";
 import {
   Pressable,
-  SafeAreaView,
   ScrollView,
   StyleSheet,
   Text,
   View,
 } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 import { Stack, useRouter } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import {
@@ -18,6 +21,7 @@ import { useAppTheme } from "../../providers/AppThemeProvider";
 
 type PackageOption = {
   id: string;
+  size: string;
   name: string;
   price: number;
   subtitle: string;
@@ -29,8 +33,9 @@ type PackageOption = {
 const PACKAGE_OPTIONS: PackageOption[] = [
   {
     id: "s",
+    size: "S",
     name: "Маленький пакет",
-    price: 199,
+    price: 139,
     subtitle: "Подойдет для 1–2 небольших пакетов бытового мусора",
     eta: "Обычно 10–20 мин",
     badge: "Быстро",
@@ -42,8 +47,9 @@ const PACKAGE_OPTIONS: PackageOption[] = [
   },
   {
     id: "m",
+    size: "M",
     name: "Средний пакет",
-    price: 299,
+    price: 189,
     subtitle: "Оптимально для семьи или накопившегося мусора за несколько дней",
     eta: "Обычно 10–25 мин",
     badge: "Популярно",
@@ -55,8 +61,9 @@ const PACKAGE_OPTIONS: PackageOption[] = [
   },
   {
     id: "l",
+    size: "L",
     name: "Большой пакет",
-    price: 449,
+    price: 249,
     subtitle: "Когда мусора много или нужно вынести сразу несколько пакетов",
     eta: "Обычно 15–30 мин",
     badge: "Выгодно",
@@ -89,7 +96,7 @@ export default function OrderPackageScreen() {
       pathname: "/order/details",
       params: {
         packageId: selectedPackage.id,
-        packageName: selectedPackage.name,
+        packageName: `${selectedPackage.size} · ${selectedPackage.name}`,
         price: String(selectedPackage.price),
       },
     });
@@ -112,7 +119,6 @@ export default function OrderPackageScreen() {
               showsVerticalScrollIndicator={false}
           >
             <View style={styles.heroCard}>
-              <Text style={styles.eyebrow}>Заказ</Text>
               <Text style={styles.title}>Выберите подходящий пакет</Text>
               <Text style={styles.description}>
                 Выберите объем заказа. На следующем экране вы укажете адрес,
@@ -137,6 +143,22 @@ export default function OrderPackageScreen() {
                       <View style={styles.packageTopRow}>
                         <View style={styles.packageTitleBlock}>
                           <View style={styles.packageTitleRow}>
+                            <View
+                                style={[
+                                  styles.sizeBadge,
+                                  isSelected && styles.sizeBadgeSelected,
+                                ]}
+                            >
+                              <Text
+                                  style={[
+                                    styles.sizeBadgeText,
+                                    isSelected && styles.sizeBadgeTextSelected,
+                                  ]}
+                              >
+                                {item.size}
+                              </Text>
+                            </View>
+
                             <Text
                                 style={[
                                   styles.packageName,
@@ -257,7 +279,7 @@ export default function OrderPackageScreen() {
               <View style={styles.infoItem}>
                 <View style={styles.infoDot} />
                 <Text style={styles.infoText}>
-                  Цена пакета уже передается дальше в flow заказа.
+                  Итоговая сумма будет видна перед оплатой.
                 </Text>
               </View>
             </View>
@@ -279,6 +301,16 @@ export default function OrderPackageScreen() {
                 ]}
             >
               <Text style={styles.continueButtonText}>Продолжить</Text>
+            </Pressable>
+
+            <Pressable
+                onPress={() => router.back()}
+                style={({ pressed }) => [
+                  styles.backButton,
+                  pressed && styles.backButtonPressed,
+                ]}
+            >
+              <Text style={styles.backButtonText}>Назад</Text>
             </Pressable>
           </View>
         </View>
@@ -302,7 +334,7 @@ function createStyles(colors: ReturnType<typeof useAppTheme>["colors"]) {
     },
     content: {
       padding: 16,
-      paddingBottom: 140,
+      paddingBottom: 240,
     },
     heroCard: {
       backgroundColor: colors.surface,
@@ -334,7 +366,7 @@ function createStyles(colors: ReturnType<typeof useAppTheme>["colors"]) {
     },
     section: {
       gap: 12,
-      marginBottom: 16,
+      marginBottom: 8,
     },
     packageCard: {
       backgroundColor: colors.surface,
@@ -374,6 +406,28 @@ function createStyles(colors: ReturnType<typeof useAppTheme>["colors"]) {
     },
     packageNameSelected: {
       color: colors.text,
+    },
+    sizeBadge: {
+      minWidth: 46,
+      minHeight: 34,
+      borderRadius: 12,
+      paddingHorizontal: 10,
+      alignItems: "center",
+      justifyContent: "center",
+      backgroundColor: colors.primarySoft,
+      borderWidth: 1,
+      borderColor: colors.primary,
+    },
+    sizeBadgeSelected: {
+      backgroundColor: colors.primary,
+    },
+    sizeBadgeText: {
+      fontSize: 15,
+      fontWeight: "800",
+      color: colors.primary,
+    },
+    sizeBadgeTextSelected: {
+      color: colors.white,
     },
     badge: {
       backgroundColor: colors.surfaceSecondary,
@@ -521,7 +575,8 @@ function createStyles(colors: ReturnType<typeof useAppTheme>["colors"]) {
       borderTopColor: colors.border,
       paddingHorizontal: 16,
       paddingTop: 14,
-      paddingBottom: 18,
+      paddingBottom: 30,
+      gap: 10,
     },
     bottomSummary: {
       marginBottom: 12,
@@ -553,6 +608,21 @@ function createStyles(colors: ReturnType<typeof useAppTheme>["colors"]) {
       fontSize: 16,
       fontWeight: "800",
       color: colors.white,
+    },
+    backButton: {
+      height: 48,
+      borderRadius: 16,
+      backgroundColor: colors.primarySoft,
+      alignItems: "center",
+      justifyContent: "center",
+    },
+    backButtonPressed: {
+      opacity: 0.92,
+    },
+    backButtonText: {
+      fontSize: 15,
+      fontWeight: "800",
+      color: colors.primary,
     },
   });
 }

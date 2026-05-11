@@ -1,24 +1,28 @@
-import { useCallback, useMemo, useState } from "react";
+import {
+  useCallback,
+  useMemo,
+  useState,
+} from "react";
 import {
   ActivityIndicator,
   RefreshControl,
-  SafeAreaView,
   ScrollView,
   StyleSheet,
   Text,
   View,
 } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 import { Stack, useFocusEffect, useRouter } from "expo-router";
 import AppButton from "../../components/ui/AppButton";
 import AppCard from "../../components/ui/AppCard";
 import ScreenSection from "../../components/ui/ScreenSection";
 import StatusPill from "../../components/ui/StatusPill";
-import { getOwnerKey } from "../../lib/profileOwner";
+import { api } from "../../lib/api";
+import { cleanAddressForDisplay } from "../../lib/addressDisplay";
 import {
   INACTIVE_ORDER_STATUSES,
   getOrderStatusLabel,
 } from "../../lib/orderStatus";
-import { supabase } from "../../lib/supabase";
 import { radii, spacing, typography } from "../../lib/theme";
 import { useAppTheme } from "../../providers/AppThemeProvider";
 
@@ -70,22 +74,12 @@ export default function OrderHistoryScreen() {
 
       setErrorText(null);
 
-      const ownerKey = await getOwnerKey();
+      const { orders } = await api.orders.history();
+      const inactiveOrders = (orders ?? []).filter((order) =>
+        INACTIVE_ORDER_STATUSES.includes(order.status)
+      );
 
-      const { data, error } = await supabase
-          .from("orders")
-          .select(
-              "id, created_at, status, address, package_id, package_label, package_price, apartment, entrance, comment, leave_at_door, phone, should_call, payment_method, tip, total, courier_id, call_required, owner_key"
-          )
-          .eq("owner_key", ownerKey)
-          .in("status", [...INACTIVE_ORDER_STATUSES])
-          .order("created_at", { ascending: false });
-
-      if (error) {
-        throw error;
-      }
-
-      setOrders(Array.isArray(data) ? (data as OrderHistoryRow[]) : []);
+      setOrders(inactiveOrders as OrderHistoryRow[]);
     } catch (error: any) {
       const message =
           typeof error?.message === "string"
@@ -108,8 +102,8 @@ export default function OrderHistoryScreen() {
     loadHistory("refresh");
   };
 
-  const handleCreateOrder = () => {
-    router.push("/order/package");
+  const handleGoHome = () => {
+    router.replace("/");
   };
 
   const handleReorderPress = (orderId: string | number) => {
@@ -158,10 +152,9 @@ export default function OrderHistoryScreen() {
                     showsVerticalScrollIndicator={false}
                     refreshControl={
                       <RefreshControl refreshing={isRefreshing} onRefresh={handleRefresh} />
-                    }
+                  }
                 >
                   <View style={styles.hero}>
-                    <Text style={styles.eyebrow}>Архив заказов</Text>
                     <Text style={styles.title}>История</Text>
                     <Text style={styles.subtitle}>
                       Здесь хранятся завершённые и отменённые заказы. Из истории можно
@@ -178,29 +171,6 @@ export default function OrderHistoryScreen() {
                           <Text style={styles.errorText}>{errorText}</Text>
                           <View style={styles.errorAction}>
                             <AppButton title="Повторить" onPress={handleRefresh} />
-                          </View>
-                        </AppCard>
-                      </ScreenSection>
-                  ) : null}
-
-                  {!errorText && orders.length === 0 ? (
-                      <ScreenSection
-                          title="История пока пустая"
-                          subtitle="Когда появятся завершённые или отменённые заказы, они будут здесь"
-                      >
-                        <AppCard>
-                          <View style={styles.emptyIconWrap}>
-                            <Text style={styles.emptyIcon}>🧾</Text>
-                          </View>
-
-                          <Text style={styles.emptyTitle}>Пока нет прошлых заказов</Text>
-                          <Text style={styles.emptyText}>
-                            Создай первый заказ — после завершения он автоматически попадёт
-                            в историю.
-                          </Text>
-
-                          <View style={styles.emptyActions}>
-                            <AppButton title="Создать заказ" onPress={handleCreateOrder} />
                           </View>
                         </AppCard>
                       </ScreenSection>
@@ -234,7 +204,7 @@ export default function OrderHistoryScreen() {
                                     <View style={styles.infoBlock}>
                                       <InfoRow
                                           label="Адрес"
-                                          value={order.address || "Не указан"}
+                                          value={cleanAddressForDisplay(order.address) || "Не указан"}
                                           rightAligned
                                           styles={styles}
                                       />
@@ -298,6 +268,14 @@ export default function OrderHistoryScreen() {
                           </ScreenSection>
                       ))
                       : null}
+
+                  <View style={styles.homeAction}>
+                    <AppButton
+                        title="В главное меню"
+                        variant="secondary"
+                        onPress={handleGoHome}
+                    />
+                  </View>
                 </ScrollView>
             )}
           </View>
@@ -446,35 +424,6 @@ function createStyles(colors: ReturnType<typeof useAppTheme>["colors"]) {
     errorAction: {
       marginTop: spacing.md,
     },
-    emptyIconWrap: {
-      width: 72,
-      height: 72,
-      borderRadius: 999,
-      alignItems: "center",
-      justifyContent: "center",
-      backgroundColor: colors.primarySoft,
-      alignSelf: "center",
-      marginBottom: spacing.sm,
-    },
-    emptyIcon: {
-      fontSize: 32,
-    },
-    emptyTitle: {
-      fontSize: typography.h3,
-      fontWeight: "800",
-      color: colors.text,
-      textAlign: "center",
-      marginBottom: spacing.xs,
-    },
-    emptyText: {
-      fontSize: typography.body,
-      lineHeight: 21,
-      color: colors.textMuted,
-      textAlign: "center",
-    },
-    emptyActions: {
-      marginTop: spacing.lg,
-    },
     cards: {
       gap: spacing.md,
     },
@@ -510,11 +459,15 @@ function createStyles(colors: ReturnType<typeof useAppTheme>["colors"]) {
     },
     infoLabel: {
       flex: 1,
+      minWidth: 0,
       fontSize: typography.body,
       color: colors.textMuted,
     },
     infoValue: {
+      minWidth: 0,
+      flexShrink: 1,
       fontSize: typography.body,
+      lineHeight: 22,
       fontWeight: "700",
       color: colors.text,
     },
@@ -566,6 +519,9 @@ function createStyles(colors: ReturnType<typeof useAppTheme>["colors"]) {
     },
     reorderAction: {
       minWidth: 132,
+    },
+    homeAction: {
+      marginTop: spacing.sm,
     },
   });
 }

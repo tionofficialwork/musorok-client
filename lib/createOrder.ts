@@ -1,4 +1,5 @@
-import { supabase } from "./supabase";
+import { api } from "./api";
+import { cleanAddressForDisplay } from "./addressDisplay";
 import { syncActiveOrder } from "./activeOrder";
 import { getOwnerKey } from "./profileOwner";
 
@@ -10,7 +11,7 @@ export type OrderStatus =
     | "done"
     | "cancelled";
 
-export type PaymentMethod = "card";
+export type PaymentMethod = "card" | "sbp";
 
 export type CreateOrderInput = {
   status?: OrderStatus;
@@ -56,6 +57,13 @@ export type OrderRecord = {
   phone: string | null;
   should_call: boolean | null;
   payment_method: string | null;
+  payment_provider: string | null;
+  payment_status: string | null;
+  payment_id: string | null;
+  payment_url: string | null;
+  payment_error: string | null;
+  payment_paid_at: string | null;
+  payment_updated_at: string | null;
   tip: number | null;
   total: number | null;
   courier_id: string | null;
@@ -116,8 +124,8 @@ function normalizeBoolean(value: unknown, fallback = false): boolean {
   return fallback;
 }
 
-function normalizePaymentMethod(_: unknown): PaymentMethod {
-  return "card";
+function normalizePaymentMethod(value: unknown): PaymentMethod {
+  return value === "sbp" ? "sbp" : "card";
 }
 
 function normalizeStatus(value: unknown): OrderStatus {
@@ -138,7 +146,7 @@ function normalizeStatus(value: unknown): OrderStatus {
 }
 
 async function buildOrderPayload(input: CreateOrderInput) {
-  const address = normalizeString(input.address);
+  const address = cleanAddressForDisplay(normalizeString(input.address));
   const packageId = normalizeString(input.package_id);
   const packageLabel = normalizeString(input.package_label);
   const phone = normalizeString(input.phone);
@@ -183,7 +191,7 @@ async function buildOrderPayload(input: CreateOrderInput) {
   }
 
   if (latitude === null || longitude === null) {
-    throw new Error("Coordinates are required.");
+    throw new Error("Адрес должен быть подтверждён на карте.");
   }
 
   return {
@@ -197,7 +205,7 @@ async function buildOrderPayload(input: CreateOrderInput) {
     entrance: normalizeString(input.entrance) ?? "",
     floor: normalizeString(input.floor) ?? "",
     intercom: normalizeString(input.intercom) ?? "",
-    address_label: normalizeString(input.address_label) ?? "",
+    address_label: cleanAddressForDisplay(normalizeString(input.address_label)) ?? "",
     latitude,
     longitude,
     comment: normalizeString(input.comment) ?? "",
@@ -220,7 +228,10 @@ function normalizeCreatedOrder(data: any): OrderRecord {
     id: data?.id,
     created_at: typeof data?.created_at === "string" ? data.created_at : null,
     status: typeof data?.status === "string" ? data.status : null,
-    address: typeof data?.address === "string" ? data.address : null,
+    address:
+      typeof data?.address === "string"
+        ? cleanAddressForDisplay(data.address) || null
+        : null,
     package_id: typeof data?.package_id === "string" ? data.package_id : null,
     package_label:
         typeof data?.package_label === "string" ? data.package_label : null,
@@ -231,7 +242,9 @@ function normalizeCreatedOrder(data: any): OrderRecord {
     floor: typeof data?.floor === "string" ? data.floor : null,
     intercom: typeof data?.intercom === "string" ? data.intercom : null,
     address_label:
-        typeof data?.address_label === "string" ? data.address_label : null,
+        typeof data?.address_label === "string"
+          ? cleanAddressForDisplay(data.address_label) || null
+          : null,
     latitude: typeof data?.latitude === "number" ? data.latitude : null,
     longitude: typeof data?.longitude === "number" ? data.longitude : null,
     comment: typeof data?.comment === "string" ? data.comment : null,
@@ -242,6 +255,18 @@ function normalizeCreatedOrder(data: any): OrderRecord {
         typeof data?.should_call === "boolean" ? data.should_call : null,
     payment_method:
         typeof data?.payment_method === "string" ? data.payment_method : null,
+    payment_provider:
+        typeof data?.payment_provider === "string" ? data.payment_provider : null,
+    payment_status:
+        typeof data?.payment_status === "string" ? data.payment_status : null,
+    payment_id: typeof data?.payment_id === "string" ? data.payment_id : null,
+    payment_url: typeof data?.payment_url === "string" ? data.payment_url : null,
+    payment_error:
+        typeof data?.payment_error === "string" ? data.payment_error : null,
+    payment_paid_at:
+        typeof data?.payment_paid_at === "string" ? data.payment_paid_at : null,
+    payment_updated_at:
+        typeof data?.payment_updated_at === "string" ? data.payment_updated_at : null,
     tip: typeof data?.tip === "number" ? data.tip : null,
     total: typeof data?.total === "number" ? data.total : null,
     courier_id: typeof data?.courier_id === "string" ? data.courier_id : null,
@@ -254,19 +279,8 @@ function normalizeCreatedOrder(data: any): OrderRecord {
 export async function createOrder(input: CreateOrderInput): Promise<OrderRecord> {
   const payload = await buildOrderPayload(input);
 
-  const { data, error } = await supabase
-      .from("orders")
-      .insert(payload)
-      .select(
-          "id, created_at, status, address, package_id, package_label, package_price, apartment, entrance, floor, intercom, address_label, latitude, longitude, comment, leave_at_door, phone, should_call, payment_method, tip, total, courier_id, call_required, owner_key"
-      )
-      .single();
-
-  if (error) {
-    throw error;
-  }
-
-  const createdOrder = normalizeCreatedOrder(data);
+  const { order } = await api.orders.create(payload);
+  const createdOrder = normalizeCreatedOrder(order);
 
   await syncActiveOrder(createdOrder);
 

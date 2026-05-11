@@ -1,13 +1,18 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+} from "react";
 import {
   ActivityIndicator,
   Alert,
-  SafeAreaView,
   ScrollView,
   StyleSheet,
   Text,
   View,
 } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 import { Stack, useLocalSearchParams, useRouter } from "expo-router";
 import AppButton from "../../components/ui/AppButton";
 import AppCard from "../../components/ui/AppCard";
@@ -18,7 +23,7 @@ import {
   reorderPreviousOrder,
   type ReorderPreview,
 } from "../../lib/reorder";
-import { supabase } from "../../lib/supabase";
+import { api } from "../../lib/api";
 import { syncActiveOrder, type StoredActiveOrder } from "../../lib/activeOrder";
 import { spacing, typography } from "../../lib/theme";
 import { useAppTheme } from "../../providers/AppThemeProvider";
@@ -65,19 +70,13 @@ export default function ReorderScreen() {
   }, [loadPreview]);
 
   const fetchCreatedOrderForStorage = useCallback(async (createdOrderId: string) => {
-    const { data, error } = await supabase
-        .from("orders")
-        .select(
-            "id, created_at, status, address, package_id, package_label, package_price, apartment, entrance, comment, leave_at_door, phone, should_call, payment_method, tip, total, courier_id, call_required"
-        )
-        .eq("id", createdOrderId)
-        .single();
+    const { order } = await api.orders.active();
 
-    if (error || !data) {
+    if (!order || String(order.id) !== createdOrderId) {
       throw new Error("Не удалось подготовить новый заказ для активного экрана.");
     }
 
-    return data as StoredActiveOrder;
+    return order as StoredActiveOrder;
   }, []);
 
   const handleReorder = useCallback(async () => {
@@ -119,7 +118,7 @@ export default function ReorderScreen() {
         >
           <ScreenSection
               title="Повтор заказа"
-              subtitle="Создадим новый заказ на основе данных из прошлого. Текущий order flow не изменяется."
+              subtitle="Подтянем прошлые данные, а перед оплатой ты сможешь всё проверить."
           >
             {loading ? (
                 <View style={styles.loadingContainer}>
@@ -183,7 +182,7 @@ export default function ReorderScreen() {
                     />
 
                     <AppButton
-                        title="На главную"
+                        title="В главное меню"
                         variant="secondary"
                         onPress={() => router.replace("/")}
                         disabled={submitting}

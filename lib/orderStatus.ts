@@ -24,12 +24,14 @@ export type OrderStatusTone =
     | "default";
 
 export type ActiveOrderTimelineStep = {
-  status: ActiveOrderStatus;
+  status: ActiveOrderStatus | "done";
   shortLabel: string;
   label: string;
   description: string;
   meta: string;
 };
+
+type ActiveOrderTimelineStatus = ActiveOrderTimelineStep["status"];
 
 type OrderStatusConfig = {
   label: string;
@@ -71,8 +73,8 @@ const ORDER_STATUS_CONFIG: Record<KnownOrderStatus, OrderStatusConfig> = {
     meta: "Можно завершать выполнение заказа",
   },
   done: {
-    label: "Завершён",
-    shortLabel: "Завершён",
+    label: "Заказ завершен",
+    shortLabel: "Заказ завершен",
     tone: "success",
     description: "Заказ успешно завершён.",
     meta: "Заказ перенесён в историю",
@@ -87,7 +89,7 @@ const ORDER_STATUS_CONFIG: Record<KnownOrderStatus, OrderStatusConfig> = {
 };
 
 const ACTIVE_ORDER_TIMELINE: readonly ActiveOrderTimelineStep[] =
-    ACTIVE_ORDER_STATUSES.map((status) => ({
+    ([...ACTIVE_ORDER_STATUSES, "done"] as ActiveOrderTimelineStatus[]).map((status) => ({
       status,
       shortLabel: ORDER_STATUS_CONFIG[status].shortLabel,
       label: ORDER_STATUS_CONFIG[status].label,
@@ -191,10 +193,12 @@ export function getCurrentActiveOrderTimelineStep(
 
 export function isCompletedActiveOrderTimelineStep(
     currentStatus: string | null | undefined,
-    stepStatus: ActiveOrderStatus
+    stepStatus: ActiveOrderStatus | "done"
 ): boolean {
   const currentIndex = getActiveOrderStatusIndex(currentStatus);
-  const stepIndex = getActiveOrderStatusIndex(stepStatus);
+  const stepIndex = ACTIVE_ORDER_TIMELINE.findIndex(
+      (step) => step.status === stepStatus
+  );
 
   if (currentIndex === -1 || stepIndex === -1) {
     return false;
@@ -205,17 +209,19 @@ export function isCompletedActiveOrderTimelineStep(
 
 export function isCurrentActiveOrderTimelineStep(
     currentStatus: string | null | undefined,
-    stepStatus: ActiveOrderStatus
+    stepStatus: ActiveOrderStatus | "done"
 ): boolean {
   return currentStatus === stepStatus;
 }
 
 export function isUpcomingActiveOrderTimelineStep(
     currentStatus: string | null | undefined,
-    stepStatus: ActiveOrderStatus
+    stepStatus: ActiveOrderStatus | "done"
 ): boolean {
   const currentIndex = getActiveOrderStatusIndex(currentStatus);
-  const stepIndex = getActiveOrderStatusIndex(stepStatus);
+  const stepIndex = ACTIVE_ORDER_TIMELINE.findIndex(
+      (step) => step.status === stepStatus
+  );
 
   if (currentIndex === -1 || stepIndex === -1) {
     return false;

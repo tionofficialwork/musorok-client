@@ -1,24 +1,37 @@
-import { useEffect, useMemo, useState } from "react";
+import {
+  useEffect,
+  useMemo,
+  useState,
+} from "react";
 import {
   ActivityIndicator,
   Alert,
   KeyboardAvoidingView,
   Platform,
-  SafeAreaView,
   ScrollView,
   StyleSheet,
   Switch,
   Text,
+  TextInput,
   View,
 } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 import { Stack, useLocalSearchParams, useRouter } from "expo-router";
 
 import AppButton from "../../components/ui/AppButton";
 import AppCard from "../../components/ui/AppCard";
 import ScreenSection from "../../components/ui/ScreenSection";
-import { getPaymentPreferences } from "../../lib/paymentPreferences";
-import { getProfileOwnerKey } from "../../lib/profileIdentity";
-import { supabase } from "../../lib/supabase";
+import {
+  getPaymentPreferences,
+  type PaymentMethod,
+} from "../../lib/paymentPreferences";
+import { api } from "../../lib/api";
+import { cleanAddressForDisplay } from "../../lib/addressDisplay";
+import {
+  formatRussianPhoneInput,
+  isValidRussianPhone,
+  sanitizeRussianPhoneInput,
+} from "../../lib/auth";
 import { radii, spacing, typography } from "../../lib/theme";
 import { useAppTheme } from "../../providers/AppThemeProvider";
 
@@ -40,8 +53,6 @@ type DetailsParams = {
   paymentMethod?: string;
   tip?: string;
 };
-
-type PaymentMethod = "card";
 
 type PrefillState = {
   address: string;
@@ -71,6 +82,9 @@ type ProfileRow = {
 };
 
 const TIP_PRESETS = [0, 50, 100, 150, 200];
+function getPaymentMethodLabel(method: PaymentMethod) {
+  return method === "sbp" ? "СБП" : "Карта";
+}
 
 function resolvePackageLabel(packageId: string, packageName: string) {
   if (packageName.trim()) {
@@ -79,11 +93,11 @@ function resolvePackageLabel(packageId: string, packageName: string) {
 
   switch (packageId) {
     case "s":
-      return "Маленький пакет";
+      return "S · Маленький пакет";
     case "m":
-      return "Средний пакет";
+      return "M · Средний пакет";
     case "l":
-      return "Большой пакет";
+      return "L · Большой пакет";
     default:
       return "Пакет";
   }
@@ -98,11 +112,11 @@ function resolvePackagePrice(rawPrice: string, packageId: string) {
 
   switch (packageId) {
     case "s":
-      return 199;
+      return 139;
     case "m":
-      return 299;
+      return 189;
     case "l":
-      return 449;
+      return 249;
     default:
       return 0;
   }
@@ -114,11 +128,11 @@ function getAddressValue(row: AddressRow | null | undefined) {
   }
 
   if (typeof row.street === "string" && row.street.trim().length > 0) {
-    return row.street.trim();
+    return cleanAddressForDisplay(row.street);
   }
 
   if (typeof row.address === "string" && row.address.trim().length > 0) {
-    return row.address.trim();
+    return cleanAddressForDisplay(row.address);
   }
 
   return "";
@@ -165,58 +179,6 @@ function getMaskedPhone(value: string) {
   return `••• •• ${lastFour}`;
 }
 
-function normalizeOrderPhoneInput(value: string) {
-  const digits = value.replace(/\D/g, "");
-
-  if (digits.startsWith("8") && digits.length === 11) {
-    return `+7${digits.slice(1)}`;
-  }
-
-  if (digits.startsWith("7") && digits.length === 11) {
-    return `+${digits}`;
-  }
-
-  if (digits.length === 10) {
-    return `+7${digits}`;
-  }
-
-  if (value.trim().startsWith("+") && digits.length >= 11) {
-    return `+${digits}`;
-  }
-
-  return value.trim();
-}
-
-function formatPhonePreview(value: string) {
-  const normalized = normalizeOrderPhoneInput(value);
-  const digits = normalized.replace(/\D/g, "");
-
-  if (digits.length !== 11 || digits[0] !== "7") {
-    return normalized;
-  }
-
-  return `+7 (${digits.slice(1, 4)}) ${digits.slice(4, 7)}-${digits.slice(
-      7,
-      9
-  )}-${digits.slice(9, 11)}`;
-}
-
-function buildAddressDetailsPreview(params: {
-  apartment: string;
-  entrance: string;
-  floor: string;
-  intercom: string;
-}) {
-  const items = [
-    params.apartment ? `кв. ${params.apartment}` : "",
-    params.entrance ? `подъезд ${params.entrance}` : "",
-    params.floor ? `этаж ${params.floor}` : "",
-    params.intercom ? `домофон ${params.intercom}` : "",
-  ].filter(Boolean);
-
-  return items.join(", ");
-}
-
 export default function OrderDetailsScreen() {
   const router = useRouter();
   const params = useLocalSearchParams<DetailsParams>();
@@ -230,7 +192,7 @@ export default function OrderDetailsScreen() {
   const rawPrice = typeof params.price === "string" ? params.price : "";
 
   const selectedAddress =
-      typeof params.address === "string" ? params.address : "";
+      typeof params.address === "string" ? cleanAddressForDisplay(params.address) : "";
   const selectedApartment =
       typeof params.apartment === "string" ? params.apartment : "";
   const selectedEntrance =
@@ -239,7 +201,9 @@ export default function OrderDetailsScreen() {
   const selectedIntercom =
       typeof params.intercom === "string" ? params.intercom : "";
   const selectedAddressLabel =
-      typeof params.addressLabel === "string" ? params.addressLabel : "";
+      typeof params.addressLabel === "string"
+          ? cleanAddressForDisplay(params.addressLabel)
+          : "";
   const selectedComment =
       typeof params.comment === "string" ? params.comment : "";
   const selectedLatitude =
@@ -263,7 +227,10 @@ export default function OrderDetailsScreen() {
   const [shouldCall, setShouldCall] = useState(
       typeof params.shouldCall === "string" ? params.shouldCall === "true" : false
   );
-  const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>("card");
+  const [leaveAtDoor, setLeaveAtDoor] = useState(false);
+  const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>(
+      params.paymentMethod === "sbp" ? "sbp" : "card"
+  );
   const [tip, setTip] = useState(() => {
     const rawTip = typeof params.tip === "string" ? Number(params.tip) : NaN;
     return Number.isFinite(rawTip) && rawTip >= 0 ? rawTip : 0;
@@ -290,29 +257,15 @@ export default function OrderDetailsScreen() {
         setIsPrefillLoading(true);
         setPrefillError(null);
 
-        const ownerKey = await getProfileOwnerKey();
-
         const [
-          { data: profileData, error: profileError },
-          { data: addressData, error: addressError },
+          { profile: profileData },
+          { addresses: addressData },
           paymentPreferences,
         ] = await Promise.all([
-          supabase
-              .from("user_profiles")
-              .select("first_name, last_name, phone, call_allowed")
-              .eq("owner_key", ownerKey)
-              .maybeSingle<ProfileRow>(),
-          supabase.from("user_addresses").select("*").eq("owner_key", ownerKey).limit(10),
+          api.profile.get(),
+          api.addresses.list(),
           getPaymentPreferences(),
         ]);
-
-        if (profileError) {
-          throw profileError;
-        }
-
-        if (addressError) {
-          throw addressError;
-        }
 
         const profileRow = (profileData as ProfileRow | null) ?? null;
         const addressRows = Array.isArray(addressData)
@@ -326,7 +279,7 @@ export default function OrderDetailsScreen() {
           phone:
               typeof profileRow?.phone === "string" ? profileRow.phone.trim() : "",
           shouldCall: profileRow?.call_allowed === true,
-          paymentMethod: "card",
+          paymentMethod: paymentPreferences.defaultMethod,
           tip:
               typeof paymentPreferences.defaultTip === "number" &&
               Number.isFinite(paymentPreferences.defaultTip) &&
@@ -353,7 +306,10 @@ export default function OrderDetailsScreen() {
           return hasExplicitParam ? current : nextPrefill.shouldCall;
         });
 
-        setPaymentMethod("card");
+        setPaymentMethod((current) => {
+          const hasExplicitParam = typeof params.paymentMethod === "string";
+          return hasExplicitParam ? current : nextPrefill.paymentMethod;
+        });
 
         setTip((current) => {
           const hasExplicitParam = typeof params.tip === "string";
@@ -397,16 +353,18 @@ export default function OrderDetailsScreen() {
     return resolvedPackagePrice + tip;
   }, [resolvedPackagePrice, tip]);
 
-  const normalizedPhone = useMemo(() => normalizeOrderPhoneInput(phone), [phone]);
+  const handleManualTipChange = (value: string) => {
+    const digits = value.replace(/\D/g, "").slice(0, 5);
+    setTip(digits.length > 0 ? Number(digits) : 0);
+  };
 
-  const addressDetailsPreview = useMemo(() => {
-    return buildAddressDetailsPreview({
-      apartment: selectedApartment,
-      entrance: selectedEntrance,
-      floor: selectedFloor,
-      intercom: selectedIntercom,
-    });
-  }, [selectedApartment, selectedEntrance, selectedFloor, selectedIntercom]);
+  const phoneInputValue = useMemo(() => formatRussianPhoneInput(phone), [phone]);
+  const normalizedPhone = useMemo(() => sanitizeRussianPhoneInput(phone), [phone]);
+  const isPhoneValid = isValidRussianPhone(normalizedPhone);
+
+  const handlePhoneChange = (value: string) => {
+    setPhone(sanitizeRussianPhoneInput(value));
+  };
 
   const handleOpenMap = async () => {
     if (loading) {
@@ -421,8 +379,8 @@ export default function OrderDetailsScreen() {
       return;
     }
 
-    if (!normalizedPhone.trim()) {
-      Alert.alert("Ошибка", "Введите телефон");
+    if (!isPhoneValid) {
+      Alert.alert("Ошибка", "Введите телефон в формате +7 (999) 123-45-67");
       return;
     }
 
@@ -443,6 +401,7 @@ export default function OrderDetailsScreen() {
         longitude: selectedLongitude,
         phone: normalizedPhone,
         shouldCall: String(shouldCall),
+        leaveAtDoor: String(leaveAtDoor),
         paymentMethod,
         tip: String(tip),
         total: String(totalPreview),
@@ -497,7 +456,7 @@ export default function OrderDetailsScreen() {
               </ScreenSection>
 
               <ScreenSection
-                  title="Автоподстановка"
+                  title="Ваши данные"
                   subtitle="Используем сохранённые данные, чтобы ускорить оформление"
               >
                 <AppCard>
@@ -535,7 +494,9 @@ export default function OrderDetailsScreen() {
 
                         <View style={styles.prefillRow}>
                           <Text style={styles.prefillLabel}>Оплата</Text>
-                          <Text style={styles.prefillValue}>Карта</Text>
+                          <Text style={styles.prefillValue}>
+                            {getPaymentMethodLabel(prefill.paymentMethod)}
+                          </Text>
                         </View>
 
                         <View style={styles.prefillRow}>
@@ -569,17 +530,45 @@ export default function OrderDetailsScreen() {
                 <AppCard>
                   <View style={styles.formGroup}>
                     <Text style={styles.label}>Телефон для связи</Text>
-                    <View style={styles.inputLikeBox}>
-                      <Text style={styles.inputLikeText}>
-                        {phone || "Телефон пока не указан"}
-                      </Text>
-                    </View>
+                    <TextInput
+                        value={phoneInputValue}
+                        onChangeText={handlePhoneChange}
+                        placeholder="+7 (999) 123-45-67"
+                        placeholderTextColor={colors.textMuted}
+                        keyboardType="phone-pad"
+                        textContentType="telephoneNumber"
+                        editable={!loading}
+                        style={styles.inputLikeBox}
+                    />
                     <Text style={styles.helperText}>
                       В заказ уйдёт:{" "}
-                      {normalizedPhone
-                          ? formatPhonePreview(normalizedPhone)
+                      {isPhoneValid
+                          ? formatRussianPhoneInput(normalizedPhone)
                           : "номер не указан"}
                     </Text>
+                  </View>
+
+                  <View style={styles.contactDivider} />
+
+                  <View style={styles.switchRow}>
+                    <View style={styles.switchCopy}>
+                      <Text style={styles.switchTitle}>Забрать у двери</Text>
+                      <Text style={styles.switchSubtitle}>
+                        Включи, если курьеру нужно забрать мусор прямо у двери.
+                      </Text>
+                    </View>
+
+                    <Switch
+                        value={leaveAtDoor}
+                        onValueChange={setLeaveAtDoor}
+                        disabled={loading}
+                        trackColor={{
+                          false: colors.border,
+                          true: colors.primary,
+                        }}
+                        thumbColor={Platform.OS === "android" ? colors.white : undefined}
+                        ios_backgroundColor={colors.border}
+                    />
                   </View>
 
                   <View style={styles.contactDivider} />
@@ -607,16 +596,15 @@ export default function OrderDetailsScreen() {
                 </AppCard>
               </ScreenSection>
 
-              <ScreenSection
-                  title="Оплата"
-                  subtitle="Оплата заказа доступна только картой"
-              >
+              <ScreenSection title="Оплата">
                 <AppCard>
                   <Text style={styles.label}>Способ оплаты</Text>
                   <View style={styles.paymentMethodCard}>
-                    <Text style={styles.paymentMethodTitle}>Карта</Text>
+                    <Text style={styles.paymentMethodTitle}>
+                      {getPaymentMethodLabel(paymentMethod)}
+                    </Text>
                     <Text style={styles.paymentMethodSubtitle}>
-                      Это единственный доступный способ оплаты для новых заказов.
+                      Способ оплаты можно изменить в профиле.
                     </Text>
                   </View>
 
@@ -635,8 +623,22 @@ export default function OrderDetailsScreen() {
                     ))}
                   </View>
 
+                  <TextInput
+                      value={String(tip)}
+                      onChangeText={handleManualTipChange}
+                      placeholder="Введите сумму"
+                      placeholderTextColor={colors.textMuted}
+                      keyboardType="number-pad"
+                      editable={!loading}
+                      style={styles.manualTipInput}
+                  />
+
                   <View style={styles.paymentSummaryBox}>
-                    <InfoRow label="Метод оплаты" value="Карта" styles={styles} />
+                    <InfoRow
+                        label="Метод оплаты"
+                        value={getPaymentMethodLabel(paymentMethod)}
+                        styles={styles}
+                    />
                     <View style={styles.summaryDivider} />
                     <InfoRow label="Чаевые" value={`${tip} ₽`} styles={styles} />
                     <View style={styles.summaryDivider} />
@@ -650,95 +652,18 @@ export default function OrderDetailsScreen() {
                 </AppCard>
               </ScreenSection>
 
-              <ScreenSection
-                  title="Адрес"
-                  subtitle="Адрес теперь выбирается только через карту"
-              >
-                <AppCard>
-                  {selectedAddress ? (
-                      <View style={styles.addressSummary}>
-                        <View style={styles.prefillRow}>
-                          <Text style={styles.prefillLabel}>Точка на карте</Text>
-                          <Text style={styles.prefillValue}>{selectedAddress}</Text>
-                        </View>
-
-                        {selectedAddressLabel ? (
-                            <View style={styles.prefillRow}>
-                              <Text style={styles.prefillLabel}>Название адреса</Text>
-                              <Text style={styles.prefillValue}>{selectedAddressLabel}</Text>
-                            </View>
-                        ) : null}
-
-                        {addressDetailsPreview ? (
-                            <View style={styles.prefillRow}>
-                              <Text style={styles.prefillLabel}>Детали адреса</Text>
-                              <Text style={styles.prefillValue}>{addressDetailsPreview}</Text>
-                            </View>
-                        ) : null}
-
-                        {selectedComment ? (
-                            <View style={styles.prefillRow}>
-                              <Text style={styles.prefillLabel}>Комментарий</Text>
-                              <Text style={styles.prefillValue}>{selectedComment}</Text>
-                            </View>
-                        ) : null}
-                      </View>
-                  ) : (
-                      <Text style={styles.prefillEmptyText}>
-                        Адрес ещё не выбран. На следующем экране ты поставишь точку на
-                        карте и сразу заполнишь квартиру, этаж, подъезд, домофон и
-                        комментарий.
-                      </Text>
-                  )}
-
-                  <View style={styles.addressButtonWrap}>
-                    <AppButton
-                        title={selectedAddress ? "Изменить адрес на карте" : "Выбрать адрес на карте"}
-                        onPress={handleOpenMap}
-                        disabled={loading}
-                    />
-                  </View>
-                </AppCard>
-              </ScreenSection>
-
-              <ScreenSection
-                  title="Что будет дальше"
-                  subtitle="После нажатия на кнопку"
-              >
-                <AppCard>
-                  <View style={styles.stepRow}>
-                    <View style={styles.stepBadge}>
-                      <Text style={styles.stepBadgeText}>1</Text>
-                    </View>
-                    <View style={styles.stepContent}>
-                      <Text style={styles.stepTitle}>Откроется карта</Text>
-                      <Text style={styles.stepText}>
-                        Там ты выберешь точку и сразу заполнишь все детали адреса.
-                      </Text>
-                    </View>
-                  </View>
-
-                  <View style={styles.stepDivider} />
-
-                  <View style={styles.stepRow}>
-                    <View style={styles.stepBadge}>
-                      <Text style={styles.stepBadgeText}>2</Text>
-                    </View>
-                    <View style={styles.stepContent}>
-                      <Text style={styles.stepTitle}>Откроется подтверждение</Text>
-                      <Text style={styles.stepText}>
-                        После карты ты попадёшь на итоговый экран и подтвердишь создание заказа.
-                      </Text>
-                    </View>
-                  </View>
-                </AppCard>
-              </ScreenSection>
             </ScrollView>
 
             <View style={styles.footer}>
               <AppButton
                   title="Перейти к выбору адреса"
                   onPress={handleOpenMap}
+                  disabled={loading}
+              />
+              <AppButton
+                  title="Назад"
+                  variant="secondary"
+                  onPress={() => router.back()}
                   disabled={loading}
               />
             </View>
@@ -925,12 +850,11 @@ function createStyles(colors: ReturnType<typeof useAppTheme>["colors"]) {
       borderColor: colors.border,
       borderRadius: radii.lg,
       paddingHorizontal: spacing.md,
-      paddingVertical: spacing.md,
-      justifyContent: "center",
+      paddingVertical: 12,
       backgroundColor: colors.surfaceSecondary,
-    },
-    inputLikeText: {
       fontSize: typography.body,
+      lineHeight: 22,
+      fontWeight: "700",
       color: colors.text,
     },
     contactDivider: {
@@ -961,6 +885,20 @@ function createStyles(colors: ReturnType<typeof useAppTheme>["colors"]) {
     },
     optionGroup: {
       gap: spacing.sm,
+    },
+    manualTipInput: {
+      minHeight: 52,
+      marginTop: spacing.sm,
+      borderWidth: 1,
+      borderColor: colors.border,
+      borderRadius: radii.lg,
+      backgroundColor: colors.surfaceSecondary,
+      paddingHorizontal: spacing.md,
+      paddingVertical: spacing.sm,
+      fontSize: typography.body,
+      fontWeight: "700",
+      color: colors.text,
+      textAlign: "center",
     },
     paymentMethodCard: {
       borderRadius: radii.lg,
@@ -1017,49 +955,6 @@ function createStyles(colors: ReturnType<typeof useAppTheme>["colors"]) {
       backgroundColor: colors.border,
       marginVertical: spacing.md,
     },
-    addressSummary: {
-      gap: spacing.sm,
-    },
-    addressButtonWrap: {
-      marginTop: spacing.md,
-    },
-    stepRow: {
-      flexDirection: "row",
-      alignItems: "flex-start",
-      gap: spacing.md,
-    },
-    stepBadge: {
-      width: 32,
-      height: 32,
-      borderRadius: 999,
-      alignItems: "center",
-      justifyContent: "center",
-      backgroundColor: colors.primarySoft,
-    },
-    stepBadgeText: {
-      fontSize: typography.body,
-      fontWeight: "800",
-      color: colors.primary,
-    },
-    stepContent: {
-      flex: 1,
-      gap: 4,
-    },
-    stepTitle: {
-      fontSize: typography.body,
-      fontWeight: "700",
-      color: colors.text,
-    },
-    stepText: {
-      fontSize: typography.body,
-      lineHeight: 21,
-      color: colors.textMuted,
-    },
-    stepDivider: {
-      height: 1,
-      backgroundColor: colors.border,
-      marginVertical: spacing.md,
-    },
     footer: {
       paddingHorizontal: spacing.lg,
       paddingTop: spacing.md,
@@ -1067,6 +962,7 @@ function createStyles(colors: ReturnType<typeof useAppTheme>["colors"]) {
       borderTopWidth: 1,
       borderTopColor: colors.border,
       backgroundColor: colors.background,
+      gap: spacing.sm,
     },
   });
 }

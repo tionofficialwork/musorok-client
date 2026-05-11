@@ -1,15 +1,21 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+} from "react";
 import {
   ActivityIndicator,
-  SafeAreaView,
   ScrollView,
   StyleSheet,
   Text,
   View,
 } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 import { Stack, useRouter } from "expo-router";
 import AppButton from "../../components/ui/AppButton";
 import AppCard from "../../components/ui/AppCard";
+import AppLogo from "../../components/ui/AppLogo";
 import ScreenSection from "../../components/ui/ScreenSection";
 import { completeOnboarding, getOnboardingState } from "../../lib/onboarding";
 import { getAuthSession } from "../../lib/auth";
@@ -36,14 +42,14 @@ const STEPS: OnboardingStep[] = [
     eyebrow: "Шаг 2",
     title: "Повтор заказа за пару секунд",
     description:
-        "История заказов помогает заново запустить привычный сценарий без повторного заполнения данных.",
+        "История заказов помогает снова оформить привычный вынос без повторного заполнения данных.",
   },
   {
     emoji: "🔔",
     eyebrow: "Шаг 3",
     title: "Прозрачный и удобный опыт",
     description:
-        "Дальше приложение станет ещё сильнее: уведомления, карта и более персональный сценарий заказа.",
+        "Уведомления, карта и сохранённые данные помогают понимать, что происходит с заказом.",
   },
 ];
 
@@ -150,7 +156,7 @@ export default function OnboardingScreen() {
             showsVerticalScrollIndicator={false}
         >
           <View style={styles.hero}>
-            <Text style={styles.badge}>МусорОК</Text>
+            <AppLogo size="md" style={styles.heroLogo} />
             <Text style={styles.title}>Добро пожаловать</Text>
             <Text style={styles.subtitle}>
               Коротко покажем, как устроен сервис и почему пользоваться им удобно.
@@ -177,7 +183,7 @@ export default function OnboardingScreen() {
 
           <ScreenSection
               title={`${currentStep.eyebrow} из ${STEPS.length}`}
-              subtitle="Основные возможности клиентского приложения"
+              subtitle="Как МусорОК помогает в обычный день"
           >
             <AppCard>
               <View style={styles.stepIconWrap}>
@@ -192,7 +198,7 @@ export default function OnboardingScreen() {
 
           <ScreenSection
               title="Что уже доступно"
-              subtitle="Текущая основа клиентского приложения"
+              subtitle="Главные действия всегда под рукой"
           >
             <AppCard>
               <View style={styles.featureList}>
@@ -262,17 +268,8 @@ function createStyles(colors: ReturnType<typeof useAppTheme>["colors"]) {
       gap: spacing.sm,
       paddingTop: spacing.sm,
     },
-    badge: {
+    heroLogo: {
       alignSelf: "flex-start",
-      paddingHorizontal: spacing.md,
-      paddingVertical: spacing.xs,
-      borderRadius: 999,
-      backgroundColor: colors.primarySoft,
-      color: colors.primary,
-      fontSize: typography.caption,
-      fontWeight: "800",
-      textTransform: "uppercase",
-      letterSpacing: 0.6,
     },
     title: {
       fontSize: typography.h1,

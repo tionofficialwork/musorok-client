@@ -1,6 +1,7 @@
 import createOrder from "./createOrder";
+import { api } from "./api";
+import { cleanAddressForDisplay } from "./addressDisplay";
 import { ACTIVE_ORDER_STATUSES } from "./orderStatus";
-import { supabase } from "./supabase";
 
 type OrderRow = Record<string, unknown> & {
   id: string | number;
@@ -14,6 +15,11 @@ type OrderRow = Record<string, unknown> & {
   address?: string | null;
   apartment?: string | null;
   entrance?: string | null;
+  floor?: string | null;
+  intercom?: string | null;
+  address_label?: string | null;
+  latitude?: number | string | null;
+  longitude?: number | string | null;
   comment?: string | null;
   created_at?: string | null;
   phone?: string | null;
@@ -85,7 +91,7 @@ function formatPrice(value: unknown) {
 
 function buildAddressLabel(order: OrderRow) {
   const parts = [
-    typeof order.address === "string" ? order.address : "",
+    cleanAddressForDisplay(order.address),
     typeof order.entrance === "string" && order.entrance.trim().length > 0
         ? `подъезд ${order.entrance}`
         : "",
@@ -122,51 +128,30 @@ function formatDate(value: unknown) {
 }
 
 async function getOrderById(orderId: string): Promise<OrderRow> {
-  const { data, error } = await supabase
-      .from("orders")
-      .select("*")
-      .eq("id", orderId)
-      .single();
+  const [{ orders }, { order: activeOrder }] = await Promise.all([
+    api.orders.history(),
+    api.orders.active(),
+  ]);
+  const data = [...orders, activeOrder].find(
+    (order) => order && String(order.id) === orderId
+  );
 
-  if (error || !data) {
+  if (!data) {
     throw new Error("Не удалось загрузить исходный заказ.");
   }
 
   return data as OrderRow;
 }
 
-async function assertNoActiveOrder(ownerKey: string, sourceOrderId: string) {
-  const { data, error } = await supabase
-      .from("orders")
-      .select("id, status, created_at")
-      .eq("owner_key", ownerKey)
-      .order("created_at", { ascending: false })
-      .limit(20);
+async function assertNoActiveOrder(sourceOrderId: string) {
+  const { order: activeOrder } = await api.orders.active();
+  const id =
+    typeof activeOrder?.id === "string" || typeof activeOrder?.id === "number"
+      ? String(activeOrder.id)
+      : "";
+  const status = typeof activeOrder?.status === "string" ? activeOrder.status : "";
 
-  if (error) {
-    throw new Error("Не удалось проверить активный заказ.");
-  }
-
-  const activeOrder = (data ?? []).find((item) => {
-    if (!item || typeof item !== "object") {
-      return false;
-    }
-
-    const row = item as Record<string, unknown>;
-    const id =
-        typeof row.id === "string" || typeof row.id === "number"
-            ? String(row.id)
-            : "";
-    const status = typeof row.status === "string" ? row.status : "";
-
-    if (!id || id === sourceOrderId) {
-      return false;
-    }
-
-    return ACTIVE_ORDER_STATUS_SET.has(status);
-  });
-
-  if (activeOrder) {
+  if (id && id !== sourceOrderId && ACTIVE_ORDER_STATUS_SET.has(status)) {
     throw new Error(
         "Сейчас у пользователя уже есть активный заказ. Сначала завершите его, потом можно повторить прошлый."
     );
@@ -200,16 +185,7 @@ export async function getReorderPreview(orderId: string): Promise<ReorderPreview
 export async function reorderPreviousOrder(orderId: string): Promise<ReorderResult> {
   const sourceOrder = await getOrderById(orderId);
 
-  const ownerKey =
-      typeof sourceOrder.owner_key === "string" && sourceOrder.owner_key.trim().length > 0
-          ? sourceOrder.owner_key.trim()
-          : null;
-
-  if (!ownerKey) {
-    throw new Error("У заказа отсутствует owner_key. Повторить заказ нельзя.");
-  }
-
-  await assertNoActiveOrder(ownerKey, String(sourceOrder.id));
+  await assertNoActiveOrder(String(sourceOrder.id));
 
   const packageId = getFirstString(sourceOrder.package_id);
   const packageLabel = getFirstString(
@@ -245,6 +221,11 @@ export async function reorderPreviousOrder(orderId: string): Promise<ReorderResu
     package_price: packagePrice,
     apartment: getFirstString(sourceOrder.apartment),
     entrance: getFirstString(sourceOrder.entrance),
+    floor: getFirstString(sourceOrder.floor),
+    intercom: getFirstString(sourceOrder.intercom),
+    address_label: getFirstString(sourceOrder.address_label),
+    latitude: sourceOrder.latitude ?? null,
+    longitude: sourceOrder.longitude ?? null,
     comment: getFirstString(sourceOrder.comment),
     leave_at_door:
         typeof sourceOrder.leave_at_door === "boolean"
@@ -258,7 +239,7 @@ export async function reorderPreviousOrder(orderId: string): Promise<ReorderResu
                 ? sourceOrder.call_required
                 : true,
     payment_method:
-        sourceOrder.payment_method === "card" ? "card" : "cash",
+        sourceOrder.payment_method === "sbp" ? "sbp" : "card",
     tip,
     total,
     call_required:

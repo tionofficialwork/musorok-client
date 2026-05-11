@@ -14,20 +14,54 @@
       "backgroundColor": "#0e0f10"
     },
     "ios": {
-      "bundleIdentifier": "com.musorok.client"
+      "bundleIdentifier": "com.musorok.client",
+      "infoPlist": {
+        "NSLocationAlwaysAndWhenInUseUsageDescription": "МусорОК использует геолокацию, чтобы быстрее выбрать адрес заказа на карте.",
+        "NSLocationAlwaysUsageDescription": "МусорОК использует геолокацию только для выбора адреса заказа.",
+        "NSLocationWhenInUseUsageDescription": "Разрешите доступ к геолокации, чтобы поставить точку заказа на карте."
+      }
     },
     "android": {
       "package": "com.musorok.client",
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/android-icon-foreground.png",
+        "backgroundImage": "./assets/android-icon-background.png",
+        "monochromeImage": "./assets/android-icon-monochrome.png"
+      },
       "permissions": [
         "ACCESS_COARSE_LOCATION",
-        "ACCESS_FINE_LOCATION"
-      ],
-      "config": {
-        "yandexMapsApiKey": "1392b5b4-ec17-4717-af38-b11f0654f54f"
-      }
+        "ACCESS_FINE_LOCATION",
+        "POST_NOTIFICATIONS"
+      ]
     },
     "plugins": [
       "expo-router",
+      [
+        "expo-font",
+        {
+          "fonts": [
+            "./assets/fonts/Nunito-Regular.ttf",
+            "./assets/fonts/Nunito-Bold.ttf"
+          ],
+          "android": {
+            "fonts": [
+              {
+                "fontFamily": "Nunito",
+                "fontDefinitions": [
+                  {
+                    "path": "./assets/fonts/Nunito-Regular.ttf",
+                    "weight": 400
+                  },
+                  {
+                    "path": "./assets/fonts/Nunito-Bold.ttf",
+                    "weight": 800
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      ],
       [
         "expo-build-properties",
         {
@@ -35,7 +69,10 @@
             "minSdkVersion": 26
           }
         }
-      ]
+      ],
+      "expo-web-browser",
+      "expo-notifications",
+      "expo-secure-store"
     ],
     "experiments": {
       "typedRoutes": true
