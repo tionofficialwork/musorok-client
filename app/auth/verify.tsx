@@ -2,6 +2,7 @@ import {
   useCallback,
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from "react";
 import {
@@ -10,14 +11,15 @@ import {
   ScrollView,
   StyleSheet,
   Text,
-  TextInput,
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Stack, useLocalSearchParams, useRouter } from "expo-router";
 import AppButton from "../../components/ui/AppButton";
 import AppCard from "../../components/ui/AppCard";
+import OtpCodeInput from "../../components/ui/OtpCodeInput";
 import ScreenSection from "../../components/ui/ScreenSection";
+import { showAuthCodeNotification } from "../../lib/authCodeNotification";
 import { radii, spacing, typography } from "../../lib/theme";
 import {
   type AuthFlowMode,
@@ -28,6 +30,7 @@ import {
 import { useAppTheme } from "../../providers/AppThemeProvider";
 
 const RESEND_DELAY_SECONDS = 45;
+const OTP_CODE_LENGTH = 6;
 
 export default function AuthVerifyScreen() {
   const router = useRouter();
@@ -39,6 +42,7 @@ export default function AuthVerifyScreen() {
   }>();
   const { colors } = useAppTheme();
   const styles = useMemo(() => createStyles(colors), [colors]);
+  const scrollRef = useRef<ScrollView>(null);
 
   const phone = typeof params.phone === "string" ? params.phone : "";
   const initialChallengeId =
@@ -51,26 +55,64 @@ export default function AuthVerifyScreen() {
   const [code, setCode] = useState("");
   const [challengeId, setChallengeId] = useState(initialChallengeId);
   const [localCode, setLocalCode] = useState(initialLocalCode);
-  const [resendSeconds, setResendSeconds] = useState(RESEND_DELAY_SECONDS);
+  const [resendAvailableAt, setResendAvailableAt] = useState(
+    () => Date.now() + RESEND_DELAY_SECONDS * 1000
+  );
+  const [nowMs, setNowMs] = useState(() => Date.now());
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isResending, setIsResending] = useState(false);
   const [errorText, setErrorText] = useState<string | null>(null);
+  const [localCodeNotificationSent, setLocalCodeNotificationSent] =
+    useState(false);
 
-  const isCodeValid = useMemo(() => /^\d{4,6}$/.test(code.trim()), [code]);
+  const resendSeconds = Math.max(
+    0,
+    Math.ceil((resendAvailableAt - nowMs) / 1000)
+  );
+  const isCodeValid = useMemo(() => /^\d{6}$/.test(code.trim()), [code]);
   const canResend =
     Boolean(challengeId) && !isSubmitting && !isResending && resendSeconds === 0;
 
   useEffect(() => {
-    if (resendSeconds <= 0) {
-      return;
-    }
-
     const timer = setInterval(() => {
-      setResendSeconds((current) => Math.max(0, current - 1));
+      setNowMs(Date.now());
     }, 1000);
 
     return () => clearInterval(timer);
-  }, [resendSeconds]);
+  }, []);
+
+  useEffect(() => {
+    let isMounted = true;
+
+    if (!localCode) {
+      setLocalCodeNotificationSent(false);
+      return undefined;
+    }
+
+    showAuthCodeNotification(localCode)
+      .then((isSent) => {
+        if (isMounted) {
+          setLocalCodeNotificationSent(isSent);
+        }
+      })
+      .catch((error) => {
+        console.warn("Failed to show auth code notification", error);
+
+        if (isMounted) {
+          setLocalCodeNotificationSent(false);
+        }
+      });
+
+    return () => {
+      isMounted = false;
+    };
+  }, [localCode]);
+
+  const handleCodeFocus = useCallback(() => {
+    requestAnimationFrame(() => {
+      scrollRef.current?.scrollTo({ y: 110, animated: true });
+    });
+  }, []);
 
   const handleVerify = useCallback(async () => {
     if (isSubmitting || isResending) {
@@ -106,7 +148,8 @@ export default function AuthVerifyScreen() {
       setChallengeId(nextChallenge.challengeId);
       setLocalCode(nextChallenge.code ?? "");
       setCode("");
-      setResendSeconds(RESEND_DELAY_SECONDS);
+      setResendAvailableAt(Date.now() + RESEND_DELAY_SECONDS * 1000);
+      setNowMs(Date.now());
     } catch (error) {
       const message =
         error instanceof Error ? error.message : "Не удалось отправить код ещё раз.";
@@ -121,14 +164,17 @@ export default function AuthVerifyScreen() {
         <Stack.Screen options={{ title: "Подтверждение" }} />
 
         <KeyboardAvoidingView
-            behavior={Platform.OS === "ios" ? "padding" : undefined}
+            behavior={Platform.OS === "ios" ? "padding" : "height"}
+            keyboardVerticalOffset={Platform.OS === "ios" ? 12 : 0}
             style={styles.flex}
         >
           <ScrollView
+              ref={scrollRef}
               style={styles.scroll}
               contentContainerStyle={styles.content}
               showsVerticalScrollIndicator={false}
               keyboardShouldPersistTaps="handled"
+              keyboardDismissMode="on-drag"
           >
             <View style={styles.hero}>
               <Text style={styles.title}>
@@ -141,31 +187,34 @@ export default function AuthVerifyScreen() {
 
             {localCode ? (
               <View style={styles.localCodeCard}>
-                <Text style={styles.localCodeTitle}>Временный код</Text>
+                <Text style={styles.localCodeTitle}>Тестовый код</Text>
                 <Text style={styles.localCodeValue}>{localCode}</Text>
                 <Text style={styles.localCodeText}>
-                  Пока SMS-провайдер не подключен, код показывается здесь.
+                  {localCodeNotificationSent
+                    ? "Отправили его локальным уведомлением. Если уведомление не видно, код можно взять здесь."
+                    : "Пока SMS не подключены, код можно взять здесь."}
                 </Text>
               </View>
             ) : null}
 
             <ScreenSection
                 title="Код подтверждения"
-                subtitle="Введите код из 4–6 цифр"
+                subtitle="Введите 6 цифр из сообщения"
             >
               <AppCard>
                 <Text style={styles.label}>Код</Text>
 
-                <TextInput
+                <OtpCodeInput
                     value={code}
                     onChangeText={setCode}
-                    placeholder="000000"
-                    placeholderTextColor={colors.textMuted}
-                    keyboardType="number-pad"
-                    maxLength={6}
-                    autoCapitalize="none"
-                    autoCorrect={false}
-                    style={styles.input}
+                    length={OTP_CODE_LENGTH}
+                    onFocus={handleCodeFocus}
+                    containerStyle={styles.input}
+                    focusedContainerStyle={styles.inputFocused}
+                    slotStyle={styles.codeSlot}
+                    activeSlotStyle={styles.codeSlotActive}
+                    textStyle={styles.codeSlotText}
+                    placeholderTextStyle={styles.codeSlotPlaceholder}
                 />
 
                 <Text style={styles.helperText}>
@@ -186,7 +235,13 @@ export default function AuthVerifyScreen() {
               />
 
               <AppButton
-                  title={isResending ? "Отправляем..." : "Отправить код ещё раз"}
+                  title={
+                    isResending
+                      ? "Отправляем..."
+                      : resendSeconds > 0
+                        ? `Повторить через ${resendSeconds} сек.`
+                        : "Отправить код ещё раз"
+                  }
                   variant="secondary"
                   onPress={handleResend}
                   disabled={!canResend}
@@ -230,7 +285,7 @@ function createStyles(colors: ReturnType<typeof useAppTheme>["colors"]) {
     content: {
       paddingHorizontal: spacing.lg,
       paddingTop: spacing.lg,
-      paddingBottom: spacing.xxl,
+      paddingBottom: 180,
       gap: spacing.lg,
     },
     hero: {
@@ -289,19 +344,36 @@ function createStyles(colors: ReturnType<typeof useAppTheme>["colors"]) {
       marginBottom: spacing.sm,
     },
     input: {
+      minHeight: 84,
       borderWidth: 1,
       borderColor: colors.border,
       borderRadius: radii.lg,
       backgroundColor: colors.surfaceSecondary,
       paddingHorizontal: spacing.md,
       paddingVertical: spacing.md,
-      color: colors.text,
+    },
+    inputFocused: {
+      borderColor: colors.primary,
+    },
+    codeSlot: {
+      minWidth: 26,
+      marginHorizontal: 5,
+      borderBottomWidth: 2,
+      borderBottomColor: "transparent",
       fontFamily,
-      fontSize: typography.h2,
+      fontSize: 30,
+      lineHeight: 36,
       fontWeight: "800",
-      letterSpacing: 6,
-      textAlign: "center",
-      paddingLeft: spacing.md + 6,
+      color: colors.text,
+    },
+    codeSlotActive: {
+      borderBottomColor: colors.primary,
+    },
+    codeSlotText: {
+      color: colors.text,
+    },
+    codeSlotPlaceholder: {
+      color: colors.textMuted,
     },
     helperText: {
       marginTop: spacing.sm,

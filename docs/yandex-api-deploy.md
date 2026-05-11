@@ -86,6 +86,7 @@ AUTH_SMS_MAX_SENDS_PER_WINDOW=5
 AUTH_SMS_SEND_WINDOW_MINUTES=15
 AUTH_TOKEN_TTL_DAYS=180
 AUTH_SMS_DEBUG_CODE_ENABLED=false
+AUTH_SMS_CLIENT_DEBUG_CODE_ENABLED=false
 EXPO_PUSH_TIMEOUT_MS=10000
 YANDEX_CNS_ENDPOINT=https://notifications.yandexcloud.net
 YANDEX_CNS_REGION=ru-central1
@@ -98,8 +99,13 @@ YANDEX_CNS_SMS_TIMEOUT_MS=10000
 `PORT` задавать не нужно: Serverless Containers передаст его сам.
 
 Для локальной разработки без реального SMS можно временно поставить
-`AUTH_SMS_DEBUG_CODE_ENABLED=true`. Тогда API вернёт код в ответе и покажет его
-на экране подтверждения. В публичной ревизии контейнера это должно быть `false`.
+`AUTH_SMS_DEBUG_CODE_ENABLED=true`. Тогда API вернёт код в ответе, если SMS-провайдер
+не настроен, и покажет его на экране подтверждения.
+
+Пока Cloud Notification Service проходит модерацию, в тестовой ревизии можно
+поставить `AUTH_SMS_CLIENT_DEBUG_CODE_ENABLED=true`: приложение получит реальный
+код проверки и покажет его как локальное уведомление. Перед публичным релизом
+оба debug-флага должны быть `false`.
 
 Перед релизом обязательно смени пароль PostgreSQL, который был засвечен во время
 настройки, и обнови `YANDEX_POSTGRES_PASSWORD` в ревизии контейнера.

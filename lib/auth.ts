@@ -268,8 +268,8 @@ export async function verifyOtpCode(
     throw new Error("Телефон указан некорректно.");
   }
 
-  if (!/^\d{4,6}$/.test(trimmedCode)) {
-    throw new Error("Введите код из 4–6 цифр.");
+  if (!/^\d{6}$/.test(trimmedCode)) {
+    throw new Error("Введите код из 6 цифр.");
   }
 
   if (!challengeId) {

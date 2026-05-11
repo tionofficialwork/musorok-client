@@ -7,6 +7,8 @@ const yandexCnsAccessKeyId = process.env.YANDEX_CNS_ACCESS_KEY_ID;
 const yandexCnsSecretAccessKey = process.env.YANDEX_CNS_SECRET_ACCESS_KEY;
 const yandexSmsSenderId = process.env.YANDEX_CNS_SMS_SENDER_ID;
 const authSmsDebugCodeEnabled = process.env.AUTH_SMS_DEBUG_CODE_ENABLED === "true";
+const authSmsClientDebugCodeEnabled =
+  process.env.AUTH_SMS_CLIENT_DEBUG_CODE_ENABLED === "true";
 const smsTimeoutMs = Number(process.env.YANDEX_CNS_SMS_TIMEOUT_MS || 10000);
 
 let snsClient;
@@ -92,7 +94,11 @@ async function sendAuthCodeSms(phone, code) {
 
   return {
     ...result,
-    code: authSmsDebugCodeEnabled && result.mode === "local" ? code : undefined,
+    code:
+      authSmsClientDebugCodeEnabled ||
+      (authSmsDebugCodeEnabled && result.mode === "local")
+        ? code
+        : undefined,
   };
 }
 

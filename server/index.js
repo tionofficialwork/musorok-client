@@ -39,8 +39,14 @@ if (!authSecret || authSecret.length < 32) {
   throw new Error("API_AUTH_SECRET must be set and contain at least 32 characters.");
 }
 
-if (isProduction && process.env.AUTH_SMS_DEBUG_CODE_ENABLED === "true") {
-  throw new Error("AUTH_SMS_DEBUG_CODE_ENABLED must be disabled in production.");
+if (
+  isProduction &&
+  (
+    process.env.AUTH_SMS_DEBUG_CODE_ENABLED === "true" ||
+    process.env.AUTH_SMS_CLIENT_DEBUG_CODE_ENABLED === "true"
+  )
+) {
+  throw new Error("Auth SMS debug code delivery must be disabled in production.");
 }
 
 if (isProduction && adminToken && adminToken.length < 32) {
@@ -827,7 +833,7 @@ app.post("/auth/verify-code", authVerifyRateLimit, asyncRoute(async (req, res) =
     typeof req.body?.challengeId === "string" ? req.body.challengeId.trim() : "";
   const code = String(req.body?.code || "").trim();
 
-  if (!challengeId || !/^\d{4,6}$/.test(code)) {
+  if (!challengeId || !/^\d{6}$/.test(code)) {
     res.status(400).json({ error: "Введите код из SMS." });
     return;
   }
