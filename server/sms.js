@@ -37,14 +37,14 @@ function getSnsClient() {
 }
 
 async function sendSms(phone, message) {
+  if (authSmsDebugCodeEnabled) {
+    console.log(`[auth-sms:debug] ${phone}: ${message}`);
+    return { mode: "local" };
+  }
+
   const client = getSnsClient();
 
   if (!client) {
-    if (authSmsDebugCodeEnabled) {
-      console.log(`[auth-sms:debug] ${phone}: ${message}`);
-      return { mode: "local" };
-    }
-
     throw new Error("SMS provider is not configured.");
   }
 
