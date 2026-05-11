@@ -1640,11 +1640,11 @@ app.use((error, _req, res, _next) => {
       ? error.statusCode
       : 500;
   const message =
-    statusCode >= 500 && isProduction
-      ? "Internal server error"
+    statusCode >= 500
+      ? "Сервер временно недоступен. Попробуйте позже."
       : error instanceof Error
         ? error.message
-        : "Internal server error";
+        : "Не удалось выполнить запрос.";
 
   res.status(statusCode).json({ error: message });
 });

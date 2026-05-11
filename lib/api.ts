@@ -4,6 +4,10 @@ import * as SecureStore from "expo-secure-store";
 const API_TOKEN_KEY = "musorok_api_token_v1";
 const API_OWNER_KEY = "musorok_api_owner_key_v1";
 const REQUEST_TIMEOUT_MS = 20000;
+const SERVER_UNAVAILABLE_MESSAGE =
+  "Сервер временно недоступен. Попробуйте ещё раз чуть позже.";
+const NETWORK_ERROR_MESSAGE =
+  "Не удалось связаться с сервером. Проверьте интернет и попробуйте ещё раз.";
 let secureStoreAvailability: Promise<boolean> | null = null;
 
 const apiBaseUrl = process.env.EXPO_PUBLIC_API_URL?.replace(/\/+$/, "");
@@ -17,6 +21,16 @@ type RequestOptions = {
   body?: unknown;
   auth?: boolean;
 };
+
+function getResponseErrorMessage(response: Response, payload: any) {
+  if (response.status >= 500) {
+    return SERVER_UNAVAILABLE_MESSAGE;
+  }
+
+  return typeof payload?.error === "string"
+    ? payload.error
+    : "Не удалось выполнить запрос.";
+}
 
 export type AuthChallengeResponse = {
   ok: true;
@@ -86,7 +100,7 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
       throw new Error("Сервер не ответил вовремя. Попробуйте ещё раз.");
     }
 
-    throw error;
+    throw new Error(NETWORK_ERROR_MESSAGE);
   } finally {
     clearTimeout(timeout);
   }
@@ -107,8 +121,7 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
   }
 
   if (!response.ok) {
-    const message =
-      typeof payload?.error === "string" ? payload.error : "Не удалось выполнить запрос.";
+    const message = getResponseErrorMessage(response, payload);
 
     if (response.status === 401 && options.auth !== false) {
       await clearApiSession();
