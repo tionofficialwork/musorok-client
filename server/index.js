@@ -766,6 +766,50 @@ app.post("/auth/login", authPasswordRateLimit, asyncRoute(async (req, res) => {
   });
 }));
 
+app.post("/auth/password-reset/start", authPasswordRateLimit, asyncRoute(async (req, res) => {
+  const phone = normalizePhone(req.body?.phone);
+  const password = String(req.body?.password || "");
+  const passwordError = validatePassword(password);
+
+  if (!phone) {
+    res.status(400).json({ error: "Введите корректный номер телефона." });
+    return;
+  }
+
+  if (passwordError) {
+    res.status(400).json({ error: passwordError });
+    return;
+  }
+
+  const result = await query(
+    `select owner_key, password_hash
+     from user_profiles
+     where phone = $1 or owner_key = $2
+     limit 1`,
+    [phone, ownerKeyFromPhone(phone)]
+  );
+  const profile = result.rows[0];
+
+  if (!profile?.password_hash) {
+    res.status(404).json({
+      error: "Аккаунт с этим номером не найден. Зарегистрируйтесь.",
+    });
+    return;
+  }
+
+  const challenge = await createAuthSmsChallenge({
+    ownerKey: profile.owner_key,
+    phone,
+    flowMode: "reset_password",
+    passwordHash: hashPassword(password),
+  });
+
+  res.json({
+    ok: true,
+    ...challenge,
+  });
+}));
+
 app.post("/auth/request-code", (req, res) => {
   res.status(410).json({
     error: "Вход только по SMS-коду отключён. Введите телефон и пароль.",
@@ -891,24 +935,49 @@ app.post("/auth/verify-code", authVerifyRateLimit, asyncRoute(async (req, res) =
     return;
   }
 
-  if (challenge.flow_mode === "register") {
+  if (
+    challenge.flow_mode === "register" ||
+    challenge.flow_mode === "reset_password"
+  ) {
     if (!challenge.password_hash) {
-      res.status(401).json({ error: "Запросите регистрацию заново." });
+      res.status(401).json({
+        error:
+          challenge.flow_mode === "reset_password"
+            ? "Запросите восстановление пароля заново."
+            : "Запросите регистрацию заново.",
+      });
       return;
     }
 
-    await query(
-      `insert into user_profiles (
-         owner_key, phone, call_allowed, password_hash, password_updated_at, updated_at
-       )
-       values ($1, $2, true, $3, now(), now())
-       on conflict (owner_key) do update
-       set phone = excluded.phone,
-           password_hash = excluded.password_hash,
-           password_updated_at = now(),
-           updated_at = now()`,
-      [challenge.owner_key, challenge.phone, challenge.password_hash]
-    );
+    if (challenge.flow_mode === "reset_password") {
+      const resetResult = await query(
+        `update user_profiles
+         set phone = $2,
+             password_hash = $3,
+             password_updated_at = now(),
+             updated_at = now()
+         where owner_key = $1`,
+        [challenge.owner_key, challenge.phone, challenge.password_hash]
+      );
+
+      if (resetResult.rowCount === 0) {
+        res.status(404).json({ error: "Профиль пользователя не найден." });
+        return;
+      }
+    } else {
+      await query(
+        `insert into user_profiles (
+           owner_key, phone, call_allowed, password_hash, password_updated_at, updated_at
+         )
+         values ($1, $2, true, $3, now(), now())
+         on conflict (owner_key) do update
+         set phone = excluded.phone,
+             password_hash = excluded.password_hash,
+             password_updated_at = now(),
+             updated_at = now()`,
+        [challenge.owner_key, challenge.phone, challenge.password_hash]
+      );
+    }
   }
 
   const profileResult = await query(

@@ -44,7 +44,7 @@ const authColors = {
 
 export default function AuthPhoneScreen() {
   const router = useRouter();
-  const params = useLocalSearchParams<{ resetPhone?: string }>();
+  const params = useLocalSearchParams<{ resetPhone?: string; mode?: string }>();
   const styles = useMemo(() => createStyles(), []);
   const scrollRef = useRef<ScrollView>(null);
 
@@ -60,13 +60,37 @@ export default function AuthPhoneScreen() {
     () => normalizePhoneInput(`+7${phoneDigits}`),
     [phoneDigits]
   );
+  const isRegisterMode = flowMode === "register";
+  const isResetPasswordMode = flowMode === "reset_password";
+  const shouldConfirmPassword = isRegisterMode || isResetPasswordMode;
   const passwordError = useMemo(() => validatePassword(password), [password]);
   const isPasswordReady =
     flowMode === "login" ? password.length > 0 : !passwordError;
   const canContinue =
     isValidRussianPhone(normalizedPhone) &&
     isPasswordReady &&
-    (flowMode === "login" || password === passwordRepeat);
+    (!shouldConfirmPassword || password === passwordRepeat);
+  const title = isResetPasswordMode
+    ? "Восстановите доступ"
+    : isRegisterMode
+      ? "Создайте аккаунт"
+      : "Войдите в аккаунт";
+  const subtitle = isResetPasswordMode
+    ? "Подтвердите телефон кодом и задайте новый пароль."
+    : isRegisterMode
+      ? "Создайте пароль, мы сохраним его в защищённом виде."
+      : "Введите номер и пароль, чтобы открыть свой аккаунт.";
+  const passwordLabel = isResetPasswordMode ? "Новый пароль" : "Пароль";
+  const submitTitle = isResetPasswordMode
+    ? "Сменить пароль"
+    : isRegisterMode
+      ? "Зарегистрироваться"
+      : "Войти";
+  const submittingTitle = isResetPasswordMode
+    ? "Отправляем код..."
+    : isRegisterMode
+      ? "Создаём..."
+      : "Входим...";
 
   const handlePhoneDigitsChange = useCallback((digits: string) => {
     setPhoneDigits(digits);
@@ -80,7 +104,7 @@ export default function AuthPhoneScreen() {
   }, []);
 
   const scrollToPasswordField = useCallback(() => {
-    scrollToFormPosition(flowMode === "register" ? 80 : 32);
+    scrollToFormPosition(flowMode === "login" ? 32 : 80);
   }, [flowMode, scrollToFormPosition]);
 
   const scrollToRepeatPasswordField = useCallback(() => {
@@ -88,13 +112,17 @@ export default function AuthPhoneScreen() {
   }, [scrollToFormPosition]);
 
   useEffect(() => {
+    if (params.mode === "register" || params.mode === "reset_password") {
+      setFlowMode(params.mode);
+    }
+
     if (params.resetPhone === "1") {
       setPhoneDigits("");
       setPassword("");
       setPasswordRepeat("");
       setErrorText(null);
     }
-  }, [params.resetPhone]);
+  }, [params.mode, params.resetPhone]);
 
   useEffect(() => {
     let isMounted = true;
@@ -134,7 +162,7 @@ export default function AuthPhoneScreen() {
     setErrorText(null);
 
     try {
-      if (flowMode === "register" && password !== passwordRepeat) {
+      if (shouldConfirmPassword && password !== passwordRepeat) {
         throw new Error("Пароли не совпадают.");
       }
 
@@ -153,13 +181,24 @@ export default function AuthPhoneScreen() {
       const fallback =
         flowMode === "login"
           ? "Не удалось войти. Проверьте номер и пароль."
-          : "Не удалось зарегистрироваться.";
+          : isResetPasswordMode
+            ? "Не удалось восстановить пароль."
+            : "Не удалось зарегистрироваться.";
       const message = error instanceof Error ? error.message : fallback;
       setErrorText(message);
     } finally {
       setIsSubmitting(false);
     }
-  }, [flowMode, isSubmitting, normalizedPhone, password, passwordRepeat, router]);
+  }, [
+    flowMode,
+    isResetPasswordMode,
+    isSubmitting,
+    normalizedPhone,
+    password,
+    passwordRepeat,
+    router,
+    shouldConfirmPassword,
+  ]);
 
   if (isCheckingSession) {
     return (
@@ -186,7 +225,7 @@ export default function AuthPhoneScreen() {
           style={styles.scroll}
           contentContainerStyle={[
             styles.content,
-            flowMode === "register" && styles.contentRegister,
+            flowMode !== "login" && styles.contentRegister,
           ]}
           showsVerticalScrollIndicator={false}
           keyboardShouldPersistTaps="handled"
@@ -201,45 +240,57 @@ export default function AuthPhoneScreen() {
           </View>
 
           <View style={styles.hero}>
-            <Text style={styles.title}>
-              {flowMode === "login" ? "Войдите в аккаунт" : "Создайте аккаунт"}
-            </Text>
-            <Text style={styles.subtitle}>
-              {flowMode === "login"
-                ? "Введите номер и пароль, чтобы открыть свой аккаунт."
-                : "Создайте пароль, мы сохраним его в защищённом виде."}
-            </Text>
+            <Text style={styles.title}>{title}</Text>
+            <Text style={styles.subtitle}>{subtitle}</Text>
 
-            <View style={styles.segment}>
-              {(["login", "register"] as const).map((mode) => {
-                const isActive = flowMode === mode;
+            {isResetPasswordMode ? (
+              <Pressable
+                onPress={() => {
+                  setFlowMode("login");
+                  setPassword("");
+                  setPasswordRepeat("");
+                  setErrorText(null);
+                  scrollRef.current?.scrollTo({ y: 0, animated: true });
+                }}
+                disabled={isSubmitting}
+                style={styles.resetBackButton}
+              >
+                <Text style={styles.resetBackText}>Вернуться ко входу</Text>
+              </Pressable>
+            ) : (
+              <View style={styles.segment}>
+                {(["login", "register"] as const).map((mode) => {
+                  const isActive = flowMode === mode;
 
-                return (
-                  <Pressable
-                    key={mode}
-                    onPress={() => {
-                      setFlowMode(mode);
-                      setErrorText(null);
-                      scrollRef.current?.scrollTo({ y: 0, animated: true });
-                    }}
-                    disabled={isSubmitting}
-                    style={[
-                      styles.segmentItem,
-                      isActive && styles.segmentItemActive,
-                    ]}
-                  >
-                    <Text
+                  return (
+                    <Pressable
+                      key={mode}
+                      onPress={() => {
+                        setFlowMode(mode);
+                        setPassword("");
+                        setPasswordRepeat("");
+                        setErrorText(null);
+                        scrollRef.current?.scrollTo({ y: 0, animated: true });
+                      }}
+                      disabled={isSubmitting}
                       style={[
-                        styles.segmentText,
-                        isActive && styles.segmentTextActive,
+                        styles.segmentItem,
+                        isActive && styles.segmentItemActive,
                       ]}
                     >
-                      {mode === "login" ? "Вход" : "Регистрация"}
-                    </Text>
-                  </Pressable>
-                );
-              })}
-            </View>
+                      <Text
+                        style={[
+                          styles.segmentText,
+                          isActive && styles.segmentTextActive,
+                        ]}
+                      >
+                        {mode === "login" ? "Вход" : "Регистрация"}
+                      </Text>
+                    </Pressable>
+                  );
+                })}
+              </View>
+            )}
 
             <Text style={styles.inputLabel}>Номер телефона</Text>
             <RussianPhoneInput
@@ -251,7 +302,7 @@ export default function AuthPhoneScreen() {
               placeholderTextStyle={styles.phoneInputPlaceholder}
             />
 
-            <Text style={styles.inputLabel}>Пароль</Text>
+            <Text style={styles.inputLabel}>{passwordLabel}</Text>
             <TextInput
               value={password}
               onChangeText={(value) => {
@@ -274,7 +325,7 @@ export default function AuthPhoneScreen() {
               style={styles.input}
             />
 
-            {flowMode === "register" ? (
+            {shouldConfirmPassword ? (
               <>
                 <Text style={styles.inputLabel}>Повторите пароль</Text>
                 <TextInput
@@ -297,10 +348,26 @@ export default function AuthPhoneScreen() {
               </>
             ) : null}
 
-            {flowMode === "register" ? (
+            {shouldConfirmPassword ? (
               <Text style={styles.helperText}>
                 Пароль должен содержать минимум 8 символов, буквы и цифры.
               </Text>
+            ) : null}
+
+            {flowMode === "login" ? (
+              <Pressable
+                onPress={() => {
+                  setFlowMode("reset_password");
+                  setPassword("");
+                  setPasswordRepeat("");
+                  setErrorText(null);
+                  scrollToFormPosition(0);
+                }}
+                disabled={isSubmitting}
+                style={styles.forgotButton}
+              >
+                <Text style={styles.forgotButtonText}>Забыли пароль?</Text>
+              </Pressable>
             ) : null}
 
             {errorText ? <Text style={styles.errorText}>{errorText}</Text> : null}
@@ -319,14 +386,8 @@ export default function AuthPhoneScreen() {
               ]}
             >
               <Text style={styles.primaryButtonText}>
-                {isSubmitting
-                  ? flowMode === "login"
-                    ? "Входим..."
-                    : "Создаём..."
-                  : flowMode === "login"
-                    ? "Войти"
-                    : "Зарегистрироваться"}
-                </Text>
+                {isSubmitting ? submittingTitle : submitTitle}
+              </Text>
             </Pressable>
           </View>
         </ScrollView>
@@ -430,6 +491,23 @@ function createStyles() {
       fontWeight: "800",
       color: authColors.text,
     },
+    resetBackButton: {
+      alignSelf: "center",
+      minHeight: 36,
+      alignItems: "center",
+      justifyContent: "center",
+      paddingHorizontal: 18,
+      borderRadius: 14,
+      backgroundColor: authColors.surfaceSoft,
+      marginBottom: 4,
+    },
+    resetBackText: {
+      fontFamily,
+      fontSize: 13,
+      fontWeight: "800",
+      color: authColors.textMuted,
+      textAlign: "center",
+    },
     inputLabel: {
       fontFamily,
       fontSize: 13,
@@ -477,6 +555,21 @@ function createStyles() {
       fontSize: 13,
       lineHeight: 18,
       color: authColors.textMuted,
+      textAlign: "center",
+    },
+    forgotButton: {
+      alignSelf: "center",
+      minHeight: 34,
+      alignItems: "center",
+      justifyContent: "center",
+      paddingHorizontal: 14,
+      marginTop: -2,
+    },
+    forgotButtonText: {
+      fontFamily,
+      fontSize: 14,
+      fontWeight: "800",
+      color: authColors.primaryDark,
       textAlign: "center",
     },
     errorText: {

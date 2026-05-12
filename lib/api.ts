@@ -189,6 +189,13 @@ export const api = {
         body: { phone, password },
       });
     },
+    resetPassword(phone: string, password: string) {
+      return request<AuthChallengeResponse>("/auth/password-reset/start", {
+        method: "POST",
+        auth: false,
+        body: { phone, password },
+      });
+    },
     requestCode(phone: string) {
       return request<AuthChallengeResponse>(
         "/auth/request-code",

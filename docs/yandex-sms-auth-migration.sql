@@ -10,12 +10,19 @@ create table if not exists auth_sms_challenges (
   consumed_at timestamptz,
   created_at timestamptz not null default now(),
   constraint auth_sms_challenges_flow_mode_check
-    check (flow_mode in ('login', 'register')),
+    check (flow_mode in ('login', 'register', 'reset_password')),
   constraint auth_sms_challenges_attempts_check check (attempts >= 0)
 );
 
 alter table auth_sms_challenges
   add column if not exists password_hash text;
+
+alter table auth_sms_challenges
+  drop constraint if exists auth_sms_challenges_flow_mode_check;
+
+alter table auth_sms_challenges
+  add constraint auth_sms_challenges_flow_mode_check
+    check (flow_mode in ('login', 'register', 'reset_password'));
 
 create index if not exists auth_sms_challenges_owner_active_idx
   on auth_sms_challenges (owner_key, consumed_at, created_at desc);

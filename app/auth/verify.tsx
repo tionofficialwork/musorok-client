@@ -50,7 +50,17 @@ export default function AuthVerifyScreen() {
   const initialLocalCode =
     typeof params.localCode === "string" ? params.localCode : "";
   const flowMode: AuthFlowMode =
-    params.flowMode === "register" ? "register" : "login";
+    params.flowMode === "register"
+      ? "register"
+      : params.flowMode === "reset_password"
+        ? "reset_password"
+        : "login";
+  const title =
+    flowMode === "register"
+      ? "Подтвердите регистрацию"
+      : flowMode === "reset_password"
+        ? "Подтвердите смену пароля"
+        : "Введите код";
 
   const [code, setCode] = useState("");
   const [challengeId, setChallengeId] = useState(initialChallengeId);
@@ -177,9 +187,7 @@ export default function AuthVerifyScreen() {
               keyboardDismissMode="on-drag"
           >
             <View style={styles.hero}>
-              <Text style={styles.title}>
-                {flowMode === "register" ? "Подтвердите регистрацию" : "Введите код"}
-              </Text>
+              <Text style={styles.title}>{title}</Text>
               <Text style={styles.subtitle}>
                 Код отправлен на номер {formatPhoneForDisplay(phone)}.
               </Text>
@@ -255,6 +263,7 @@ export default function AuthVerifyScreen() {
                         pathname: "/auth/phone",
                         params: {
                           resetPhone: "1",
+                          ...(flowMode !== "login" ? { mode: flowMode } : {}),
                         },
                       })
                   }

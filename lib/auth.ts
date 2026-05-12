@@ -16,7 +16,7 @@ export type AuthSession = {
   verifiedAt: string;
 };
 
-export type AuthFlowMode = "login" | "register";
+export type AuthFlowMode = "login" | "register" | "reset_password";
 
 type DevAuthSession = AuthSession & {
   mode?: "api" | "dev";
@@ -220,7 +220,7 @@ export async function startPasswordAuth(
     throw new Error("Введите корректный номер телефона.");
   }
 
-  if (flowMode === "register") {
+  if (flowMode === "register" || flowMode === "reset_password") {
     const passwordError = validatePassword(password);
 
     if (passwordError) {
@@ -233,6 +233,8 @@ export async function startPasswordAuth(
   const result =
     flowMode === "register"
       ? await api.auth.register(normalized, password)
+      : flowMode === "reset_password"
+        ? await api.auth.resetPassword(normalized, password)
       : await api.auth.login(normalized, password);
 
   return result;

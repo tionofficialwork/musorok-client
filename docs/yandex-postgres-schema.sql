@@ -26,7 +26,7 @@ create table if not exists auth_sms_challenges (
   consumed_at timestamptz,
   created_at timestamptz not null default now(),
   constraint auth_sms_challenges_flow_mode_check
-    check (flow_mode in ('login', 'register')),
+    check (flow_mode in ('login', 'register', 'reset_password')),
   constraint auth_sms_challenges_attempts_check check (attempts >= 0)
 );
 
