@@ -28,8 +28,8 @@ const authSmsSendWindowMinutes = Number(
 const authTokenTtlDays = Number(process.env.AUTH_TOKEN_TTL_DAYS || 180);
 const maxOrderTip = Number(process.env.MAX_ORDER_TIP_RUBLES || 1000);
 const adminToken = process.env.API_ADMIN_TOKEN || "";
-const isProduction =
-  process.env.NODE_ENV === "production" || process.env.API_ENV === "production";
+const apiEnv = process.env.API_ENV || process.env.NODE_ENV || "development";
+const isProduction = apiEnv === "production";
 const allowedCorsOrigins = String(process.env.API_ALLOWED_ORIGINS || "")
   .split(",")
   .map((origin) => origin.trim())
