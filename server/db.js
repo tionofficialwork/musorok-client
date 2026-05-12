@@ -55,6 +55,13 @@ const pool = new Pool({
   query_timeout: queryTimeoutMs,
 });
 
+pool.on("error", (error) => {
+  console.error("Unexpected PostgreSQL idle client error", {
+    code: error?.code,
+    message: error instanceof Error ? error.message : "Unknown pool error",
+  });
+});
+
 async function query(text, params) {
   return pool.query(text, params);
 }
