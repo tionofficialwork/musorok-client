@@ -15,7 +15,7 @@
 ## Переменные окружения API
 
 ```env
-TBANK_ACQUIRING_API_URL=https://rest-api-test.tinkoff.ru/v2
+TBANK_ACQUIRING_API_URL=https://securepay.tinkoff.ru/v2
 TBANK_ACQUIRING_TERMINAL_KEY=<TerminalKey>
 TBANK_ACQUIRING_PASSWORD=<пароль терминала>
 TBANK_ACQUIRING_PAY_TYPE=O
@@ -25,11 +25,11 @@ TBANK_ACQUIRING_SUCCESS_URL=musorok://order/payment-return?result=success
 TBANK_ACQUIRING_FAIL_URL=musorok://order/payment-return?result=fail
 ```
 
-Для боевой среды `TBANK_ACQUIRING_API_URL`:
-
-```env
-https://securepay.tinkoff.ru/v2
-```
+На 12.05.2026 рабочая проверка `/v2/Init` прошла через
+`https://securepay.tinkoff.ru/v2`. Тестовый endpoint
+`https://rest-api-test.tinkoff.ru/v2` возвращал `403 Forbidden` даже для
+заявленного whitelist IP `45.9.74.10`, поэтому перед возвратом к нему нужно
+дополнительно уточнить доступ у поддержки Т-Банка.
 
 ## Что нужно сделать в Т-Банке
 
