@@ -13,6 +13,16 @@ const smsTimeoutMs = Number(process.env.YANDEX_CNS_SMS_TIMEOUT_MS || 10000);
 
 let snsClient;
 
+function maskPhone(phone) {
+  const digits = String(phone || "").replace(/\D/g, "");
+
+  if (digits.length < 4) {
+    return "+7***";
+  }
+
+  return `+7***${digits.slice(-4)}`;
+}
+
 function isYandexSmsConfigured() {
   return Boolean(yandexCnsAccessKeyId && yandexCnsSecretAccessKey);
 }
@@ -38,7 +48,7 @@ function getSnsClient() {
 
 async function sendSms(phone, message) {
   if (authSmsDebugCodeEnabled) {
-    console.log(`[auth-sms:debug] ${phone}: ${message}`);
+    console.log(`[auth-sms:debug] local auth code generated for ${maskPhone(phone)}`);
     return { mode: "local" };
   }
 

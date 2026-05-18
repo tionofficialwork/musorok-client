@@ -1,8 +1,10 @@
 import {
   useCallback,
   useMemo,
+  useState,
 } from "react";
 import {
+  Alert,
   BackHandler,
   ScrollView,
   StyleSheet,
@@ -20,6 +22,8 @@ import AppButton from "../../components/ui/AppButton";
 import AppCard from "../../components/ui/AppCard";
 import ScreenSection from "../../components/ui/ScreenSection";
 import { cleanAddressForDisplay } from "../../lib/addressDisplay";
+import { saveNotificationPreferences } from "../../lib/notificationPreferences";
+import { requestOrderNotificationPermission } from "../../lib/orderNotifications";
 import { getPaymentStatusLabel } from "../../lib/payments";
 import { radii, spacing, typography } from "../../lib/theme";
 import { useAppTheme } from "../../providers/AppThemeProvider";
@@ -39,6 +43,9 @@ export default function OrderSuccessScreen() {
   const params = useLocalSearchParams<SuccessParams>();
   const { colors } = useAppTheme();
   const styles = useMemo(() => createStyles(colors), [colors]);
+  const [isRequestingNotifications, setIsRequestingNotifications] =
+      useState(false);
+  const [notificationsEnabled, setNotificationsEnabled] = useState(false);
 
   const orderId = typeof params.orderId === "string" ? params.orderId : "";
   const packageName =
@@ -63,6 +70,41 @@ export default function OrderSuccessScreen() {
 
   const handleGoHome = () => {
     router.replace("/");
+  };
+
+  const handleEnableNotifications = async () => {
+    if (isRequestingNotifications || notificationsEnabled) {
+      return;
+    }
+
+    setIsRequestingNotifications(true);
+
+    try {
+      const granted = await requestOrderNotificationPermission();
+
+      if (!granted) {
+        Alert.alert(
+            "Нет разрешения",
+            "Разреши уведомления в настройках системы, чтобы получать статусы заказа."
+        );
+        return;
+      }
+
+      await saveNotificationPreferences({
+        systemEnabled: true,
+        orderUpdatesEnabled: true,
+      });
+      setNotificationsEnabled(true);
+    } catch (error: any) {
+      Alert.alert(
+          "Не удалось включить уведомления",
+          typeof error?.message === "string"
+              ? error.message
+              : "Попробуй ещё раз чуть позже."
+      );
+    } finally {
+      setIsRequestingNotifications(false);
+    }
   };
 
   useFocusEffect(
@@ -222,6 +264,39 @@ export default function OrderSuccessScreen() {
                         После завершения или отмены он больше не останется активным.
                       </Text>
                     </View>
+                  </View>
+                </AppCard>
+              </ScreenSection>
+
+              <ScreenSection title="Уведомления">
+                <AppCard>
+                  <View style={styles.notificationRow}>
+                    <View style={styles.notificationIcon}>
+                      <Text style={styles.notificationIconText}>!</Text>
+                    </View>
+                    <View style={styles.notificationContent}>
+                      <Text style={styles.notificationTitle}>
+                        Не пропусти статус заказа
+                      </Text>
+                      <Text style={styles.notificationText}>
+                        Мы сообщим, когда курьер возьмёт заказ и перейдёт к
+                        следующему этапу.
+                      </Text>
+                    </View>
+                  </View>
+
+                  <View style={styles.notificationAction}>
+                    <AppButton
+                        title={
+                          notificationsEnabled
+                              ? "Уведомления включены"
+                              : isRequestingNotifications
+                                ? "Включаем..."
+                                : "Включить уведомления"
+                        }
+                        onPress={handleEnableNotifications}
+                        disabled={isRequestingNotifications || notificationsEnabled}
+                    />
                   </View>
                 </AppCard>
               </ScreenSection>
@@ -394,6 +469,41 @@ function createStyles(colors: ReturnType<typeof useAppTheme>["colors"]) {
       height: 1,
       backgroundColor: colors.border,
       marginVertical: spacing.md,
+    },
+    notificationRow: {
+      flexDirection: "row",
+      alignItems: "flex-start",
+      gap: spacing.md,
+    },
+    notificationIcon: {
+      width: 36,
+      height: 36,
+      borderRadius: 999,
+      alignItems: "center",
+      justifyContent: "center",
+      backgroundColor: colors.primarySoft,
+    },
+    notificationIconText: {
+      fontSize: typography.body,
+      fontWeight: "900",
+      color: colors.primary,
+    },
+    notificationContent: {
+      flex: 1,
+      gap: 4,
+    },
+    notificationTitle: {
+      fontSize: typography.body,
+      fontWeight: "800",
+      color: colors.text,
+    },
+    notificationText: {
+      fontSize: typography.body,
+      lineHeight: 21,
+      color: colors.textMuted,
+    },
+    notificationAction: {
+      marginTop: spacing.md,
     },
     footer: {
       position: "absolute",
