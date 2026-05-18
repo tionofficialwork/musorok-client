@@ -3,7 +3,7 @@ require("dotenv").config();
 const crypto = require("crypto");
 const cors = require("cors");
 const express = require("express");
-const { query } = require("./db");
+const { pool, query } = require("./db");
 const { getOrderPackage, getOrderPackageLabel } = require("./orderCatalog");
 const { isExpoPushToken, sendExpoPushMessages } = require("./pushNotifications");
 const { sendAuthCodeSms } = require("./sms");
@@ -441,9 +441,14 @@ async function notifyOrderStatusUpdate(order) {
   }
 }
 
+function createTbankPaymentOrderId() {
+  return `m${Date.now().toString(36)}${crypto.randomBytes(8).toString("hex")}`;
+}
+
 async function updateOrderPaymentState({
   orderId,
   ownerKey,
+  paymentOrderId,
   paymentId,
   status,
   amount,
@@ -457,9 +462,10 @@ async function updateOrderPaymentState({
     paymentId || null,
     paymentUrl || null,
     error || null,
+    paymentOrderId || null,
     orderId,
   ];
-  const ownerClause = ownerKey ? "and owner_key = $6" : "";
+  const ownerClause = ownerKey ? "and owner_key = $7" : "";
 
   if (ownerKey) {
     params.push(ownerKey);
@@ -472,9 +478,10 @@ async function updateOrderPaymentState({
          payment_id = coalesce($2, payment_id),
          payment_url = coalesce($3, payment_url),
          payment_error = $4,
+         payment_order_id = coalesce($5, payment_order_id),
          payment_paid_at = ${paidAt},
          payment_updated_at = now()
-     where id = $5 ${ownerClause}
+     where (id::text = $6 or payment_order_id = $6) ${ownerClause}
      returning *`,
     params
   );
@@ -1088,6 +1095,45 @@ app.put("/profile", requireOwnerKey, asyncRoute(async (req, res) => {
   res.json({ profile: result.rows[0] });
 }));
 
+app.delete("/profile", requireOwnerKey, asyncRoute(async (req, res) => {
+  const client = await pool.connect();
+
+  try {
+    await client.query("begin");
+    await client.query("delete from user_push_tokens where owner_key = $1", [
+      req.ownerKey,
+    ]);
+    await client.query(
+      "delete from user_notification_preferences where owner_key = $1",
+      [req.ownerKey]
+    );
+    await client.query(
+      "delete from user_payment_preferences where owner_key = $1",
+      [req.ownerKey]
+    );
+    await client.query("delete from user_addresses where owner_key = $1", [
+      req.ownerKey,
+    ]);
+    await client.query("delete from orders where owner_key = $1", [req.ownerKey]);
+    await client.query("delete from auth_sms_challenges where owner_key = $1", [
+      req.ownerKey,
+    ]);
+    const profileResult = await client.query(
+      "delete from user_profiles where owner_key = $1 returning owner_key",
+      [req.ownerKey]
+    );
+
+    await client.query("commit");
+
+    res.json({ ok: Boolean(profileResult.rows[0]) });
+  } catch (error) {
+    await client.query("rollback").catch(() => {});
+    throw error;
+  } finally {
+    client.release();
+  }
+}));
+
 app.get("/addresses", requireOwnerKey, asyncRoute(async (req, res) => {
   const result = await query(
     `select *
@@ -1483,10 +1529,12 @@ app.post("/orders/:id/payment/init", requireOwnerKey, asyncRoute(async (req, res
     return;
   }
 
-  const payment = await initPayment(order);
+  const paymentOrderId = createTbankPaymentOrderId();
+  const payment = await initPayment(order, paymentOrderId);
   const updatedOrder = await updateOrderPaymentState({
     orderId: order.id,
     ownerKey: req.ownerKey,
+    paymentOrderId,
     paymentId: payment.paymentId,
     paymentUrl: payment.paymentUrl,
     status: payment.status,

@@ -41,13 +41,14 @@ export default function ProfileAccountScreen() {
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [isSigningOut, setIsSigningOut] = useState(false);
+  const [isDeletingAccount, setIsDeletingAccount] = useState(false);
   const [errorText, setErrorText] = useState<string | null>(null);
 
   const isFormValid = useMemo(() => {
     return firstName.trim().length >= 2 && isValidRussianPhone(phone);
   }, [firstName, phone]);
 
-  const isBusy = isSaving || isSigningOut;
+  const isBusy = isSaving || isSigningOut || isDeletingAccount;
 
   const loadProfile = useCallback(async () => {
     try {
@@ -140,6 +141,46 @@ export default function ProfileAccountScreen() {
               Alert.alert("Ошибка", message);
             } finally {
               setIsSigningOut(false);
+            }
+          },
+        },
+      ]
+    );
+  }, [isBusy, router]);
+
+  const handleDeleteAccount = useCallback(() => {
+    if (isBusy) {
+      return;
+    }
+
+    Alert.alert(
+      "Удалить аккаунт?",
+      "Мы удалим профиль, адреса, настройки, push-токены и историю заказов. Это действие нельзя отменить.",
+      [
+        {
+          text: "Отмена",
+          style: "cancel",
+        },
+        {
+          text: "Удалить",
+          style: "destructive",
+          onPress: async () => {
+            try {
+              setIsDeletingAccount(true);
+              setErrorText(null);
+
+              await api.profile.deleteAccount();
+              await clearAuthSession();
+              router.replace("/auth/phone");
+            } catch (error: any) {
+              const message =
+                typeof error?.message === "string"
+                  ? error.message
+                  : "Не удалось удалить аккаунт.";
+
+              Alert.alert("Ошибка", message);
+            } finally {
+              setIsDeletingAccount(false);
             }
           },
         },
@@ -262,6 +303,28 @@ export default function ProfileAccountScreen() {
                 >
                   <Text style={styles.dangerButtonText}>
                     {isSigningOut ? "Выходим..." : "Выйти из аккаунта"}
+                  </Text>
+                </Pressable>
+              </View>
+
+              <View style={styles.sectionCard}>
+                <Text style={styles.sectionTitle}>Удаление аккаунта</Text>
+                <Text style={styles.sessionText}>
+                  Аккаунт и связанные данные будут удалены с сервера. Для нового
+                  заказа нужно будет зарегистрироваться заново.
+                </Text>
+
+                <Pressable
+                  onPress={handleDeleteAccount}
+                  disabled={isBusy}
+                  style={({ pressed }) => [
+                    styles.deleteButton,
+                    isBusy && styles.dangerButtonDisabled,
+                    pressed && !isBusy && styles.dangerButtonPressed,
+                  ]}
+                >
+                  <Text style={styles.deleteButtonText}>
+                    {isDeletingAccount ? "Удаляем..." : "Удалить аккаунт"}
                   </Text>
                 </Pressable>
               </View>
@@ -449,6 +512,19 @@ function createStyles(colors: ReturnType<typeof useAppTheme>["colors"]) {
     fontSize: 15,
     fontWeight: "800",
     color: colors.errorText,
+  },
+  deleteButton: {
+    minHeight: 52,
+    borderRadius: 18,
+    backgroundColor: colors.errorText,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 16,
+  },
+  deleteButtonText: {
+    fontSize: 15,
+    fontWeight: "800",
+    color: colors.white,
   },
   bottomBar: {
     position: "absolute",

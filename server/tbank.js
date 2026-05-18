@@ -127,14 +127,15 @@ function rublesToKopecks(value) {
   return Math.round(amount * 100);
 }
 
-function buildInitPayload(order) {
+function buildInitPayload(order, merchantOrderId) {
   const amount = rublesToKopecks(order.total);
   const orderId = String(order.id);
+  const paymentOrderId = String(merchantOrderId || orderId);
   const description = `Оплата заказа MusorOK #${orderId}`.slice(0, 140);
 
   const payload = {
     Amount: amount,
-    OrderId: orderId,
+    OrderId: paymentOrderId,
     Description: description,
     CustomerKey: String(order.owner_key || "").slice(0, 36),
     PayType: payType === "T" ? "T" : "O",
@@ -142,6 +143,7 @@ function buildInitPayload(order) {
     FailURL: appendOrderId(defaultFailUrl, orderId),
     DATA: {
       orderId,
+      paymentOrderId,
       paymentMethod: order.payment_method || "card",
     },
   };
@@ -153,8 +155,8 @@ function buildInitPayload(order) {
   return payload;
 }
 
-async function initPayment(order) {
-  const payload = buildInitPayload(order);
+async function initPayment(order, merchantOrderId) {
+  const payload = buildInitPayload(order, merchantOrderId);
   const result = await callTbank("Init", payload);
 
   if (!result.PaymentId || !result.PaymentURL) {

@@ -234,6 +234,11 @@ export const api = {
         body: payload,
       });
     },
+    deleteAccount() {
+      return request<{ ok: boolean }>("/profile", {
+        method: "DELETE",
+      });
+    },
   },
   addresses: {
     list() {

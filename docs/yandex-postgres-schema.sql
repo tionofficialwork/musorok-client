@@ -83,6 +83,7 @@ create table if not exists orders (
   payment_provider text,
   payment_status text not null default 'not_started',
   payment_id text,
+  payment_order_id text,
   payment_url text,
   payment_error text,
   payment_paid_at timestamptz,
@@ -111,6 +112,10 @@ create index if not exists orders_owner_created_at_idx
 
 create index if not exists orders_owner_status_created_at_idx
   on orders (owner_key, status, created_at desc);
+
+create unique index if not exists orders_payment_order_id_idx
+  on orders (payment_order_id)
+  where payment_order_id is not null;
 
 create table if not exists user_payment_preferences (
   owner_key text primary key,
