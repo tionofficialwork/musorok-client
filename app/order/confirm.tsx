@@ -1,17 +1,24 @@
 import {
+  useCallback,
   useMemo,
   useState,
 } from "react";
 import {
   ActivityIndicator,
   Alert,
+  BackHandler,
   ScrollView,
   StyleSheet,
   Text,
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { Stack, useLocalSearchParams, useRouter } from "expo-router";
+import {
+  Stack,
+  useFocusEffect,
+  useLocalSearchParams,
+  useRouter,
+} from "expo-router";
 import AppButton from "../../components/ui/AppButton";
 import AppCard from "../../components/ui/AppCard";
 import ScreenSection from "../../components/ui/ScreenSection";
@@ -148,6 +155,25 @@ export default function OrderConfirmScreen() {
     });
   }, [apartment, entrance, floor, intercom]);
 
+  const replaceOrderStack = useCallback(
+    (route: Parameters<typeof router.replace>[0]) => {
+      router.dismissAll();
+      router.replace(route);
+    },
+    [router]
+  );
+
+  useFocusEffect(
+    useCallback(() => {
+      const subscription = BackHandler.addEventListener(
+        "hardwareBackPress",
+        () => isSubmitting
+      );
+
+      return () => subscription.remove();
+    }, [isSubmitting])
+  );
+
   const handleCreateOrder = async () => {
     if (isSubmitting) {
       return;
@@ -200,7 +226,7 @@ export default function OrderConfirmScreen() {
       try {
         checkedPayment = await openOrderPaymentSession(orderId);
       } catch (paymentError: any) {
-        router.replace({
+        replaceOrderStack({
           pathname: "/order/payment-return" as never,
           params: {
             orderId,
@@ -215,7 +241,7 @@ export default function OrderConfirmScreen() {
       }
 
       if (!isPaymentSuccessful(checkedPayment)) {
-        router.replace({
+        replaceOrderStack({
           pathname: "/order/payment-return" as never,
           params: {
             orderId,
@@ -225,7 +251,7 @@ export default function OrderConfirmScreen() {
         return;
       }
 
-      router.replace({
+      replaceOrderStack({
         pathname: "/order/success",
         params: {
           orderId,
@@ -251,7 +277,12 @@ export default function OrderConfirmScreen() {
 
   return (
       <>
-        <Stack.Screen options={{ title: "Подтверждение" }} />
+        <Stack.Screen
+          options={{
+            title: "Подтверждение",
+            gestureEnabled: !isSubmitting,
+          }}
+        />
 
         <SafeAreaView style={styles.safeArea}>
           <View style={styles.container}>

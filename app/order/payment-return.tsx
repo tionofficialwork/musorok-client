@@ -6,12 +6,18 @@ import {
 } from "react";
 import {
   ActivityIndicator,
+  BackHandler,
   StyleSheet,
   Text,
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { Stack, useLocalSearchParams, useRouter } from "expo-router";
+import {
+  Stack,
+  useFocusEffect,
+  useLocalSearchParams,
+  useRouter,
+} from "expo-router";
 import AppButton from "../../components/ui/AppButton";
 import {
   canOpenPaymentForStatus,
@@ -65,6 +71,25 @@ export default function PaymentReturnScreen() {
   const [isChecking, setIsChecking] = useState(true);
   const [isRetrying, setIsRetrying] = useState(false);
 
+  const replacePostOrderRoute = useCallback(
+    (route: Parameters<typeof router.replace>[0]) => {
+      router.dismissAll();
+      router.replace(route);
+    },
+    [router]
+  );
+
+  useFocusEffect(
+    useCallback(() => {
+      const subscription = BackHandler.addEventListener(
+        "hardwareBackPress",
+        () => true
+      );
+
+      return () => subscription.remove();
+    }, [])
+  );
+
   useEffect(() => {
     let isMounted = true;
 
@@ -84,7 +109,7 @@ export default function PaymentReturnScreen() {
           setStatus(payment.status);
 
           if (isPaymentSuccessful(payment)) {
-            router.replace({
+            replacePostOrderRoute({
               pathname: "/order/success",
               params: {
                 orderId,
@@ -125,7 +150,7 @@ export default function PaymentReturnScreen() {
     return () => {
       isMounted = false;
     };
-  }, [orderId, router]);
+  }, [orderId, replacePostOrderRoute]);
 
   const handleRetryPayment = useCallback(async () => {
     if (!orderId || isChecking || isRetrying) {
@@ -140,7 +165,7 @@ export default function PaymentReturnScreen() {
       setStatus(checkedPayment.status);
 
       if (isPaymentSuccessful(checkedPayment)) {
-        router.replace({
+        replacePostOrderRoute({
           pathname: "/order/success",
           params: {
             orderId,
@@ -157,7 +182,7 @@ export default function PaymentReturnScreen() {
     } finally {
       setIsRetrying(false);
     }
-  }, [isChecking, isRetrying, orderId, router]);
+  }, [isChecking, isRetrying, orderId, replacePostOrderRoute]);
 
   const title =
     result === "init_error"
@@ -174,7 +199,13 @@ export default function PaymentReturnScreen() {
 
   return (
     <SafeAreaView style={styles.safeArea}>
-      <Stack.Screen options={{ title: "Оплата" }} />
+      <Stack.Screen
+        options={{
+          title: "Оплата",
+          headerBackVisible: false,
+          gestureEnabled: false,
+        }}
+      />
 
       <View style={styles.container}>
         {isChecking ? <ActivityIndicator size="large" color={colors.primary} /> : null}
@@ -201,12 +232,12 @@ export default function PaymentReturnScreen() {
           <AppButton
             title="К активному заказу"
             variant={canRetryPayment ? "secondary" : "primary"}
-            onPress={() => router.replace("/order/active")}
+            onPress={() => replacePostOrderRoute("/order/active")}
           />
           <AppButton
             title="На главную"
             variant="secondary"
-            onPress={() => router.replace("/")}
+            onPress={() => replacePostOrderRoute("/")}
           />
         </View>
       </View>
