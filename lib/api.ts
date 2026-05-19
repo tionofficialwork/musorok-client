@@ -299,6 +299,11 @@ export const api = {
         body: payload,
       });
     },
+    clearSavedCard() {
+      return request<{ preferences: any | null }>("/payment-preferences/card", {
+        method: "DELETE",
+      });
+    },
   },
   pushTokens: {
     save(payload: Record<string, unknown>) {

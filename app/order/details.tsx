@@ -8,6 +8,7 @@ import {
   Alert,
   KeyboardAvoidingView,
   Platform,
+  Pressable,
   ScrollView,
   StyleSheet,
   Switch,
@@ -62,6 +63,7 @@ type PrefillState = {
   phone: string;
   shouldCall: boolean;
   paymentMethod: PaymentMethod;
+  savedCardLast4: string | null;
   tip: number;
   profileName: string;
 };
@@ -86,8 +88,25 @@ type ProfileRow = {
 
 const TIP_PRESETS = [0, 50, 100, 150, 200];
 const MAX_TIP_RUBLES = 1000;
-function getPaymentMethodLabel(method: PaymentMethod) {
-  return method === "sbp" ? "СБП" : "Карта";
+function getPaymentMethodLabel(method: PaymentMethod, savedCardLast4?: string | null) {
+  if (method === "sbp") {
+    return "СБП";
+  }
+
+  return savedCardLast4 ? `Карта • ${savedCardLast4}` : "Карта";
+}
+
+function getPaymentMethodSubtitle(
+  method: PaymentMethod,
+  savedCardLast4?: string | null
+) {
+  if (method === "sbp") {
+    return "Оплата через приложение банка";
+  }
+
+  return savedCardLast4
+    ? "Используем сохранённый способ на стороне банка"
+    : "Оплата через защищённую форму Т-Банка";
 }
 
 function resolvePackageLabel(packageId: string, packageName: string) {
@@ -245,6 +264,7 @@ export default function OrderDetailsScreen() {
     phone: "",
     shouldCall: false,
     paymentMethod: "card",
+    savedCardLast4: null,
     tip: 0,
     profileName: "",
   });
@@ -284,6 +304,7 @@ export default function OrderDetailsScreen() {
               typeof profileRow?.phone === "string" ? profileRow.phone.trim() : "",
           shouldCall: profileRow?.call_allowed === true,
           paymentMethod: paymentPreferences.defaultMethod,
+          savedCardLast4: paymentPreferences.savedCardLast4,
           tip:
               typeof paymentPreferences.defaultTip === "number" &&
               Number.isFinite(paymentPreferences.defaultTip) &&
@@ -341,7 +362,7 @@ export default function OrderDetailsScreen() {
     return () => {
       isMounted = false;
     };
-  }, [params.shouldCall, params.tip]);
+  }, [params.paymentMethod, params.shouldCall, params.tip]);
 
   const hasAnyPrefill = useMemo(() => {
     return Boolean(
@@ -503,7 +524,10 @@ export default function OrderDetailsScreen() {
                         <View style={styles.prefillRow}>
                           <Text style={styles.prefillLabel}>Оплата</Text>
                           <Text style={styles.prefillValue}>
-                            {getPaymentMethodLabel(prefill.paymentMethod)}
+                            {getPaymentMethodLabel(
+                                prefill.paymentMethod,
+                                prefill.savedCardLast4
+                            )}
                           </Text>
                         </View>
 
@@ -606,14 +630,73 @@ export default function OrderDetailsScreen() {
               <ScreenSection title="Оплата">
                 <AppCard>
                   <Text style={styles.label}>Способ оплаты</Text>
-                  <View style={styles.paymentMethodCard}>
-                    <Text style={styles.paymentMethodTitle}>
-                      {getPaymentMethodLabel(paymentMethod)}
-                    </Text>
-                    <Text style={styles.paymentMethodSubtitle}>
-                      Способ оплаты можно изменить в профиле.
-                    </Text>
-                  </View>
+                  <Pressable
+                      onPress={() => setPaymentMethod("sbp")}
+                      style={({ pressed }) => [
+                        styles.paymentPromo,
+                        paymentMethod === "sbp" ? styles.paymentPromoSelected : undefined,
+                        pressed ? styles.paymentPressed : undefined,
+                      ]}
+                  >
+                    <View style={styles.paymentPromoBadge}>
+                      <Text style={styles.paymentPromoBadgeText}>%</Text>
+                    </View>
+                    <View style={styles.paymentPromoCopy}>
+                      <Text style={styles.paymentPromoTitle}>СБП без ввода карты</Text>
+                      <Text style={styles.paymentPromoText}>
+                        Быстрый способ через приложение банка.
+                      </Text>
+                    </View>
+                    <Text style={styles.paymentChevron}>›</Text>
+                  </Pressable>
+
+                  <ScrollView
+                      horizontal
+                      showsHorizontalScrollIndicator={false}
+                      contentContainerStyle={styles.paymentRail}
+                  >
+                    <PaymentChoiceTile
+                        title={
+                          prefill.savedCardLast4
+                              ? `• ${prefill.savedCardLast4}`
+                              : "Карта"
+                        }
+                        subtitle={
+                          prefill.savedCardLast4 ? "сохранённая" : "форма банка"
+                        }
+                        variant="card"
+                        isSelected={paymentMethod === "card"}
+                        onPress={() => setPaymentMethod("card")}
+                        styles={styles}
+                    />
+
+                    <PaymentChoiceTile
+                        title="СБП"
+                        subtitle="быстро"
+                        variant="sbp"
+                        isSelected={paymentMethod === "sbp"}
+                        onPress={() => setPaymentMethod("sbp")}
+                        styles={styles}
+                    />
+
+                    <PaymentChoiceTile
+                        title="Добавить"
+                        subtitle="карту"
+                        variant="add"
+                        isMuted
+                        onPress={() =>
+                          Alert.alert(
+                              "Добавление карты",
+                              "Пока карта появится здесь автоматически после успешной оплаты, если Т-Банк вернёт безопасную маску карты."
+                          )
+                        }
+                        styles={styles}
+                    />
+                  </ScrollView>
+
+                  <Text style={styles.paymentSelectedHint}>
+                    {getPaymentMethodSubtitle(paymentMethod, prefill.savedCardLast4)}
+                  </Text>
 
                   <View style={styles.paymentDivider} />
 
@@ -643,7 +726,10 @@ export default function OrderDetailsScreen() {
                   <View style={styles.paymentSummaryBox}>
                     <InfoRow
                         label="Метод оплаты"
-                        value={getPaymentMethodLabel(paymentMethod)}
+                        value={getPaymentMethodLabel(
+                            paymentMethod,
+                            prefill.savedCardLast4
+                        )}
                         styles={styles}
                     />
                     <View style={styles.summaryDivider} />
@@ -701,6 +787,71 @@ function ChoiceButton({
           disabled={disabled}
           fullWidth
       />
+  );
+}
+
+type PaymentChoiceTileProps = {
+  title: string;
+  subtitle: string;
+  variant: "card" | "sbp" | "add";
+  isSelected?: boolean;
+  isMuted?: boolean;
+  onPress: () => void;
+};
+
+function PaymentChoiceTile({
+                             title,
+                             subtitle,
+                             variant,
+                             isSelected = false,
+                             isMuted = false,
+                             onPress,
+                             styles,
+                           }: PaymentChoiceTileProps & {
+  styles: ReturnType<typeof createStyles>;
+}) {
+  return (
+      <Pressable
+          onPress={onPress}
+          style={({ pressed }) => [
+            styles.paymentTile,
+            isSelected ? styles.paymentTileSelected : undefined,
+            isMuted ? styles.paymentTileMuted : undefined,
+            pressed ? styles.paymentPressed : undefined,
+          ]}
+      >
+        <View style={styles.paymentTileIconSlot}>
+          {variant === "card" ? (
+              <View style={styles.cardIcon}>
+                <View style={styles.cardIconLine} />
+              </View>
+          ) : null}
+
+          {variant === "sbp" ? (
+              <View style={styles.sbpMiniIcon}>
+                <Text style={styles.sbpMiniIconText}>СБП</Text>
+              </View>
+          ) : null}
+
+          {variant === "add" ? (
+              <View style={styles.addMiniIcon}>
+                <Text style={styles.addMiniIconText}>+</Text>
+              </View>
+          ) : null}
+        </View>
+
+        <Text style={[styles.paymentTileTitle, isMuted ? styles.paymentMutedText : undefined]}>
+          {title}
+        </Text>
+        <Text
+            style={[
+              styles.paymentTileSubtitle,
+              isMuted ? styles.paymentMutedText : undefined,
+            ]}
+        >
+          {subtitle}
+        </Text>
+      </Pressable>
   );
 }
 
@@ -916,21 +1067,145 @@ function createStyles(colors: ReturnType<typeof useAppTheme>["colors"]) {
       color: colors.text,
       textAlign: "center",
     },
-    paymentMethodCard: {
-      borderRadius: radii.lg,
-      backgroundColor: colors.primarySoft,
+    paymentPromo: {
+      minHeight: 72,
+      borderRadius: radii.xl,
+      backgroundColor: colors.surfaceSecondary,
       padding: spacing.md,
-      gap: spacing.xs,
+      flexDirection: "row",
+      alignItems: "center",
+      gap: spacing.md,
     },
-    paymentMethodTitle: {
+    paymentPromoSelected: {
+      backgroundColor: colors.primarySoft,
+      borderWidth: 1,
+      borderColor: colors.primary,
+    },
+    paymentPromoBadge: {
+      width: 38,
+      height: 38,
+      borderRadius: radii.md,
+      backgroundColor: colors.primary,
+      alignItems: "center",
+      justifyContent: "center",
+      transform: [{ rotate: "-8deg" }],
+    },
+    paymentPromoBadgeText: {
+      fontSize: typography.h3,
+      fontWeight: "800",
+      color: colors.white,
+    },
+    paymentPromoCopy: {
+      flex: 1,
+      gap: 2,
+    },
+    paymentPromoTitle: {
       fontSize: typography.body,
+      fontWeight: "800",
+      color: colors.text,
+    },
+    paymentPromoText: {
+      fontSize: typography.bodySmall,
+      lineHeight: 19,
+      color: colors.textSecondary,
+    },
+    paymentChevron: {
+      fontSize: 28,
+      lineHeight: 28,
+      color: colors.text,
+    },
+    paymentRail: {
+      gap: spacing.sm,
+      paddingTop: spacing.md,
+      paddingRight: spacing.sm,
+    },
+    paymentTile: {
+      width: 128,
+      minHeight: 108,
+      borderRadius: radii.xl,
+      borderWidth: 1,
+      borderColor: colors.border,
+      backgroundColor: colors.surfaceSecondary,
+      padding: spacing.md,
+      justifyContent: "space-between",
+    },
+    paymentTileSelected: {
+      borderWidth: 2,
+      borderColor: colors.text,
+      backgroundColor: colors.surface,
+    },
+    paymentTileMuted: {
+      backgroundColor: colors.surface,
+      opacity: 0.72,
+    },
+    paymentTileIconSlot: {
+      minHeight: 28,
+      alignItems: "flex-start",
+    },
+    cardIcon: {
+      width: 30,
+      height: 22,
+      borderRadius: 4,
+      borderWidth: 2,
+      borderColor: colors.textMuted,
+      justifyContent: "center",
+    },
+    cardIconLine: {
+      height: 3,
+      borderRadius: 999,
+      backgroundColor: colors.textMuted,
+      marginHorizontal: 3,
+    },
+    sbpMiniIcon: {
+      minWidth: 44,
+      height: 26,
+      borderRadius: 8,
+      backgroundColor: colors.primarySoft,
+      alignItems: "center",
+      justifyContent: "center",
+      paddingHorizontal: spacing.xs,
+    },
+    sbpMiniIconText: {
+      fontSize: typography.caption,
       fontWeight: "800",
       color: colors.primary,
     },
-    paymentMethodSubtitle: {
-      fontSize: typography.body,
-      lineHeight: 21,
+    addMiniIcon: {
+      width: 30,
+      height: 30,
+      borderRadius: 999,
+      borderWidth: 1,
+      borderColor: colors.border,
+      alignItems: "center",
+      justifyContent: "center",
+    },
+    addMiniIconText: {
+      fontSize: typography.h2,
+      lineHeight: 22,
+      fontWeight: "800",
+      color: colors.textMuted,
+    },
+    paymentTileTitle: {
+      fontSize: typography.h3,
+      fontWeight: "800",
       color: colors.text,
+    },
+    paymentTileSubtitle: {
+      fontSize: typography.bodySmall,
+      lineHeight: 18,
+      color: colors.textSecondary,
+    },
+    paymentSelectedHint: {
+      marginTop: spacing.sm,
+      fontSize: typography.bodySmall,
+      lineHeight: 19,
+      color: colors.textMuted,
+    },
+    paymentMutedText: {
+      color: colors.textMuted,
+    },
+    paymentPressed: {
+      opacity: 0.9,
     },
     paymentDivider: {
       height: 1,

@@ -445,6 +445,22 @@ function createTbankPaymentOrderId() {
   return `m${Date.now().toString(36)}${crypto.randomBytes(8).toString("hex")}`;
 }
 
+function extractCardLast4(value) {
+  const digits = String(value || "").replace(/\D/g, "");
+
+  return digits.length >= 4 ? digits.slice(-4) : null;
+}
+
+function normalizeExternalCardId(value) {
+  if (value === null || value === undefined) {
+    return null;
+  }
+
+  const text = String(value).trim();
+
+  return text ? text.slice(0, 120) : null;
+}
+
 async function updateOrderPaymentState({
   orderId,
   ownerKey,
@@ -511,6 +527,37 @@ async function updateOrderPaymentState({
   }
 
   return order;
+}
+
+async function rememberPaidCardFromTbankNotification(order, body) {
+  if (!order?.owner_key || !isPaidTbankStatus(body?.Status)) {
+    return;
+  }
+
+  const last4 = extractCardLast4(body?.Pan);
+  const cardId = normalizeExternalCardId(body?.CardId);
+
+  if (!last4 && !cardId) {
+    return;
+  }
+
+  await query(
+    `insert into user_payment_preferences (
+       owner_key, default_method, allow_cash, allow_card, default_tip,
+       ask_before_changing_method, saved_card_last4, saved_card_id,
+       saved_card_updated_at, updated_at
+     )
+     values ($1, 'card', false, true, 0, false, $2, $3, now(), now())
+     on conflict (owner_key) do update
+     set default_method = 'card',
+         allow_cash = false,
+         allow_card = true,
+         saved_card_last4 = coalesce($2, user_payment_preferences.saved_card_last4),
+         saved_card_id = coalesce($3, user_payment_preferences.saved_card_id),
+         saved_card_updated_at = now(),
+         updated_at = now()`,
+    [order.owner_key, last4, cardId]
+  );
 }
 
 async function assertAuthSmsSendAllowed(phone) {
@@ -1617,13 +1664,14 @@ app.post("/payments/tbank/notification", asyncRoute(async (req, res) => {
     return;
   }
 
-  await updateOrderPaymentState({
+  const updatedOrder = await updateOrderPaymentState({
     orderId,
     paymentId: body.PaymentId ? String(body.PaymentId) : null,
     status: body.Status,
     amount: body.Amount,
     error: body.Message || body.Details || null,
   });
+  await rememberPaidCardFromTbankNotification(updatedOrder, body);
 
   res.status(200).send("OK");
 }));
@@ -1662,6 +1710,21 @@ app.put("/payment-preferences", requireOwnerKey, asyncRoute(async (req, res) => 
   );
 
   res.json({ preferences: result.rows[0] });
+}));
+
+app.delete("/payment-preferences/card", requireOwnerKey, asyncRoute(async (req, res) => {
+  const result = await query(
+    `update user_payment_preferences
+     set saved_card_last4 = null,
+         saved_card_id = null,
+         saved_card_updated_at = null,
+         updated_at = now()
+     where owner_key = $1
+     returning *`,
+    [req.ownerKey]
+  );
+
+  res.json({ preferences: result.rows[0] ?? null });
 }));
 
 app.post("/push-tokens", requireOwnerKey, asyncRoute(async (req, res) => {

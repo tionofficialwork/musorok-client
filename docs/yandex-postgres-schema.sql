@@ -124,11 +124,16 @@ create table if not exists user_payment_preferences (
   allow_card boolean not null default true,
   default_tip integer not null default 0,
   ask_before_changing_method boolean not null default false,
+  saved_card_last4 text,
+  saved_card_id text,
+  saved_card_updated_at timestamptz,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
   constraint user_payment_preferences_default_method_check
     check (default_method in ('card', 'sbp')),
-  constraint user_payment_preferences_default_tip_check check (default_tip >= 0)
+  constraint user_payment_preferences_default_tip_check check (default_tip >= 0),
+  constraint user_payment_preferences_saved_card_last4_check
+    check (saved_card_last4 is null or saved_card_last4 ~ '^[0-9]{4}$')
 );
 
 create table if not exists user_notification_preferences (
