@@ -75,6 +75,7 @@ export default function ProfileScreen() {
 
   const [summary, setSummary] = useState<ProfileSummary | null>(null);
   const [isLoadingSummary, setIsLoadingSummary] = useState(true);
+  const [isThemeDropdownOpen, setIsThemeDropdownOpen] = useState(false);
 
   const loadSummary = useCallback(async () => {
     try {
@@ -139,6 +140,13 @@ export default function ProfileScreen() {
 
   const resolvedThemeLabel =
       resolvedTheme === "dark" ? "Тёмная тема активна" : "Светлая тема активна";
+  const selectedThemeOption =
+      THEME_OPTIONS.find((option) => option.id === themeMode) ?? THEME_OPTIONS[0];
+
+  const handleThemeSelect = async (mode: ThemeMode) => {
+    setIsThemeDropdownOpen(false);
+    await setThemeMode(mode);
+  };
 
   return (
       <SafeAreaView style={styles.safeArea}>
@@ -217,54 +225,84 @@ export default function ProfileScreen() {
                     : "Выбран ручной режим отображения приложения."}
               </Text>
 
-              <View style={styles.themeOptions}>
-                {THEME_OPTIONS.map((option) => {
-                  const isSelected = themeMode === option.id;
+              <Pressable
+                  onPress={() => setIsThemeDropdownOpen((current) => !current)}
+                  style={({ pressed }) => [
+                    styles.themeSelect,
+                    isThemeDropdownOpen ? styles.themeSelectOpen : undefined,
+                    pressed ? styles.themeSelectPressed : undefined,
+                  ]}
+              >
+                <View style={styles.themeSelectCopy}>
+                  <Text style={styles.themeSelectLabel}>Выбранная тема</Text>
+                  <Text style={styles.themeSelectTitle}>
+                    {selectedThemeOption.title}
+                  </Text>
+                  <Text style={styles.themeSelectSubtitle}>
+                    {selectedThemeOption.subtitle}
+                  </Text>
+                </View>
 
-                  return (
-                      <Pressable
-                          key={option.id}
-                          onPress={() => setThemeMode(option.id)}
-                          style={({ pressed }) => [
-                            styles.themeOption,
-                            isSelected ? styles.themeOptionSelected : undefined,
-                            pressed ? styles.themeOptionPressed : undefined,
-                          ]}
-                      >
-                        <View style={styles.themeOptionTextWrap}>
-                          <Text
-                              style={[
-                                styles.themeOptionTitle,
-                                isSelected ? styles.themeOptionTitleSelected : undefined,
-                              ]}
-                          >
-                            {option.title}
-                          </Text>
+                <Text style={styles.themeSelectChevron}>
+                  {isThemeDropdownOpen ? "⌃" : "⌄"}
+                </Text>
+              </Pressable>
 
-                          <Text
-                              style={[
-                                styles.themeOptionSubtitle,
-                                isSelected
-                                    ? styles.themeOptionSubtitleSelected
+              {isThemeDropdownOpen ? (
+                  <View style={styles.themeDropdown}>
+                    {THEME_OPTIONS.map((option, index) => {
+                      const isSelected = themeMode === option.id;
+
+                      return (
+                          <Pressable
+                              key={option.id}
+                              onPress={() => handleThemeSelect(option.id)}
+                              style={({ pressed }) => [
+                                styles.themeDropdownItem,
+                                index === THEME_OPTIONS.length - 1
+                                    ? styles.themeDropdownItemLast
                                     : undefined,
+                                isSelected ? styles.themeDropdownItemSelected : undefined,
+                                pressed ? styles.themeSelectPressed : undefined,
                               ]}
                           >
-                            {option.subtitle}
-                          </Text>
-                        </View>
+                            <View style={styles.themeOptionTextWrap}>
+                              <Text
+                                  style={[
+                                    styles.themeOptionTitle,
+                                    isSelected
+                                        ? styles.themeOptionTitleSelected
+                                        : undefined,
+                                  ]}
+                              >
+                                {option.title}
+                              </Text>
 
-                        <View
-                            style={[
-                              styles.themeRadio,
-                              isSelected ? styles.themeRadioSelected : undefined,
-                            ]}
-                        >
-                          {isSelected ? <View style={styles.themeRadioDot} /> : null}
-                        </View>
-                      </Pressable>
-                  );
-                })}
-              </View>
+                              <Text
+                                  style={[
+                                    styles.themeOptionSubtitle,
+                                    isSelected
+                                        ? styles.themeOptionSubtitleSelected
+                                        : undefined,
+                                  ]}
+                              >
+                                {option.subtitle}
+                              </Text>
+                            </View>
+
+                            <Text
+                                style={[
+                                  styles.themeCheck,
+                                  isSelected ? styles.themeCheckSelected : undefined,
+                                ]}
+                            >
+                              ✓
+                            </Text>
+                          </Pressable>
+                      );
+                    })}
+                  </View>
+              ) : null}
             </AppCard>
           </ScreenSection>
 
@@ -362,10 +400,7 @@ function createStyles(colors: ReturnType<typeof useAppTheme>["colors"]) {
       color: colors.textSecondary,
       marginBottom: spacing.md,
     },
-    themeOptions: {
-      gap: spacing.sm,
-    },
-    themeOption: {
+    themeSelect: {
       flexDirection: "row",
       alignItems: "center",
       justifyContent: "space-between",
@@ -376,12 +411,62 @@ function createStyles(colors: ReturnType<typeof useAppTheme>["colors"]) {
       borderColor: colors.border,
       padding: spacing.md,
     },
-    themeOptionSelected: {
+    themeSelectOpen: {
       borderColor: colors.primary,
       backgroundColor: colors.primarySoft,
     },
-    themeOptionPressed: {
+    themeSelectPressed: {
       opacity: 0.92,
+    },
+    themeSelectCopy: {
+      flex: 1,
+      gap: 3,
+    },
+    themeSelectLabel: {
+      fontSize: typography.caption,
+      fontWeight: "800",
+      color: colors.textMuted,
+      textTransform: "uppercase",
+    },
+    themeSelectTitle: {
+      fontSize: typography.body,
+      fontWeight: "800",
+      color: colors.text,
+    },
+    themeSelectSubtitle: {
+      fontSize: typography.caption,
+      lineHeight: 18,
+      color: colors.textSecondary,
+    },
+    themeSelectChevron: {
+      width: 30,
+      fontSize: 24,
+      lineHeight: 26,
+      color: colors.text,
+      textAlign: "center",
+    },
+    themeDropdown: {
+      overflow: "hidden",
+      marginTop: spacing.sm,
+      borderRadius: radii.lg,
+      borderWidth: 1,
+      borderColor: colors.border,
+      backgroundColor: colors.surfaceSecondary,
+    },
+    themeDropdownItem: {
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "space-between",
+      gap: spacing.md,
+      padding: spacing.md,
+      borderBottomWidth: 1,
+      borderBottomColor: colors.border,
+    },
+    themeDropdownItemLast: {
+      borderBottomWidth: 0,
+    },
+    themeDropdownItemSelected: {
+      backgroundColor: colors.primarySoft,
     },
     themeOptionTextWrap: {
       flex: 1,
@@ -403,24 +488,15 @@ function createStyles(colors: ReturnType<typeof useAppTheme>["colors"]) {
     themeOptionSubtitleSelected: {
       color: colors.text,
     },
-    themeRadio: {
-      width: 22,
-      height: 22,
-      borderRadius: 999,
-      borderWidth: 2,
-      borderColor: colors.border,
-      alignItems: "center",
-      justifyContent: "center",
-      backgroundColor: colors.surface,
+    themeCheck: {
+      width: 24,
+      fontSize: typography.body,
+      fontWeight: "800",
+      color: "transparent",
+      textAlign: "center",
     },
-    themeRadioSelected: {
-      borderColor: colors.primary,
-    },
-    themeRadioDot: {
-      width: 10,
-      height: 10,
-      borderRadius: 999,
-      backgroundColor: colors.primary,
+    themeCheckSelected: {
+      color: colors.primary,
     },
     card: {
       flexDirection: "row",
