@@ -47,6 +47,10 @@
     </dict>
     <key>NSFaceIDUsageDescription</key>
     <string>Allow $(PRODUCT_NAME) to access your Face ID biometric data.</string>
+    <key>NSCameraUsageDescription</key>
+    <string>МусорОК использует камеру, чтобы прикрепить фото пакетов к заказу и подтвердить выполнение.</string>
+    <key>NSPhotoLibraryUsageDescription</key>
+    <string>МусорОК может открыть галерею, если нужно прикрепить уже сделанное фото пакетов.</string>
     <key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
     <string>МусорОК использует геолокацию, чтобы быстрее выбрать адрес заказа на карте.</string>
     <key>NSLocationAlwaysUsageDescription</key>

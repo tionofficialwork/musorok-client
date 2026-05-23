@@ -6,6 +6,7 @@ import {
 import {
   ActivityIndicator,
   Alert,
+  Image,
   KeyboardAvoidingView,
   Platform,
   Pressable,
@@ -18,6 +19,7 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Stack, useLocalSearchParams, useRouter } from "expo-router";
+import * as ImagePicker from "expo-image-picker";
 
 import AppButton from "../../components/ui/AppButton";
 import AppCard from "../../components/ui/AppCard";
@@ -56,6 +58,7 @@ type DetailsParams = {
   shouldCall?: string;
   paymentMethod?: string;
   tip?: string;
+  clientPhotoUri?: string;
 };
 
 type PrefillState = {
@@ -258,6 +261,9 @@ export default function OrderDetailsScreen() {
     const rawTip = typeof params.tip === "string" ? Number(params.tip) : NaN;
     return Number.isFinite(rawTip) && rawTip >= 0 ? rawTip : 0;
   });
+  const [clientPhotoUri, setClientPhotoUri] = useState(
+      typeof params.clientPhotoUri === "string" ? params.clientPhotoUri : ""
+  );
 
   const [prefill, setPrefill] = useState<PrefillState>({
     address: "",
@@ -395,6 +401,72 @@ export default function OrderDetailsScreen() {
     setPhone(`+7${digits}`);
   };
 
+  const handleTakeClientPhoto = async () => {
+    if (loading) {
+      return;
+    }
+
+    try {
+      const permission = await ImagePicker.requestCameraPermissionsAsync();
+
+      if (permission.status !== "granted") {
+        Alert.alert(
+            "Нет доступа к камере",
+            "Разреши доступ к камере в настройках телефона, чтобы прикрепить фото пакетов."
+        );
+        return;
+      }
+
+      const result = await ImagePicker.launchCameraAsync({
+        mediaTypes: ["images"],
+        allowsEditing: false,
+        quality: 0.55,
+        cameraType: ImagePicker.CameraType.back,
+      });
+
+      if (!result.canceled && result.assets?.[0]?.uri) {
+        setClientPhotoUri(result.assets[0].uri);
+      }
+    } catch (error) {
+      console.error("Client order photo error:", error);
+      Alert.alert(
+          "Не удалось открыть камеру",
+          "Попробуй ещё раз или выбери уже сделанное фото."
+      );
+    }
+  };
+
+  const handlePickClientPhoto = async () => {
+    if (loading) {
+      return;
+    }
+
+    try {
+      const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+
+      if (permission.status !== "granted") {
+        Alert.alert(
+            "Нет доступа к фото",
+            "Разреши доступ к галерее, чтобы выбрать снимок пакетов."
+        );
+        return;
+      }
+
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ["images"],
+        allowsEditing: false,
+        quality: 0.55,
+      });
+
+      if (!result.canceled && result.assets?.[0]?.uri) {
+        setClientPhotoUri(result.assets[0].uri);
+      }
+    } catch (error) {
+      console.error("Client order gallery photo error:", error);
+      Alert.alert("Не удалось выбрать фото", "Попробуй ещё раз чуть позже.");
+    }
+  };
+
   const handleOpenMap = async () => {
     if (loading) {
       return;
@@ -410,6 +482,14 @@ export default function OrderDetailsScreen() {
 
     if (!isPhoneValid) {
       Alert.alert("Ошибка", "Введите телефон в формате +7 (999) 123-45-67");
+      return;
+    }
+
+    if (!clientPhotoUri) {
+      Alert.alert(
+          "Добавь фото пакетов",
+          "Сфотографируй мусор перед заказом. Это поможет курьеру и защитит обе стороны, если возникнет спор."
+      );
       return;
     }
 
@@ -434,6 +514,7 @@ export default function OrderDetailsScreen() {
         paymentMethod,
         tip: String(tip),
         total: String(totalPreview),
+        clientPhotoUri,
       },
     });
   };
@@ -622,6 +703,50 @@ export default function OrderDetailsScreen() {
                         }}
                         thumbColor={Platform.OS === "android" ? colors.white : undefined}
                         ios_backgroundColor={colors.border}
+                    />
+                  </View>
+                </AppCard>
+              </ScreenSection>
+
+              <ScreenSection
+                  title="Фото пакетов"
+                  subtitle="Снимок сохранится в заказе и поможет решить спорные ситуации"
+              >
+                <AppCard>
+                  {clientPhotoUri ? (
+                      <View style={styles.photoPreviewWrap}>
+                        <Image
+                            source={{ uri: clientPhotoUri }}
+                            style={styles.photoPreview}
+                        />
+                        <View style={styles.photoReadyBadge}>
+                          <Text style={styles.photoReadyText}>Фото добавлено</Text>
+                        </View>
+                      </View>
+                  ) : (
+                      <View style={styles.photoPlaceholder}>
+                        <Text style={styles.photoPlaceholderIcon}>+</Text>
+                        <Text style={styles.photoPlaceholderTitle}>
+                          Сфотографируй пакеты
+                        </Text>
+                        <Text style={styles.photoPlaceholderText}>
+                          Лучше снять так, чтобы было видно количество пакетов и место,
+                          где их забрать.
+                        </Text>
+                      </View>
+                  )}
+
+                  <View style={styles.photoActions}>
+                    <AppButton
+                        title={clientPhotoUri ? "Переснять фото" : "Сфотографировать"}
+                        onPress={handleTakeClientPhoto}
+                        disabled={loading}
+                    />
+                    <AppButton
+                        title="Выбрать из галереи"
+                        variant="secondary"
+                        onPress={handlePickClientPhoto}
+                        disabled={loading}
                     />
                   </View>
                 </AppCard>
@@ -1049,6 +1174,73 @@ function createStyles(colors: ReturnType<typeof useAppTheme>["colors"]) {
       fontSize: typography.body,
       lineHeight: 21,
       color: colors.textMuted,
+    },
+    photoPreviewWrap: {
+      position: "relative",
+      overflow: "hidden",
+      borderRadius: radii.xl,
+      backgroundColor: colors.surfaceSecondary,
+      borderWidth: 1,
+      borderColor: colors.border,
+    },
+    photoPreview: {
+      width: "100%",
+      aspectRatio: 4 / 3,
+      backgroundColor: colors.surfaceSecondary,
+    },
+    photoReadyBadge: {
+      position: "absolute",
+      left: spacing.md,
+      bottom: spacing.md,
+      borderRadius: radii.pill,
+      backgroundColor: colors.primary,
+      paddingHorizontal: spacing.md,
+      paddingVertical: spacing.xs,
+    },
+    photoReadyText: {
+      fontSize: typography.caption,
+      fontWeight: "800",
+      color: colors.white,
+    },
+    photoPlaceholder: {
+      minHeight: 190,
+      borderRadius: radii.xl,
+      borderWidth: 1,
+      borderStyle: "dashed",
+      borderColor: colors.border,
+      backgroundColor: colors.surfaceSecondary,
+      alignItems: "center",
+      justifyContent: "center",
+      padding: spacing.lg,
+    },
+    photoPlaceholderIcon: {
+      width: 44,
+      height: 44,
+      borderRadius: 999,
+      backgroundColor: colors.primarySoft,
+      color: colors.primary,
+      textAlign: "center",
+      lineHeight: 42,
+      fontSize: typography.h1,
+      fontWeight: "800",
+      marginBottom: spacing.sm,
+    },
+    photoPlaceholderTitle: {
+      fontSize: typography.h3,
+      fontWeight: "800",
+      color: colors.text,
+      textAlign: "center",
+      marginBottom: spacing.xs,
+    },
+    photoPlaceholderText: {
+      fontSize: typography.bodySmall,
+      lineHeight: 20,
+      color: colors.textMuted,
+      textAlign: "center",
+    },
+    photoActions: {
+      marginTop: spacing.md,
+      gap: spacing.sm,
     },
     optionGroup: {
       gap: spacing.sm,

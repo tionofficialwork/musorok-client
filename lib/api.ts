@@ -133,6 +133,76 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
   return payload as T;
 }
 
+export function getApiUrl(path: string) {
+  return `${apiBaseUrl}${path.startsWith("/") ? path : `/${path}`}`;
+}
+
+export async function uploadForm<T>(
+  path: string,
+  formData: FormData,
+  options: Pick<RequestOptions, "auth"> = {}
+): Promise<T> {
+  const headers: Record<string, string> = {
+    Accept: "application/json",
+  };
+
+  if (options.auth !== false) {
+    const token = await getApiToken();
+
+    if (token) {
+      headers["X-Musorok-Token"] = token;
+    }
+  }
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+  let response: Response;
+
+  try {
+    response = await fetch(getApiUrl(path), {
+      method: "POST",
+      headers,
+      body: formData,
+      signal: controller.signal,
+    });
+  } catch (error) {
+    if (error instanceof Error && error.name === "AbortError") {
+      throw new Error("Сервер не ответил вовремя. Попробуйте ещё раз.");
+    }
+
+    throw new Error(NETWORK_ERROR_MESSAGE);
+  } finally {
+    clearTimeout(timeout);
+  }
+
+  const text = await response.text();
+  let payload: any = null;
+
+  try {
+    payload = text ? JSON.parse(text) : null;
+  } catch {
+    if (!response.ok) {
+      throw new Error(
+        `Сервер временно недоступен (HTTP ${response.status}). Попробуйте позже.`
+      );
+    }
+
+    throw new Error("Сервер вернул некорректный ответ. Попробуйте позже.");
+  }
+
+  if (!response.ok) {
+    const message = getResponseErrorMessage(response, payload);
+
+    if (response.status === 401 && options.auth !== false) {
+      await clearApiSession();
+    }
+
+    throw new Error(message);
+  }
+
+  return payload as T;
+}
+
 export async function setApiSession(token: string, ownerKey: string) {
   await Promise.all([
     setApiToken(token),
@@ -287,6 +357,19 @@ export const api = {
     },
     history() {
       return request<{ orders: any[] }>("/orders/history");
+    },
+    photos(id: string) {
+      return request<{ photos: any[] }>(
+        `/orders/${encodeURIComponent(id)}/photos`
+      );
+    },
+    confirmCompletion(id: string) {
+      return request<{ order: any }>(
+        `/orders/${encodeURIComponent(id)}/completion/confirm`,
+        {
+          method: "POST",
+        }
+      );
     },
   },
   paymentPreferences: {

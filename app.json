@@ -16,6 +16,8 @@
     "ios": {
       "bundleIdentifier": "com.musorok.client",
       "infoPlist": {
+        "NSCameraUsageDescription": "МусорОК использует камеру, чтобы прикрепить фото пакетов к заказу и подтвердить выполнение.",
+        "NSPhotoLibraryUsageDescription": "МусорОК может открыть галерею, если нужно прикрепить уже сделанное фото пакетов.",
         "NSLocationAlwaysAndWhenInUseUsageDescription": "МусорОК использует геолокацию, чтобы быстрее выбрать адрес заказа на карте.",
         "NSLocationAlwaysUsageDescription": "МусорОК использует геолокацию только для выбора адреса заказа.",
         "NSLocationWhenInUseUsageDescription": "Разрешите доступ к геолокации, чтобы поставить точку заказа на карте."
@@ -31,6 +33,7 @@
       "permissions": [
         "ACCESS_COARSE_LOCATION",
         "ACCESS_FINE_LOCATION",
+        "CAMERA",
         "POST_NOTIFICATIONS"
       ]
     },
@@ -71,6 +74,13 @@
         }
       ],
       "expo-web-browser",
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Разрешите доступ к фото, чтобы прикрепить снимок пакетов к заказу.",
+          "cameraPermission": "Разрешите доступ к камере, чтобы сфотографировать пакеты перед заказом."
+        }
+      ],
       "expo-notifications",
       "expo-secure-store"
     ],

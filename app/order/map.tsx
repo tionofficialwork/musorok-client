@@ -48,6 +48,7 @@ type MapParams = {
   paymentMethod?: string;
   tip?: string;
   total?: string;
+  clientPhotoUri?: string;
   latitude?: string;
   longitude?: string;
 };
@@ -131,6 +132,8 @@ export default function OrderMapScreen() {
       typeof params.paymentMethod === "string" ? params.paymentMethod : "card";
   const tip = typeof params.tip === "string" ? params.tip : "0";
   const total = typeof params.total === "string" ? params.total : price;
+  const clientPhotoUri =
+      typeof params.clientPhotoUri === "string" ? params.clientPhotoUri : "";
 
   const initialAddress =
       typeof params.address === "string" ? cleanAddressForDisplay(params.address) : "";
@@ -331,6 +334,7 @@ export default function OrderMapScreen() {
         paymentMethod,
         tip,
         total,
+        clientPhotoUri,
         latitude: String(selectedPoint.latitude),
         longitude: String(selectedPoint.longitude),
       },
@@ -354,6 +358,7 @@ export default function OrderMapScreen() {
     leaveAtDoor,
     tip,
     total,
+    clientPhotoUri,
   ]);
 
   return (

@@ -1,5 +1,6 @@
 import {
   useCallback,
+  useEffect,
   useMemo,
   useRef,
   useState,
@@ -7,6 +8,7 @@ import {
 import {
   ActivityIndicator,
   Alert,
+  Image,
   RefreshControl,
   ScrollView,
   StyleSheet,
@@ -38,7 +40,7 @@ import {
   isCurrentActiveOrderTimelineStep,
   type ActiveOrderTimelineStep,
 } from "../../lib/orderStatus";
-import { api } from "../../lib/api";
+import { api, getApiToken } from "../../lib/api";
 import { cleanAddressForDisplay } from "../../lib/addressDisplay";
 import { notifyOrderStatusChanged } from "../../lib/orderNotifications";
 import { openOrderPaymentSession } from "../../lib/orderPaymentFlow";
@@ -48,6 +50,10 @@ import {
   isPaymentSuccessful,
   isPaymentStatusSuccessful,
 } from "../../lib/payments";
+import {
+  getOrderPhotoFileUrl,
+  type OrderPhoto,
+} from "../../lib/orderPhotos";
 import { radii, spacing, typography } from "../../lib/theme";
 import { useAppTheme } from "../../providers/AppThemeProvider";
 
@@ -127,7 +133,10 @@ export default function ActiveOrderScreen() {
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [isOpeningPayment, setIsOpeningPayment] = useState(false);
+  const [isConfirmingCompletion, setIsConfirmingCompletion] = useState(false);
   const [errorText, setErrorText] = useState<string | null>(null);
+  const [orderPhotos, setOrderPhotos] = useState<OrderPhoto[]>([]);
+  const [imageAuthToken, setImageAuthToken] = useState<string | null>(null);
   const pollTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const lastObservedOrderRef = useRef<ObservedOrderSnapshot | null>(null);
 
@@ -191,6 +200,47 @@ export default function ActiveOrderScreen() {
   }, [isWaitingForPayment, paymentPresentation, timelineSteps]);
   const canOpenPayment =
     Boolean(order?.id) && canOpenPaymentForStatus(order?.payment_status);
+  const clientBeforePhoto = orderPhotos.find(
+      (photo) => photo.kind === "client_before"
+  );
+  const courierAfterPhoto = orderPhotos.find(
+      (photo) => photo.kind === "courier_after"
+  );
+  const canConfirmCompletion =
+      Boolean(order?.id && courierAfterPhoto) &&
+      isPaymentConfirmed &&
+      order?.status !== "done" &&
+      order?.status !== "cancelled";
+
+  useEffect(() => {
+    let isMounted = true;
+
+    getApiToken()
+      .then((token) => {
+        if (isMounted) {
+          setImageAuthToken(token ?? null);
+        }
+      })
+      .catch(() => {
+        if (isMounted) {
+          setImageAuthToken(null);
+        }
+      });
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
+  const loadOrderPhotos = useCallback(async (orderId: string | number) => {
+    try {
+      const { photos } = await api.orders.photos(String(orderId));
+      setOrderPhotos(Array.isArray(photos) ? normalizeOrderPhotos(photos) : []);
+    } catch (error) {
+      console.warn("Failed to load order photos", error);
+      setOrderPhotos([]);
+    }
+  }, []);
 
   const applyStoredOrder = useCallback(async () => {
     const storedOrder = await getActiveOrder();
@@ -233,6 +283,7 @@ export default function ActiveOrderScreen() {
 
           if (nextOrder) {
             await syncActiveOrder(nextOrder);
+            await loadOrderPhotos(nextOrder.id);
 
             const nextSnapshot = {
               id: String(nextOrder.id),
@@ -253,6 +304,7 @@ export default function ActiveOrderScreen() {
           } else {
             await notifyMissingActiveOrderStatus(previousOrder);
             await clearActiveOrder();
+            setOrderPhotos([]);
             lastObservedOrderRef.current = null;
           }
         } catch (error: any) {
@@ -271,7 +323,7 @@ export default function ActiveOrderScreen() {
           setIsRefreshing(false);
         }
       },
-      [applyStoredOrder]
+      [applyStoredOrder, loadOrderPhotos]
   );
 
   useFocusEffect(
@@ -344,6 +396,32 @@ export default function ActiveOrderScreen() {
 
   const handleGoHome = () => {
     router.replace("/");
+  };
+
+  const handleConfirmCompletion = async () => {
+    if (!order?.id || isConfirmingCompletion) {
+      return;
+    }
+
+    try {
+      setIsConfirmingCompletion(true);
+      setErrorText(null);
+      await api.orders.confirmCompletion(String(order.id));
+      Alert.alert(
+          "Спасибо",
+          "Выполнение подтверждено. Заказ перенесён в историю."
+      );
+      await loadActiveOrder("refresh");
+    } catch (error) {
+      Alert.alert(
+          "Не удалось подтвердить",
+          error instanceof Error
+              ? error.message
+              : "Попробуй обновить заказ и повторить ещё раз."
+      );
+    } finally {
+      setIsConfirmingCompletion(false);
+    }
   };
 
   return (
@@ -658,6 +736,84 @@ export default function ActiveOrderScreen() {
                         ) : null}
 
                         <ScreenSection
+                            title="Фото и подтверждение"
+                            subtitle="Снимки помогают честно закрыть заказ и решить спорные ситуации"
+                        >
+                          <AppCard>
+                            {clientBeforePhoto ? (
+                                <OrderPhotoPreview
+                                    orderId={String(order.id)}
+                                    photo={clientBeforePhoto}
+                                    title="Фото при заказе"
+                                    subtitle="Снимок, который клиент прикрепил перед оплатой"
+                                    imageAuthToken={imageAuthToken}
+                                    styles={styles}
+                                />
+                            ) : (
+                                <View style={styles.photoEmptyBox}>
+                                  <Text style={styles.photoEmptyTitle}>
+                                    Фото при заказе не найдено
+                                  </Text>
+                                  <Text style={styles.photoEmptyText}>
+                                    Новые заказы будут просить добавить снимок пакетов
+                                    перед оформлением.
+                                  </Text>
+                                </View>
+                            )}
+
+                            <Divider styles={styles} />
+
+                            {courierAfterPhoto ? (
+                                <>
+                                  <OrderPhotoPreview
+                                      orderId={String(order.id)}
+                                      photo={courierAfterPhoto}
+                                      title="Фото после выноса"
+                                      subtitle="Проверь снимок от курьера перед закрытием заказа"
+                                      imageAuthToken={imageAuthToken}
+                                      styles={styles}
+                                  />
+
+                                  <View style={styles.completionBox}>
+                                    <Text style={styles.completionTitle}>
+                                      Всё выглядит правильно?
+                                    </Text>
+                                    <Text style={styles.completionText}>
+                                      Подтверди выполнение, если пакеты вынесены и фото
+                                      совпадает с заказом.
+                                    </Text>
+                                    <View style={styles.completionAction}>
+                                      <AppButton
+                                          title={
+                                            isConfirmingCompletion
+                                                ? "Подтверждаем..."
+                                                : "Подтвердить выполнение"
+                                          }
+                                          onPress={handleConfirmCompletion}
+                                          disabled={
+                                            !canConfirmCompletion ||
+                                            isConfirmingCompletion ||
+                                            isRefreshing
+                                          }
+                                      />
+                                    </View>
+                                  </View>
+                                </>
+                            ) : (
+                                <View style={styles.photoWaitingBox}>
+                                  <Text style={styles.photoWaitingTitle}>
+                                    Ждём фото от курьера
+                                  </Text>
+                                  <Text style={styles.photoWaitingText}>
+                                    Когда курьер загрузит финальный снимок, он появится
+                                    здесь для подтверждения.
+                                  </Text>
+                                </View>
+                            )}
+                          </AppCard>
+                        </ScreenSection>
+
+                        <ScreenSection
                             title="Оплата"
                             subtitle="Сумма и выбранный способ оплаты"
                         >
@@ -750,6 +906,45 @@ function InfoRow({
         >
           {value}
         </Text>
+      </View>
+  );
+}
+
+function OrderPhotoPreview({
+                             orderId,
+                             photo,
+                             title,
+                             subtitle,
+                             imageAuthToken,
+                             styles,
+                           }: {
+  orderId: string;
+  photo: OrderPhoto;
+  title: string;
+  subtitle: string;
+  imageAuthToken: string | null;
+  styles: ReturnType<typeof createStyles>;
+}) {
+  return (
+      <View style={styles.photoPreviewBlock}>
+        <View style={styles.photoPreviewHeader}>
+          <Text style={styles.photoPreviewTitle}>{title}</Text>
+          <Text style={styles.photoPreviewMeta}>
+            {formatPhotoSize(photo.byte_size)}
+          </Text>
+        </View>
+        <Text style={styles.photoPreviewSubtitle}>{subtitle}</Text>
+        <Image
+            source={{
+              uri: getOrderPhotoFileUrl(orderId, photo.id),
+              headers: imageAuthToken
+                  ? {
+                    "X-Musorok-Token": imageAuthToken,
+                  }
+                  : undefined,
+            }}
+            style={styles.orderPhoto}
+        />
       </View>
   );
 }
@@ -848,6 +1043,53 @@ function normalizeOrderRow(value: any): OrderRow | null {
     call_required: value.call_required ?? null,
     owner_key: value.owner_key ?? null,
   };
+}
+
+function normalizeOrderPhotos(values: any[]): OrderPhoto[] {
+  return values
+    .map((value) => {
+      const id = typeof value?.id === "string" ? value.id : "";
+      const orderId = typeof value?.order_id === "string" ? value.order_id : "";
+      const kind =
+          value?.kind === "client_before" || value?.kind === "courier_after"
+              ? value.kind
+              : null;
+
+      if (!id || !orderId || !kind) {
+        return null;
+      }
+
+      return {
+        id,
+        order_id: orderId,
+        kind,
+        content_type:
+            typeof value?.content_type === "string"
+                ? value.content_type
+                : "image/jpeg",
+        byte_size:
+            typeof value?.byte_size === "number" && Number.isFinite(value.byte_size)
+                ? value.byte_size
+                : 0,
+        uploaded_by:
+            typeof value?.uploaded_by === "string" ? value.uploaded_by : "system",
+        created_at:
+            typeof value?.created_at === "string" ? value.created_at : null,
+      };
+    })
+    .filter((photo): photo is OrderPhoto => Boolean(photo));
+}
+
+function formatPhotoSize(value: number) {
+  if (!Number.isFinite(value) || value <= 0) {
+    return "Фото";
+  }
+
+  if (value >= 1024 * 1024) {
+    return `${(value / (1024 * 1024)).toFixed(1)} МБ`;
+  }
+
+  return `${Math.max(1, Math.round(value / 1024))} КБ`;
 }
 
 function getPaymentBlockingPresentation(
@@ -1267,6 +1509,95 @@ function createStyles(colors: ReturnType<typeof useAppTheme>["colors"]) {
       fontSize: typography.body,
       lineHeight: 21,
       color: colors.textMuted,
+    },
+    photoPreviewBlock: {
+      gap: spacing.sm,
+    },
+    photoPreviewHeader: {
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "space-between",
+      gap: spacing.md,
+    },
+    photoPreviewTitle: {
+      flex: 1,
+      minWidth: 0,
+      fontSize: typography.body,
+      fontWeight: "800",
+      color: colors.text,
+    },
+    photoPreviewMeta: {
+      fontSize: typography.caption,
+      fontWeight: "700",
+      color: colors.textMuted,
+    },
+    photoPreviewSubtitle: {
+      fontSize: typography.bodySmall,
+      lineHeight: 20,
+      color: colors.textMuted,
+    },
+    orderPhoto: {
+      width: "100%",
+      aspectRatio: 4 / 3,
+      borderRadius: radii.xl,
+      backgroundColor: colors.surfaceSecondary,
+    },
+    photoEmptyBox: {
+      borderRadius: radii.lg,
+      borderWidth: 1,
+      borderStyle: "dashed",
+      borderColor: colors.border,
+      backgroundColor: colors.surfaceSecondary,
+      padding: spacing.md,
+      gap: spacing.xs,
+    },
+    photoEmptyTitle: {
+      fontSize: typography.body,
+      fontWeight: "800",
+      color: colors.text,
+    },
+    photoEmptyText: {
+      fontSize: typography.bodySmall,
+      lineHeight: 20,
+      color: colors.textMuted,
+    },
+    photoWaitingBox: {
+      borderRadius: radii.lg,
+      backgroundColor: colors.surfaceSecondary,
+      padding: spacing.md,
+      gap: spacing.xs,
+    },
+    photoWaitingTitle: {
+      fontSize: typography.body,
+      fontWeight: "800",
+      color: colors.text,
+    },
+    photoWaitingText: {
+      fontSize: typography.bodySmall,
+      lineHeight: 20,
+      color: colors.textMuted,
+    },
+    completionBox: {
+      marginTop: spacing.md,
+      borderRadius: radii.lg,
+      backgroundColor: colors.primarySoft,
+      borderWidth: 1,
+      borderColor: colors.primary,
+      padding: spacing.md,
+      gap: spacing.xs,
+    },
+    completionTitle: {
+      fontSize: typography.body,
+      fontWeight: "800",
+      color: colors.text,
+    },
+    completionText: {
+      fontSize: typography.bodySmall,
+      lineHeight: 20,
+      color: colors.textSecondary,
+    },
+    completionAction: {
+      marginTop: spacing.sm,
     },
     totalBox: {
       marginTop: spacing.md,

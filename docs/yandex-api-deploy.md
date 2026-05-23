@@ -145,6 +145,31 @@ curl -X PATCH "https://<id>.containers.yandexcloud.net/admin/orders/<order-id>/s
 Разрешённые переходы: `new -> assigned -> on_the_way -> arrived -> done`, из
 активных статусов также можно перейти в `cancelled`.
 
+## 4.3. Фото заказа и подтверждение выполнения
+
+Для фото-доказательств и клиентского подтверждения выполнения применяется
+миграция:
+
+```bash
+psql "$DATABASE_URL" -f docs/order-completion-photos-migration.sql
+```
+
+Клиентское приложение прикрепляет фото пакетов к заказу через
+`POST /orders/<order-id>/photos` с `kind=client_before`.
+
+Курьерская или операторская часть должна загрузить финальное фото через
+защищённый endpoint:
+
+```bash
+curl -X POST "https://<id>.containers.yandexcloud.net/admin/orders/<order-id>/photos" \
+  -H "X-Musorok-Admin-Token: <API_ADMIN_TOKEN>" \
+  -F "kind=courier_after" \
+  -F "photo=@/path/to/photo.jpg"
+```
+
+После появления финального фото клиент увидит его на активном заказе и сможет
+нажать `Подтвердить выполнение`. Только после этого заказ перейдёт в `done`.
+
 ## 5. Проверить публичный API
 
 После создания ревизии Яндекс даст URL вида:

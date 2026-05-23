@@ -92,6 +92,8 @@ create table if not exists orders (
   total integer not null default 0,
   courier_id text,
   call_required boolean not null default true,
+  completion_confirmed_at timestamptz,
+  completion_confirmed_by text,
   constraint orders_status_check check (
     status in ('new', 'assigned', 'on_the_way', 'arrived', 'done', 'cancelled')
   ),
@@ -104,7 +106,11 @@ create table if not exists orders (
   ),
   constraint orders_package_price_check check (package_price >= 0),
   constraint orders_tip_check check (tip >= 0),
-  constraint orders_total_check check (total >= 0)
+  constraint orders_total_check check (total >= 0),
+  constraint orders_completion_confirmed_by_check check (
+    completion_confirmed_by is null
+    or completion_confirmed_by in ('client', 'admin')
+  )
 );
 
 create index if not exists orders_owner_created_at_idx
@@ -175,6 +181,35 @@ drop trigger if exists orders_set_updated_at on orders;
 create trigger orders_set_updated_at
 before update on orders
 for each row execute function set_updated_at();
+
+create table if not exists order_photos (
+  id uuid primary key default gen_random_uuid(),
+  order_id uuid not null references orders(id) on delete cascade,
+  owner_key text not null,
+  kind text not null,
+  content_type text not null,
+  byte_size integer not null,
+  image_data bytea not null,
+  uploaded_by text not null,
+  created_at timestamptz not null default now(),
+  constraint order_photos_kind_check
+    check (kind in ('client_before', 'courier_after')),
+  constraint order_photos_content_type_check
+    check (
+      content_type in (
+        'image/jpeg', 'image/png', 'image/webp', 'image/heic', 'image/heif'
+      )
+    ),
+  constraint order_photos_byte_size_check check (byte_size > 0),
+  constraint order_photos_uploaded_by_check
+    check (uploaded_by in ('client', 'courier', 'admin'))
+);
+
+create unique index if not exists order_photos_order_kind_idx
+  on order_photos (order_id, kind);
+
+create index if not exists order_photos_owner_order_idx
+  on order_photos (owner_key, order_id, created_at desc);
 
 drop trigger if exists user_payment_preferences_set_updated_at
   on user_payment_preferences;

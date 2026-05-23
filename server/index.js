@@ -3,6 +3,7 @@ require("dotenv").config();
 const crypto = require("crypto");
 const cors = require("cors");
 const express = require("express");
+const multer = require("multer");
 const { pool, query } = require("./db");
 const { getOrderPackage, getOrderPackageLabel } = require("./orderCatalog");
 const { isExpoPushToken, sendExpoPushMessages } = require("./pushNotifications");
@@ -27,6 +28,9 @@ const authSmsSendWindowMinutes = Number(
 );
 const authTokenTtlDays = Number(process.env.AUTH_TOKEN_TTL_DAYS || 180);
 const maxOrderTip = Number(process.env.MAX_ORDER_TIP_RUBLES || 1000);
+const orderPhotoMaxBytes = Number(
+  process.env.ORDER_PHOTO_MAX_BYTES || 5 * 1024 * 1024
+);
 const adminToken = process.env.API_ADMIN_TOKEN || "";
 const apiEnv = process.env.API_ENV || process.env.NODE_ENV || "development";
 const isProduction = apiEnv === "production";
@@ -266,6 +270,49 @@ function createHttpError(message, statusCode) {
   return error;
 }
 
+const allowedOrderPhotoContentTypes = new Set([
+  "image/jpeg",
+  "image/jpg",
+  "image/png",
+  "image/webp",
+  "image/heic",
+  "image/heif",
+]);
+
+const orderPhotoUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: {
+    fileSize:
+      Number.isFinite(orderPhotoMaxBytes) && orderPhotoMaxBytes > 0
+        ? orderPhotoMaxBytes
+        : 5 * 1024 * 1024,
+  },
+  fileFilter(_req, file, callback) {
+    if (allowedOrderPhotoContentTypes.has(String(file.mimetype || ""))) {
+      callback(null, true);
+      return;
+    }
+
+    callback(createHttpError("Загрузите фото в формате JPEG, PNG или WebP.", 400));
+  },
+});
+
+function orderPhotoUploadMiddleware(req, res, next) {
+  orderPhotoUpload.single("photo")(req, res, (error) => {
+    if (!error) {
+      next();
+      return;
+    }
+
+    if (error instanceof multer.MulterError && error.code === "LIMIT_FILE_SIZE") {
+      next(createHttpError("Фото слишком большое. Максимум — 5 МБ.", 400));
+      return;
+    }
+
+    next(error);
+  });
+}
+
 function sanitizeProfile(row) {
   if (!row) {
     return null;
@@ -461,6 +508,64 @@ async function notifyOrderStatusUpdate(order) {
     })));
   } catch (error) {
     console.error("Failed to send order status push", error);
+  }
+}
+
+async function notifyOrderCompletionPhotoReady(order) {
+  if (!order?.owner_key || !order?.id) {
+    return;
+  }
+
+  const preferencesResult = await query(
+    `select order_updates_enabled, system_enabled, quiet_hours_enabled,
+            quiet_hours_start, quiet_hours_end
+     from user_notification_preferences
+     where owner_key = $1
+     limit 1`,
+    [order.owner_key]
+  );
+  const preferences = preferencesResult.rows[0];
+
+  if (
+    preferences &&
+    (preferences.system_enabled === false ||
+      preferences.order_updates_enabled === false ||
+      (preferences.quiet_hours_enabled === true &&
+        isQuietHoursNow(preferences.quiet_hours_start, preferences.quiet_hours_end)))
+  ) {
+    return;
+  }
+
+  const tokensResult = await query(
+    `select token
+     from user_push_tokens
+     where owner_key = $1
+     order by updated_at desc
+     limit 20`,
+    [order.owner_key]
+  );
+  const tokens = tokensResult.rows
+    .map((row) => row.token)
+    .filter((token) => isExpoPushToken(token));
+
+  if (tokens.length === 0) {
+    return;
+  }
+
+  try {
+    await sendExpoPushMessages(tokens.map((token) => ({
+      to: token,
+      sound: "default",
+      title: "Курьер загрузил фото",
+      body: "Проверь снимок и подтверди выполнение заказа.",
+      data: {
+        orderId: String(order.id),
+        status: order.status,
+        event: "completion_photo_ready",
+      },
+    })));
+  } catch (error) {
+    console.error("Failed to send order photo push", error);
   }
 }
 
@@ -1357,6 +1462,10 @@ app.patch("/admin/orders/:id/status", requireAdminToken, asyncRoute(async (req, 
   assertOrderStatusTransition(order.status, nextStatus);
   assertPaymentReadyForOrderProgress(order, nextStatus);
 
+  if (nextStatus === "done") {
+    await assertOrderHasCourierCompletionPhoto(order.id);
+  }
+
   if (order.status === nextStatus) {
     res.json({ order });
     return;
@@ -1506,6 +1615,151 @@ function buildCreateOrderPayload(body, ownerKey) {
   };
 }
 
+function normalizeOrderPhotoKind(value) {
+  const kind = String(value || "").trim();
+
+  if (kind === "client_before" || kind === "courier_after") {
+    return kind;
+  }
+
+  return null;
+}
+
+function normalizeOrderPhotoContentType(value) {
+  const contentType = String(value || "image/jpeg").toLowerCase();
+
+  return contentType === "image/jpg" ? "image/jpeg" : contentType;
+}
+
+function sanitizeOrderPhoto(row) {
+  if (!row) {
+    return null;
+  }
+
+  return {
+    id: row.id,
+    order_id: row.order_id,
+    kind: row.kind,
+    content_type: row.content_type,
+    byte_size: row.byte_size,
+    uploaded_by: row.uploaded_by,
+    created_at: row.created_at,
+  };
+}
+
+async function fetchOrderPhotosForOwner(orderId, ownerKey) {
+  const result = await query(
+    `select p.id, p.order_id, p.kind, p.content_type, p.byte_size,
+            p.uploaded_by, p.created_at
+     from order_photos p
+     join orders o on o.id = p.order_id
+     where p.order_id = $1 and o.owner_key = $2
+     order by p.created_at asc`,
+    [orderId, ownerKey]
+  );
+
+  return result.rows.map(sanitizeOrderPhoto).filter(Boolean);
+}
+
+async function assertOrderHasCourierCompletionPhoto(orderId) {
+  const result = await query(
+    `select id
+     from order_photos
+     where order_id = $1 and kind = 'courier_after'
+     limit 1`,
+    [orderId]
+  );
+
+  if (!result.rows[0]) {
+    throw createHttpError(
+      "Перед завершением заказа нужно загрузить фото выполнения.",
+      409
+    );
+  }
+}
+
+async function saveOrderPhoto({
+  orderId,
+  ownerKey,
+  kind,
+  file,
+  uploadedBy,
+  requireOwner,
+}) {
+  const normalizedKind = normalizeOrderPhotoKind(kind);
+
+  if (!normalizedKind) {
+    throw createHttpError("Некорректный тип фото.", 400);
+  }
+
+  if (!file?.buffer?.length) {
+    throw createHttpError("Прикрепите фото заказа.", 400);
+  }
+
+  const contentType = normalizeOrderPhotoContentType(file.mimetype);
+
+  if (!allowedOrderPhotoContentTypes.has(contentType)) {
+    throw createHttpError("Загрузите фото в формате JPEG, PNG или WebP.", 400);
+  }
+
+  const client = await pool.connect();
+
+  try {
+    await client.query("begin");
+
+    const orderResult = await client.query(
+      `select *
+       from orders
+       where id = $1 ${requireOwner ? "and owner_key = $2" : ""}
+       limit 1
+       for update`,
+      requireOwner ? [orderId, ownerKey] : [orderId]
+    );
+    const order = orderResult.rows[0];
+
+    if (!order) {
+      throw createHttpError("Заказ не найден.", 404);
+    }
+
+    await client.query(
+      `delete from order_photos
+       where order_id = $1 and kind = $2`,
+      [order.id, normalizedKind]
+    );
+
+    const photoResult = await client.query(
+      `insert into order_photos (
+         order_id, owner_key, kind, content_type, byte_size,
+         image_data, uploaded_by
+       )
+       values ($1, $2, $3, $4, $5, $6, $7)
+       returning id, order_id, kind, content_type, byte_size,
+                 uploaded_by, created_at`,
+      [
+        order.id,
+        order.owner_key,
+        normalizedKind,
+        contentType,
+        file.buffer.length,
+        file.buffer,
+        uploadedBy,
+      ]
+    );
+
+    await client.query("commit");
+
+    return {
+      order,
+      photo: sanitizeOrderPhoto(photoResult.rows[0]),
+    };
+  } catch (error) {
+    await client.query("rollback").catch(() => {});
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
 app.post("/orders", requireOwnerKey, asyncRoute(async (req, res) => {
   const order = buildCreateOrderPayload(req.body || {}, req.ownerKey);
 
@@ -1551,6 +1805,169 @@ app.post("/orders", requireOwnerKey, asyncRoute(async (req, res) => {
 
   res.status(201).json({ order: result.rows[0] });
 }));
+
+app.get("/orders/:id/photos", requireOwnerKey, asyncRoute(async (req, res) => {
+  const photos = await fetchOrderPhotosForOwner(req.params.id, req.ownerKey);
+
+  res.json({ photos });
+}));
+
+app.get("/orders/:id/photos/:photoId/file", requireOwnerKey, asyncRoute(async (req, res) => {
+  const result = await query(
+    `select p.content_type, p.image_data
+     from order_photos p
+     join orders o on o.id = p.order_id
+     where p.order_id = $1 and p.id = $2 and o.owner_key = $3
+     limit 1`,
+    [req.params.id, req.params.photoId, req.ownerKey]
+  );
+  const photo = result.rows[0];
+
+  if (!photo) {
+    res.status(404).json({ error: "Фото не найдено." });
+    return;
+  }
+
+  res
+    .type(photo.content_type)
+    .set("Cache-Control", "private, max-age=300")
+    .send(photo.image_data);
+}));
+
+app.post(
+  "/orders/:id/photos",
+  requireOwnerKey,
+  orderPhotoUploadMiddleware,
+  asyncRoute(async (req, res) => {
+    const kind = normalizeOrderPhotoKind(req.body?.kind);
+
+    if (kind !== "client_before") {
+      res.status(400).json({ error: "Клиент может загрузить только фото при заказе." });
+      return;
+    }
+
+    const { photo } = await saveOrderPhoto({
+      orderId: req.params.id,
+      ownerKey: req.ownerKey,
+      kind,
+      file: req.file,
+      uploadedBy: "client",
+      requireOwner: true,
+    });
+
+    res.status(201).json({ photo });
+  })
+);
+
+app.post("/orders/:id/completion/confirm", requireOwnerKey, asyncRoute(async (req, res) => {
+  const orderResult = await query(
+    `select *
+     from orders
+     where id = $1 and owner_key = $2
+     limit 1`,
+    [req.params.id, req.ownerKey]
+  );
+  const order = orderResult.rows[0];
+
+  if (!order) {
+    res.status(404).json({ error: "Заказ не найден." });
+    return;
+  }
+
+  if (order.status === "done") {
+    res.json({ order });
+    return;
+  }
+
+  if (order.status === "cancelled") {
+    res.status(409).json({ error: "Отменённый заказ нельзя подтвердить." });
+    return;
+  }
+
+  if (!isOrderPaymentConfirmed(order)) {
+    res.status(409).json({ error: "Сначала дождитесь подтверждения оплаты заказа." });
+    return;
+  }
+
+  await assertOrderHasCourierCompletionPhoto(order.id);
+
+  const updatedResult = await query(
+    `update orders
+     set status = 'done',
+         completion_confirmed_at = now(),
+         completion_confirmed_by = 'client',
+         updated_at = now()
+     where id = $1 and owner_key = $2
+     returning *`,
+    [order.id, req.ownerKey]
+  );
+  const updatedOrder = updatedResult.rows[0];
+
+  await notifyOrderStatusUpdate(updatedOrder);
+
+  res.json({ order: updatedOrder });
+}));
+
+app.get("/admin/orders/:id/photos", requireAdminToken, asyncRoute(async (req, res) => {
+  const result = await query(
+    `select id, order_id, kind, content_type, byte_size,
+            uploaded_by, created_at
+     from order_photos
+     where order_id = $1
+     order by created_at asc`,
+    [req.params.id]
+  );
+
+  res.json({ photos: result.rows.map(sanitizeOrderPhoto).filter(Boolean) });
+}));
+
+app.get("/admin/orders/:id/photos/:photoId/file", requireAdminToken, asyncRoute(async (req, res) => {
+  const result = await query(
+    `select content_type, image_data
+     from order_photos
+     where order_id = $1 and id = $2
+     limit 1`,
+    [req.params.id, req.params.photoId]
+  );
+  const photo = result.rows[0];
+
+  if (!photo) {
+    res.status(404).json({ error: "Фото не найдено." });
+    return;
+  }
+
+  res
+    .type(photo.content_type)
+    .set("Cache-Control", "private, max-age=300")
+    .send(photo.image_data);
+}));
+
+app.post(
+  "/admin/orders/:id/photos",
+  requireAdminToken,
+  orderPhotoUploadMiddleware,
+  asyncRoute(async (req, res) => {
+    const kind = normalizeOrderPhotoKind(req.body?.kind || "courier_after");
+
+    if (kind !== "courier_after") {
+      res.status(400).json({ error: "Для курьера доступно только финальное фото." });
+      return;
+    }
+
+    const { order, photo } = await saveOrderPhoto({
+      orderId: req.params.id,
+      ownerKey: null,
+      kind,
+      file: req.file,
+      uploadedBy: "courier",
+      requireOwner: false,
+    });
+
+    await notifyOrderCompletionPhotoReady(order);
+
+    res.status(201).json({ photo });
+  })
+);
 
 app.post("/orders/:id/payment/init", requireOwnerKey, asyncRoute(async (req, res) => {
   const orderResult = await query(

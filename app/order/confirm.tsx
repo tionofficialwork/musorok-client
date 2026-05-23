@@ -7,6 +7,7 @@ import {
   ActivityIndicator,
   Alert,
   BackHandler,
+  Image,
   ScrollView,
   StyleSheet,
   Text,
@@ -23,7 +24,8 @@ import AppButton from "../../components/ui/AppButton";
 import AppCard from "../../components/ui/AppCard";
 import ScreenSection from "../../components/ui/ScreenSection";
 import { cleanAddressForDisplay } from "../../lib/addressDisplay";
-import createOrder from "../../lib/createOrder";
+import createOrder, { type OrderRecord } from "../../lib/createOrder";
+import { uploadOrderPhoto } from "../../lib/orderPhotos";
 import { openOrderPaymentSession } from "../../lib/orderPaymentFlow";
 import { isPaymentSuccessful } from "../../lib/payments";
 import type { PaymentMethod } from "../../lib/paymentPreferences";
@@ -49,6 +51,7 @@ type ConfirmParams = {
   total?: string;
   latitude?: string;
   longitude?: string;
+  clientPhotoUri?: string;
 };
 
 function getPaymentMethodLabel(method: PaymentMethod) {
@@ -124,6 +127,8 @@ export default function OrderConfirmScreen() {
   }, [address, addressLabel]);
   const comment = typeof params.comment === "string" ? params.comment : "";
   const phone = typeof params.phone === "string" ? params.phone : "";
+  const clientPhotoUri =
+      typeof params.clientPhotoUri === "string" ? params.clientPhotoUri : "";
 
   const latitude = parseCoordinate(
       typeof params.latitude === "string" ? params.latitude : undefined
@@ -143,6 +148,9 @@ export default function OrderConfirmScreen() {
       [params.tip]
   );
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [createdOrderForRetry, setCreatedOrderForRetry] =
+      useState<OrderRecord | null>(null);
+  const [isClientPhotoUploaded, setIsClientPhotoUploaded] = useState(false);
 
   const total = useMemo(() => packagePrice + tip, [packagePrice, tip]);
 
@@ -187,6 +195,14 @@ export default function OrderConfirmScreen() {
       return;
     }
 
+    if (!clientPhotoUri) {
+      Alert.alert(
+          "Нет фото пакетов",
+          "Вернись на экран деталей и добавь фото мусора перед созданием заказа."
+      );
+      return;
+    }
+
     if (latitude === null || longitude === null) {
       Alert.alert(
           "Адрес не подтверждён",
@@ -198,29 +214,51 @@ export default function OrderConfirmScreen() {
     setIsSubmitting(true);
 
     try {
-      const createdOrder = await createOrder({
-        status: "new",
-        address,
-        package_id: packageId,
-        package_label: packageName,
-        package_price: packagePrice,
-        apartment,
-        entrance,
-        floor,
-        intercom,
-        address_label: effectiveAddressLabel,
-        latitude,
-        longitude,
-        comment,
-        leave_at_door: leaveAtDoor,
-        phone,
-        should_call: shouldCall,
-        payment_method: paymentMethod,
-        tip,
-        total,
-        call_required: shouldCall,
-      });
+      const createdOrder =
+          createdOrderForRetry ??
+          (await createOrder({
+            status: "new",
+            address,
+            package_id: packageId,
+            package_label: packageName,
+            package_price: packagePrice,
+            apartment,
+            entrance,
+            floor,
+            intercom,
+            address_label: effectiveAddressLabel,
+            latitude,
+            longitude,
+            comment,
+            leave_at_door: leaveAtDoor,
+            phone,
+            should_call: shouldCall,
+            payment_method: paymentMethod,
+            tip,
+            total,
+            call_required: shouldCall,
+          }));
       const orderId = String(createdOrder.id);
+
+      if (!createdOrderForRetry) {
+        setCreatedOrderForRetry(createdOrder);
+      }
+
+      if (!isClientPhotoUploaded) {
+        try {
+          await uploadOrderPhoto(orderId, "client_before", clientPhotoUri);
+          setIsClientPhotoUploaded(true);
+        } catch (photoError: any) {
+          Alert.alert(
+              "Фото не загрузилось",
+              typeof photoError?.message === "string"
+                  ? `${photoError.message}\n\nЗаказ уже создан. Нажми «Подтвердить заказ» ещё раз, чтобы повторить загрузку фото и продолжить оплату.`
+                  : "Заказ уже создан. Нажми «Подтвердить заказ» ещё раз, чтобы повторить загрузку фото и продолжить оплату."
+          );
+          return;
+        }
+      }
+
       let checkedPayment: Awaited<ReturnType<typeof openOrderPaymentSession>>;
 
       try {
@@ -230,11 +268,11 @@ export default function OrderConfirmScreen() {
           pathname: "/order/payment-return" as never,
           params: {
             orderId,
-            result: "init_error",
-            message:
-                typeof paymentError?.message === "string"
-                    ? paymentError.message
-                    : "Не удалось открыть оплату.",
+              result: "init_error",
+              message:
+                  typeof paymentError?.message === "string"
+                      ? paymentError.message
+                      : "Не удалось открыть оплату.",
           },
         });
         return;
@@ -364,9 +402,9 @@ export default function OrderConfirmScreen() {
               </ScreenSection>
 
               <ScreenSection
-                  title="Параметры выполнения"
-                  subtitle="Как курьеру лучше взаимодействовать с заказом"
-              >
+              title="Параметры выполнения"
+              subtitle="Как курьеру лучше взаимодействовать с заказом"
+          >
                 <AppCard>
                   <View style={styles.summaryRow}>
                     <Text style={styles.summaryLabel}>Забрать у двери</Text>
@@ -383,6 +421,27 @@ export default function OrderConfirmScreen() {
                       {shouldCall ? "Да" : "Нет"}
                     </Text>
                   </View>
+                </AppCard>
+              </ScreenSection>
+
+              <ScreenSection
+                  title="Фото для курьера"
+                  subtitle="Этот снимок будет прикреплён к заказу"
+              >
+                <AppCard>
+                  {clientPhotoUri ? (
+                      <Image
+                          source={{ uri: clientPhotoUri }}
+                          style={styles.evidencePhoto}
+                      />
+                  ) : (
+                      <View style={styles.evidenceMissingBox}>
+                        <Text style={styles.evidenceMissingTitle}>Фото не найдено</Text>
+                        <Text style={styles.evidenceMissingText}>
+                          Вернись назад и добавь снимок пакетов перед созданием заказа.
+                        </Text>
+                      </View>
+                  )}
                 </AppCard>
               </ScreenSection>
 
@@ -580,6 +639,36 @@ function createStyles(colors: ReturnType<typeof useAppTheme>["colors"]) {
       fontSize: typography.body,
       lineHeight: 21,
       color: colors.text,
+    },
+    evidencePhoto: {
+      width: "100%",
+      aspectRatio: 4 / 3,
+      borderRadius: radii.xl,
+      backgroundColor: colors.surfaceSecondary,
+    },
+    evidenceMissingBox: {
+      minHeight: 150,
+      borderRadius: radii.xl,
+      borderWidth: 1,
+      borderStyle: "dashed",
+      borderColor: colors.border,
+      backgroundColor: colors.surfaceSecondary,
+      alignItems: "center",
+      justifyContent: "center",
+      padding: spacing.lg,
+    },
+    evidenceMissingTitle: {
+      fontSize: typography.h3,
+      fontWeight: "800",
+      color: colors.text,
+      marginBottom: spacing.xs,
+      textAlign: "center",
+    },
+    evidenceMissingText: {
+      fontSize: typography.bodySmall,
+      lineHeight: 20,
+      color: colors.textMuted,
+      textAlign: "center",
     },
     totalBox: {
       marginTop: spacing.md,
