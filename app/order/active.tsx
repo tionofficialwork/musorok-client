@@ -36,6 +36,7 @@ import {
   isActiveOrderStatus,
   isCompletedActiveOrderTimelineStep,
   isCurrentActiveOrderTimelineStep,
+  type ActiveOrderTimelineStep,
 } from "../../lib/orderStatus";
 import { api } from "../../lib/api";
 import { cleanAddressForDisplay } from "../../lib/addressDisplay";
@@ -43,7 +44,9 @@ import { notifyOrderStatusChanged } from "../../lib/orderNotifications";
 import { openOrderPaymentSession } from "../../lib/orderPaymentFlow";
 import {
   canOpenPaymentForStatus,
+  getPaymentStatusLabel,
   isPaymentSuccessful,
+  isPaymentStatusSuccessful,
 } from "../../lib/payments";
 import { radii, spacing, typography } from "../../lib/theme";
 import { useAppTheme } from "../../providers/AppThemeProvider";
@@ -86,6 +89,35 @@ type ObservedOrderSnapshot = {
   status: string | null;
 };
 
+type PaymentBlockingPresentation = {
+  title: string;
+  subtitle: string;
+  statusBoxTitle: string;
+  statusBoxText: string;
+  progressLabel: string;
+  progressValue: number;
+  timelineLabel: string;
+  timelineMeta: string;
+  pillStatus: string | null;
+};
+
+type DisplayTimelinePaymentStep = {
+  key: string;
+  shortLabel: string;
+  meta: string;
+  kind: "payment";
+};
+
+type DisplayTimelineOrderStep = {
+  key: string;
+  shortLabel: string;
+  meta: string;
+  status: ActiveOrderTimelineStep["status"];
+  kind: "order";
+};
+
+type DisplayTimelineStep = DisplayTimelinePaymentStep | DisplayTimelineOrderStep;
+
 export default function ActiveOrderScreen() {
   const router = useRouter();
   const { colors } = useAppTheme();
@@ -104,6 +136,59 @@ export default function ActiveOrderScreen() {
   const shortStatusLabel = getOrderStatusShortLabel(order?.status ?? null);
   const orderMeta = getActiveOrderStatusMeta(order?.status ?? null);
   const progressValue = getActiveOrderProgressValue(order?.status ?? null);
+  const isPaymentConfirmed = isPaymentStatusSuccessful(order?.payment_status);
+  const isWaitingForPayment = Boolean(order) && !isPaymentConfirmed;
+  const paymentPresentation = useMemo(
+    () => getPaymentBlockingPresentation(order?.payment_status),
+    [order?.payment_status]
+  );
+  const displayTitle = isWaitingForPayment
+    ? paymentPresentation.title
+    : shortStatusLabel;
+  const displaySubtitle = isWaitingForPayment
+    ? paymentPresentation.subtitle
+    : orderMeta;
+  const displayStatusLabel = isWaitingForPayment
+    ? getPaymentStatusLabel(order?.payment_status)
+    : statusLabel;
+  const displayStatusPillStatus = isWaitingForPayment
+    ? paymentPresentation.pillStatus
+    : order?.status ?? null;
+  const displayProgressLabel = isWaitingForPayment
+    ? paymentPresentation.progressLabel
+    : "Прогресс заказа";
+  const displayProgressValue = isWaitingForPayment
+    ? paymentPresentation.progressValue
+    : progressValue;
+  const displayStatusBoxTitle = isWaitingForPayment
+    ? paymentPresentation.statusBoxTitle
+    : "Что происходит сейчас";
+  const displayStatusBoxText = isWaitingForPayment
+    ? paymentPresentation.statusBoxText
+    : getActiveOrderStatusDescription(order?.status ?? null);
+  const displayTimelineSteps = useMemo<DisplayTimelineStep[]>(() => {
+    const orderSteps = timelineSteps.map((step) => ({
+      key: step.status,
+      shortLabel: step.shortLabel,
+      meta: step.meta,
+      status: step.status,
+      kind: "order" as const,
+    }));
+
+    if (!isWaitingForPayment) {
+      return orderSteps;
+    }
+
+    return [
+      {
+        key: "payment",
+        shortLabel: paymentPresentation.timelineLabel,
+        meta: paymentPresentation.timelineMeta,
+        kind: "payment" as const,
+      },
+      ...orderSteps,
+    ];
+  }, [isWaitingForPayment, paymentPresentation, timelineSteps]);
   const canOpenPayment =
     Boolean(order?.id) && canOpenPaymentForStatus(order?.payment_status);
 
@@ -337,32 +422,50 @@ export default function ActiveOrderScreen() {
                           <View style={styles.heroTopRow}>
                             <View style={styles.heroCopy}>
                               <Text style={styles.eyebrow}>Заказ #{order.id}</Text>
-                              <Text style={styles.heroTitle}>{shortStatusLabel}</Text>
-                              <Text style={styles.heroSubtitle}>{orderMeta}</Text>
+                              <Text style={styles.heroTitle}>{displayTitle}</Text>
+                              <Text style={styles.heroSubtitle}>{displaySubtitle}</Text>
                             </View>
 
-                            <StatusPill status={order.status} label={statusLabel} />
+                            <StatusPill
+                                status={displayStatusPillStatus}
+                                label={displayStatusLabel}
+                            />
                           </View>
 
                           <View style={styles.progressHeader}>
-                            <Text style={styles.progressLabel}>Прогресс заказа</Text>
+                            <Text style={styles.progressLabel}>
+                              {displayProgressLabel}
+                            </Text>
                           </View>
 
                           <View style={styles.progressTrack}>
                             <View
                                 style={[
                                   styles.progressFill,
-                                  { width: `${progressValue}%` },
+                                  { width: `${displayProgressValue}%` },
                                 ]}
                             />
                           </View>
 
                           <View style={styles.statusBox}>
-                            <Text style={styles.statusBoxTitle}>Что происходит сейчас</Text>
-                            <Text style={styles.statusBoxText}>
-                              {getActiveOrderStatusDescription(order.status)}
+                            <Text style={styles.statusBoxTitle}>
+                              {displayStatusBoxTitle}
                             </Text>
+                            <Text style={styles.statusBoxText}>{displayStatusBoxText}</Text>
                           </View>
+
+                          {isWaitingForPayment && canOpenPayment ? (
+                              <View style={styles.heroAction}>
+                                <AppButton
+                                    title={getPaymentActionTitle(
+                                      order.payment_status,
+                                      isOpeningPayment
+                                    )}
+                                    onPress={handleOpenPayment}
+                                    disabled={isOpeningPayment || isRefreshing}
+                                />
+                              </View>
+                          ) : null}
                         </View>
 
                         {errorText ? (
@@ -377,25 +480,35 @@ export default function ActiveOrderScreen() {
                         <ScreenSection title="Этапы выполнения">
                           <AppCard>
                             <View style={styles.timeline}>
-                              {timelineSteps.map((step, index) => {
-                                const isCurrent = isCurrentActiveOrderTimelineStep(
-                                    order.status,
-                                    step.status
-                                );
-                                const isCompleted = isCompletedActiveOrderTimelineStep(
-                                    order.status,
-                                    step.status
-                                );
-                                const isLast = index === timelineSteps.length - 1;
+                              {displayTimelineSteps.map((step, index) => {
+                                const isPaymentStep = step.kind === "payment";
+                                const isMuted =
+                                    isWaitingForPayment && step.kind === "order";
+                                const isCurrent = isPaymentStep
+                                    ? isWaitingForPayment
+                                    : !isWaitingForPayment &&
+                                      isCurrentActiveOrderTimelineStep(
+                                          order.status,
+                                          step.status
+                                      );
+                                const isCompleted = isPaymentStep
+                                    ? !isWaitingForPayment
+                                    : !isWaitingForPayment &&
+                                      isCompletedActiveOrderTimelineStep(
+                                          order.status,
+                                          step.status
+                                      );
+                                const isLast = index === displayTimelineSteps.length - 1;
 
                                 return (
-                                    <View key={step.status} style={styles.timelineItem}>
+                                    <View key={step.key} style={styles.timelineItem}>
                                       <View style={styles.timelineRail}>
                                         <View
                                             style={[
                                               styles.timelineDot,
                                               isCompleted ? styles.timelineDotCompleted : undefined,
                                               isCurrent ? styles.timelineDotCurrent : undefined,
+                                              isMuted ? styles.timelineDotMuted : undefined,
                                             ]}
                                         >
                                           {isCompleted ? (
@@ -406,6 +519,9 @@ export default function ActiveOrderScreen() {
                                                     styles.timelineDotIndex,
                                                     isCurrent
                                                         ? styles.timelineDotIndexCurrent
+                                                        : undefined,
+                                                    isMuted
+                                                        ? styles.timelineDotIndexMuted
                                                         : undefined,
                                                   ]}
                                               >
@@ -421,6 +537,7 @@ export default function ActiveOrderScreen() {
                                                   isCompleted
                                                       ? styles.timelineLineCompleted
                                                       : undefined,
+                                                  isMuted ? styles.timelineLineMuted : undefined,
                                                 ]}
                                             />
                                         ) : null}
@@ -433,11 +550,19 @@ export default function ActiveOrderScreen() {
                                               isCurrent
                                                   ? styles.timelineTitleCurrent
                                                   : undefined,
+                                              isMuted ? styles.timelineTitleMuted : undefined,
                                             ]}
                                         >
                                           {step.shortLabel}
                                         </Text>
-                                        <Text style={styles.timelineMeta}>{step.meta}</Text>
+                                        <Text
+                                            style={[
+                                              styles.timelineMeta,
+                                              isMuted ? styles.timelineMetaMuted : undefined,
+                                            ]}
+                                        >
+                                          {step.meta}
+                                        </Text>
                                       </View>
                                     </View>
                                 );
@@ -545,7 +670,7 @@ export default function ActiveOrderScreen() {
                             <Divider styles={styles} />
                             <InfoRow
                                 label="Статус оплаты"
-                                value={formatPaymentStatus(order.payment_status)}
+                                value={getPaymentStatusLabel(order.payment_status)}
                                 styles={styles}
                             />
                             <Divider styles={styles} />
@@ -572,7 +697,7 @@ export default function ActiveOrderScreen() {
 
                         <ScreenSection title="Быстрые действия">
                           <View style={styles.quickActions}>
-                            {canOpenPayment ? (
+                            {canOpenPayment && !isWaitingForPayment ? (
                                 <AppButton
                                     title={
                                       isOpeningPayment
@@ -725,6 +850,110 @@ function normalizeOrderRow(value: any): OrderRow | null {
   };
 }
 
+function getPaymentBlockingPresentation(
+  paymentStatus: string | null | undefined
+): PaymentBlockingPresentation {
+  switch (paymentStatus) {
+    case "pending":
+      return {
+        title: "Проверяем оплату",
+        subtitle: "Банк подтверждает платёж. Как только оплата пройдёт, заказ пойдёт дальше.",
+        statusBoxTitle: "Оплата в обработке",
+        statusBoxText:
+          "Если деньги уже списались, просто обнови статус через пару секунд. До подтверждения оплаты мы не запускаем выполнение заказа.",
+        progressLabel: "Проверка оплаты",
+        progressValue: 58,
+        timelineLabel: "Проверка оплаты",
+        timelineMeta: "Ждём ответ банка перед передачей заказа в работу",
+        pillStatus: "assigned",
+      };
+    case "failed":
+      return {
+        title: "Оплата не прошла",
+        subtitle: "Заказ сохранён, но выполнение начнётся только после успешной оплаты.",
+        statusBoxTitle: "Нужно повторить оплату",
+        statusBoxText:
+          "Можно открыть оплату ещё раз. После успешного платежа заказ автоматически продолжит обычный маршрут.",
+        progressLabel: "Оплата заказа",
+        progressValue: 18,
+        timelineLabel: "Повтор оплаты",
+        timelineMeta: "Предыдущая попытка не прошла, заказ ждёт новый платёж",
+        pillStatus: "cancelled",
+      };
+    case "cancelled":
+      return {
+        title: "Оплата отменена",
+        subtitle: "Заказ сохранён, но ещё не передан в выполнение.",
+        statusBoxTitle: "Можно оплатить заново",
+        statusBoxText:
+          "Открой оплату ещё раз, когда будешь готов. Курьерские этапы появятся после подтверждения платежа.",
+        progressLabel: "Оплата заказа",
+        progressValue: 12,
+        timelineLabel: "Ожидаем оплату",
+        timelineMeta: "Платёж был отменён, выполнение ещё не началось",
+        pillStatus: "cancelled",
+      };
+    case "amount_mismatch":
+      return {
+        title: "Проверяем сумму",
+        subtitle: "Банк вернул сумму, которая не совпала с заказом. Нужно ручное уточнение.",
+        statusBoxTitle: "Оплата требует проверки",
+        statusBoxText:
+          "Пока сумма не совпадает с заказом, выполнение не запускается. Мы не дадим заказу уйти дальше с некорректной оплатой.",
+        progressLabel: "Проверка оплаты",
+        progressValue: 8,
+        timelineLabel: "Проверка суммы",
+        timelineMeta: "Заказ ждёт ручную проверку платежа",
+        pillStatus: "cancelled",
+      };
+    case "refunded":
+      return {
+        title: "Оплата возвращена",
+        subtitle: "По заказу выполнен возврат, поэтому выполнение остановлено до новой оплаты.",
+        statusBoxTitle: "Платёж возвращён",
+        statusBoxText:
+          "Этот заказ нельзя продолжить как оплаченный. Для выполнения понадобится новый платёж или новый заказ.",
+        progressLabel: "Оплата заказа",
+        progressValue: 0,
+        timelineLabel: "Возврат",
+        timelineMeta: "Платёж возвращён, выполнение не начинается",
+        pillStatus: "cancelled",
+      };
+    default:
+      return {
+        title: "Ожидаем оплату",
+        subtitle: "Заказ создан, но выполнение начнётся только после оплаты.",
+        statusBoxTitle: "Сначала оплата",
+        statusBoxText:
+          "Мы сохранили заказ и держим его на первом шаге. После успешной оплаты появятся этапы курьера и выполнения.",
+        progressLabel: "Оплата заказа",
+        progressValue: 10,
+        timelineLabel: "Ожидаем оплату",
+        timelineMeta: "Открой оплату, чтобы запустить выполнение заказа",
+        pillStatus: "new",
+      };
+  }
+}
+
+function getPaymentActionTitle(
+  paymentStatus: string | null | undefined,
+  isOpeningPayment: boolean
+) {
+  if (isOpeningPayment) {
+    return "Открываем оплату...";
+  }
+
+  if (paymentStatus === "pending") {
+    return "Продолжить оплату";
+  }
+
+  if (paymentStatus === "failed" || paymentStatus === "cancelled") {
+    return "Повторить оплату";
+  }
+
+  return "Оплатить заказ";
+}
+
 function formatPaymentMethod(paymentMethod: string | null) {
   if (paymentMethod === "cash") {
     return "Наличными";
@@ -739,34 +968,6 @@ function formatPaymentMethod(paymentMethod: string | null) {
   }
 
   return "Не указан";
-}
-
-function formatPaymentStatus(paymentStatus: string | null) {
-  if (paymentStatus === "confirmed") {
-    return "Оплачено";
-  }
-
-  if (paymentStatus === "authorized") {
-    return "Оплата авторизована";
-  }
-
-  if (paymentStatus === "pending") {
-    return "Ожидает оплаты";
-  }
-
-  if (paymentStatus === "failed") {
-    return "Не прошла";
-  }
-
-  if (paymentStatus === "cancelled") {
-    return "Отменена";
-  }
-
-  if (paymentStatus === "amount_mismatch") {
-    return "Требует проверки";
-  }
-
-  return "Не начата";
 }
 
 function createStyles(colors: ReturnType<typeof useAppTheme>["colors"]) {
@@ -894,6 +1095,9 @@ function createStyles(colors: ReturnType<typeof useAppTheme>["colors"]) {
       lineHeight: 21,
       color: colors.textMuted,
     },
+    heroAction: {
+      marginTop: spacing.xs,
+    },
     timeline: {
       gap: spacing.md,
     },
@@ -924,6 +1128,11 @@ function createStyles(colors: ReturnType<typeof useAppTheme>["colors"]) {
       borderColor: colors.primary,
       backgroundColor: colors.primarySoft,
     },
+    timelineDotMuted: {
+      borderColor: colors.border,
+      backgroundColor: colors.surfaceSecondary,
+      opacity: 0.7,
+    },
     timelineDotDone: {
       fontSize: 12,
       fontWeight: "900",
@@ -937,6 +1146,9 @@ function createStyles(colors: ReturnType<typeof useAppTheme>["colors"]) {
     timelineDotIndexCurrent: {
       color: colors.primary,
     },
+    timelineDotIndexMuted: {
+      color: colors.textMuted,
+    },
     timelineLine: {
       flex: 1,
       width: 2,
@@ -946,6 +1158,9 @@ function createStyles(colors: ReturnType<typeof useAppTheme>["colors"]) {
     },
     timelineLineCompleted: {
       backgroundColor: colors.primary,
+    },
+    timelineLineMuted: {
+      opacity: 0.7,
     },
     timelineContent: {
       flex: 1,
@@ -960,10 +1175,16 @@ function createStyles(colors: ReturnType<typeof useAppTheme>["colors"]) {
     timelineTitleCurrent: {
       color: colors.primary,
     },
+    timelineTitleMuted: {
+      color: colors.textSecondary,
+    },
     timelineMeta: {
       fontSize: typography.bodySmall,
       lineHeight: 20,
       color: colors.textMuted,
+    },
+    timelineMetaMuted: {
+      opacity: 0.75,
     },
     emptyIconWrap: {
       width: 72,

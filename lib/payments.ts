@@ -44,7 +44,13 @@ export async function getOrderPayment(orderId: string): Promise<OrderPayment> {
 }
 
 export function isPaymentSuccessful(payment: OrderPayment) {
-  return payment.status === "confirmed" || payment.status === "authorized";
+  return isPaymentStatusSuccessful(payment.status);
+}
+
+export function isPaymentStatusSuccessful(
+  status: string | null | undefined
+) {
+  return status === "confirmed" || status === "authorized";
 }
 
 export function canOpenPaymentForStatus(status: string | null | undefined) {

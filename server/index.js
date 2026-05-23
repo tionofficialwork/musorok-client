@@ -351,6 +351,29 @@ function assertOrderStatusTransition(currentStatus, nextStatus) {
   }
 }
 
+function isOrderPaymentConfirmed(order) {
+  if (order?.payment_method === "cash") {
+    return true;
+  }
+
+  return ["confirmed", "authorized"].includes(String(order?.payment_status || ""));
+}
+
+function assertPaymentReadyForOrderProgress(order, nextStatus) {
+  if (nextStatus === order.status || nextStatus === "cancelled") {
+    return;
+  }
+
+  if (nextStatus === "new" || isOrderPaymentConfirmed(order)) {
+    return;
+  }
+
+  throw createHttpError(
+    "Сначала дождитесь подтверждения оплаты заказа.",
+    409
+  );
+}
+
 function minutesFromTime(value) {
   const [hours, minutes] = String(value || "").split(":").map(Number);
 
@@ -1332,6 +1355,7 @@ app.patch("/admin/orders/:id/status", requireAdminToken, asyncRoute(async (req, 
   }
 
   assertOrderStatusTransition(order.status, nextStatus);
+  assertPaymentReadyForOrderProgress(order, nextStatus);
 
   if (order.status === nextStatus) {
     res.json({ order });
